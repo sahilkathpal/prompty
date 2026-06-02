@@ -73,9 +73,11 @@ Ask the user: "What's the goal of this call?"
 
 ### 4. Build the checklist
 
+**Prerequisite: the goal must be confirmed in step 3 before you write a single checklist item.** If you haven't asked the user for the goal yet, stop and go back to step 3. Drafting items first produces generic discovery beats ("ask what they're building") that don't survive contact with the actual call.
+
 Produce 3–6 checklist items. Each item is a concrete thing to **ask or verify** during the call — not a topic. Bad: "discuss pricing". Good: "ask what their current Snowflake spend is".
 
-Anchor items to what you learned from context (CRM history, recent threads) when possible — that's the whole point of pulling it.
+**Anchor rule: every item must trace back to a verb or noun in the goal sentence.** If you can't point at the phrase in the goal an item comes from, it's filler — cut or rewrite it. Items should also be anchored to context (CRM history, recent threads) when possible.
 
 **Keep text tight and glanceable** — the sidebar renders these as compact lines next to a live video call. Scan-at-a-glance is the goal:
 
