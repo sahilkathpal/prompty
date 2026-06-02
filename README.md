@@ -4,14 +4,15 @@ Real-time teleprompter for Google Meet calls. Defines a goal up front, transcrib
 
 ## Status
 
-Working backend (Deepgram + Claude Agent SDK + WebSocket server) and a Chrome extension scaffold (manifest v3, sidebar UI, audio capture). Goal grilling, Calendar/Attio context, and real-call verification are still pending — see "What's left."
+End-to-end working: dual-stream audio capture (mic + tab) → live transcription → in-call coaching agent → toast nudges over Meet → transcript log saved locally → post-call Attio note via skill. Verified on real calls.
 
 ## Repo layout
 
 ```
 prompty/
-├── server/         # Node backend (Bun-compatible). Runs on localhost.
-└── extension/      # Chrome MV3 extension, plain JS, load unpacked.
+├── server/         # Node backend. Local HTTP + WS on 127.0.0.1:7878.
+├── extension/      # Chrome MV3 extension, plain JS, load unpacked.
+└── skills/         # Claude Code skills for pre-call setup and post-call save.
 ```
 
 ## Setup
@@ -62,7 +63,7 @@ Pre-call and post-call live in Claude Code now (via two skills); the extension j
 2. In Claude Code, run `/prompty-setup`. The skill grabs your next Calendar event, pulls Attio context, grills your goal if it's vague, and pushes `{goal, checklist, context}` to the backend over HTTP.
 3. Open the Meet tab — the sidebar shows the goal + checklist that was just pushed.
 4. Click the Prompty toolbar icon once (this grants `activeTab`, which `tabCapture` needs as a user gesture). Then click "Start call" in the sidebar — Chrome prompts to share the tab's audio.
-5. Talk. Watch the nudge stream. Press `Alt+Shift+Space` to ask "what should I ask?".
+5. Talk. Toast nudges fade in at the top of the Meet window as the agent decides they're worth surfacing. Press `Alt+Shift+Space` to ask "what should I ask?".
 6. Click "End call" — transcript + nudge log saved to `~/.prompty/calls/<stamp>-<attendee>.json`.
 7. In Claude Code, run `/prompty-save-call`. The skill reads the latest log, composes a post-call note, finds the person in Attio (never creates a new record), and attaches the note.
 
@@ -95,11 +96,12 @@ Last verified 2026-06-01: pass. 2 nudges + 2 checklist updates + 0 errors across
 
 Context fetching and goal grilling are no longer server-side — both moved into Claude Code skills (`/prompty-setup`).
 
-Two SDK gotchas worth knowing for the in-call agent: (1) pass `settingSources: ['user']` to load `~/.claude/settings.json` (otherwise MCP servers are stripped), and (2) set `pathToClaudeCodeExecutable` to the installed `claude` binary — the SDK's bundled `cli.js` doesn't carry your Claude.ai OAuth context. Both are handled by `server/claude-cli.ts`.
+One SDK gotcha worth knowing for the in-call agent: set `pathToClaudeCodeExecutable` to the installed `claude` binary — the SDK's bundled `cli.js` doesn't carry your Claude.ai OAuth context. Handled by `server/claude-cli.ts`.
 
 ## Architecture notes
 
 - The backend is the source of truth for the nudge loop. The extension is a thin audio + UI shim.
 - The Agent SDK call uses your Claude Max subscription via the local `claude` CLI — no API billing. Watch for rate-limit ceilings on long calls.
 - Audio is never persisted. Only transcript + nudge log are written, to `~/.prompty/calls/{stamp}-{attendee}.json`.
-- The sidebar lives in a shadow DOM so Meet's styles can't bleed in.
+- The sidebar and toast overlay live in separate shadow DOM hosts so Meet's styles can't bleed in.
+- In-call coaching style is mode-driven. Bundled modes (`server/prompts/modes/*.md`): `default`, `discovery`, `user-interview` (Mom Test), `hiring`. Drop your own at `~/.prompty/modes/<name>.md` to override or add — backend reads them per call, no rebuild.
