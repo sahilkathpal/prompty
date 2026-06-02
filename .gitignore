@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.DS_Store
+.env
+server/test-fixtures/them.wav
+server/test-fixtures/me.wav
