@@ -1,0 +1,53 @@
+{
+  "name": "prompty",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prompty — real-time call coach for macOS",
+  "main": "dist/electron/electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.electron.json && node -e \"require('fs').cpSync('src/main-process/prompts/modes', 'dist/electron/src/main-process/prompts/modes', {recursive: true})\"",
+    "prebuild-sidecar": "node scripts/prebuild-sidecar.mjs",
+    "build": "npm run prebuild-sidecar && npm run build:renderer && npm run build:main",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "start": "npm run build && electron .",
+    "pack": "electron-builder --mac --config electron-builder.yml",
+    "dist": "npm run build && electron-builder --mac --config electron-builder.yml",
+    "smoke:transcribe-mock": "node --import tsx tests/smoke-transcribe-mock.ts",
+    "smoke:agent": "node --import tsx tests/smoke-agent.ts",
+    "smoke:calendar-filter": "node --import tsx tests/smoke-calendar-filter.ts",
+    "smoke:google-token-refresh": "node --import tsx tests/smoke-google-token-refresh.ts",
+    "smoke:coach-session": "node --import tsx tests/smoke-coach-session.ts",
+    "smoke:pending-prep": "node --import tsx tests/smoke-pending-prep.ts",
+    "smoke:prep-session": "node --import tsx tests/smoke-prep-session.ts",
+    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:pending-prep && npm run smoke:prep-session",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.10",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^2.5.0",
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^20.12.7",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "playwright": "^1.60.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.1",
+    "wait-on": "^7.2.0"
+  }
+}

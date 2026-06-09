@@ -1,0 +1,48 @@
+appId: app.prompty.desktop
+productName: Prompty
+copyright: Copyright © 2026 Prompty
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/.DS_Store"
+extraResources:
+  # Block G2: embed the signed Swift sidecar produced by scripts/prebuild-sidecar.mjs.
+  # Lands at <App>.app/Contents/Resources/audio-sidecar — matches resolveSidecarBinary().
+  - from: resources/audio-sidecar
+    to: audio-sidecar
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Signing identity supplied via env at `npm run dist` time (see RELEASING.md).
+  # electron-builder reads CSC_LINK + CSC_KEY_PASSWORD automatically for the
+  # cert material; APPLE_DEVELOPER_ID lets the dev pin the identity by name.
+  identity: ${env.APPLE_DEVELOPER_ID}
+  # We notarize ourselves in scripts/notarize.mjs (afterSign hook), so disable
+  # electron-builder's built-in notarytool integration.
+  notarize: false
+  minimumSystemVersion: "13.0"
+  extendInfo:
+    NSMicrophoneUsageDescription: "Prompty needs microphone access to transcribe your side of the call."
+    LSUIElement: true
+dmg:
+  writeUpdateInfo: true
+  sign: false
+afterSign: scripts/notarize.mjs
+publish:
+  # Block G4: auto-update feed. Host `latest-mac.yml`, the .dmg, and the
+  # .blockmap files at this URL. See RELEASING.md for the layout.
+  provider: generic
+  url: https://updates.prompty.app/mac/
+  channel: latest
