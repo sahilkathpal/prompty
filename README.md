@@ -1,107 +1,145 @@
 # Prompty
 
-Real-time teleprompter for Google Meet calls. Defines a goal up front, transcribes both sides of the call live, uses Claude to nudge you with segues / forgotten goals / facts from context.
+A real-time call coach for macOS. A small floating panel listens to any call — Zoom, Google Meet, FaceTime, Slack huddles, Discord, phone-via-Continuity — and keeps a live **goal**, **checklist**, and stream of **nudges** in front of you while you talk. Only you can see it.
 
-## Status
+Platform-agnostic by design: audio is captured at the OS level via a Swift sidecar (CoreAudio process tap on macOS 14.4+, ScreenCaptureKit fallback on 13.0–14.3), so Prompty doesn't care which app the call lives in.
 
-End-to-end working: dual-stream audio capture (mic + tab) → live transcription → in-call coaching agent → toast nudges over Meet → transcript log saved locally → post-call Attio note via skill. Verified on real calls.
+## What it does for you
+
+Most calls go sideways the same way: you forget a question you meant to ask, you drift off your goal, you blank when it's your turn to talk, or the perfect follow-up only occurs to you in the shower afterward. Prompty is a coach in your ear for exactly those moments — it watches the live transcript and surfaces the right thing to say *at the moment it fits*, then gets out of the way.
+
+The guiding principle, enforced all the way down to the agent's system prompt: **a bad nudge is worse than no nudge.** Prompty stays quiet by default and only speaks up when it has something that fits the sentence you're on right now.
+
+### In-call — the core experience
+
+While a call is live, the floating panel shows three things and the agent keeps them current from the running transcript:
+
+- **Goal** — the one outcome you set for this call, pinned at the top so you don't lose the thread.
+- **Checklist** — the topics you wanted to cover, treated as *parallel tracks to mine*, not a script to run in order. As you talk, the agent marks items `covered` (✓), `partial` (◐), or leaves them `open` (○). You can click any item to cycle its state yourself, or mark it `skipped` (—) to tell the coach it's off-limits for this call.
+- **Nudges** — short, actionable suggestions (≤15 words, phrased as something you can actually say). The agent emits **at most one at a time**, and only when it's clearly useful:
+  - **deepen** — the conversation just landed on something that matters; here's the follow-up that mines it further. (The most common, most valuable nudge — people give their best answers when followed up on, not interrupted.)
+  - **pivot** — what they just said opens a natural bridge to a track you haven't covered. The nudge names the bridge.
+  - **missed goal** — you've drifted off your goal for a stretch; here's what to steer back to.
+  - **fact reminder** — a detail from your prep/CRM notes just became relevant.
+  - **correction** — you said something that contradicts your notes.
+
+**Heads-up bar (teleprompter).** With the heads-up bar on (the default), nudges flash one at a time in a single-line floating bar — shown long enough to read, queued if they bunch up, and an urgent nudge jumps the line. Turn the bar off and nudges instead collect as a quiet feed inside the panel. Either way, nothing pops a notification or makes a sound the other side could notice.
+
+**"What should I ask?" (⌥⇧Space).** Blanked? Hit the hotkey (or the panel button) and the agent picks the single highest-value thing to say *for this exact moment* — not the next item on a list.
+
+**Status at a glance.** A status dot shows the health of the audio pipeline — `listening`, `no audio`, `reconnecting`, or `error` — so you always know whether the coach can actually hear the call.
+
+**Coaching modes.** The agent's behavior is driven by a swappable mode — `default`, `discovery`, `user-interview`, or `hiring` — each a different system prompt tuned for that kind of conversation. Drop your own `~/.prompty/modes/<name>.md` to override or add modes.
+
+### Before the call — prep
+
+Prompty turns your raw intent into a structured goal and checklist *before* you dial in:
+
+- **Prep interview** — a short conversational setup (powered by your local Claude Code) where you describe what the call is for, and the agent drafts the goal and the tracks to mine.
+- **Calendar arming** — connect Google Calendar and Prompty watches your upcoming events, arming itself for calls as they approach so the panel is ready when the meeting starts.
+- **Context enrichment** — attendee details, prior CRM notes (Attio), and your own manual framing are folded into the agent's context, so reminders and corrections are grounded in what you already know about the person.
+- **Mic-activation watcher** — detects when a call actually starts so coaching kicks in at the right time.
+
+### After the call
+
+Each session is written to a local call log (`~/.prompty/calls/*.json`) with a summary, so you have a record of what was covered against what you set out to do.
+
+## Requirements
+
+- macOS 13 (Ventura) or later
+- [Claude Code](https://docs.claude.com/en/docs/agents-and-tools/claude-code/overview) installed locally — Prompty shells out to your installed `claude` binary for the agent loop (silent dependency)
+- Internet connection (Deepgram for transcription, Anthropic for the LLM)
 
 ## Repo layout
 
 ```
 prompty/
-├── server/         # Node backend. Local HTTP + WS on 127.0.0.1:7878.
-├── extension/      # Chrome MV3 extension, plain JS, load unpacked.
-└── skills/         # Claude Code skills for pre-call setup and post-call save.
+├── app/              # Electron + React app (main process, renderer, IPC, agent loop)
+├── audio-sidecar/    # Swift CLI: CoreAudio tap + SCK fallback + mic capture
+├── relay/            # Cloudflare Worker: Apple JWT validation, Deepgram token minting
+├── skills/           # Claude Code skills invoked silently by the app
+│   └── prompty-setup/
+└── README.md
 ```
 
-## Setup
+## Development setup
 
-### 1. Secrets
+Build the Swift sidecar:
 
-Copy `.env.example` to `.env` at the repo root and fill in your Deepgram key:
-
+```sh
+cd audio-sidecar
+swift build -c release
 ```
-DEEPGRAM_API_KEY=dg-...
-```
 
-That's the only server-side secret. CRM, Calendar, and Gmail context come through the `/prompty-setup` skill via your Claude Code MCPs — configure those in Claude Code, not here.
+Run the Electron app:
 
-`.env` is gitignored. Loaded via Node's built-in `--env-file-if-exists`.
-
-### 2. Backend
-
-```bash
-cd server
+```sh
+cd app
 npm install
-npm run start         # ws://127.0.0.1:7878
+npm run dev
 ```
 
-### 3. Extension
+The relay is optional in dev — the app's dev paste-token modal lets you bypass it and feed a Deepgram key directly. Deploy the relay when you need end-to-end auth:
 
-1. Open `chrome://extensions/`, enable Developer mode.
-2. Click "Load unpacked", select the `extension/` directory.
-3. Pin the Prompty icon to the Chrome toolbar.
-
-### 4. Claude Code skills
-
-Install the two skills so `/prompty-setup` and `/prompty-save-call` show up in Claude Code:
-
-```bash
-mkdir -p ~/.claude/skills
-cp -r skills/prompty-setup ~/.claude/skills/
-cp -r skills/prompty-save-call ~/.claude/skills/
+```sh
+cd relay
+npm install
+npx wrangler deploy
 ```
 
-The setup skill is **capability-first** — it uses whichever CRM, calendar, and email MCPs you've connected to Claude Code (Attio/HubSpot/Salesforce, Google Calendar/Outlook, Gmail/Outlook, etc.). Missing capabilities degrade gracefully; the skill will just ask you for the info instead.
+## Architecture
 
-## Using it
-
-Pre-call and post-call live in Claude Code now (via two skills); the extension just runs the call.
-
-1. Make sure the backend is running (`cd server && npm run start`) — the skill POSTs to it.
-2. In Claude Code, run `/prompty-setup`. The skill grabs your next Calendar event, pulls Attio context, grills your goal if it's vague, and pushes `{goal, checklist, context}` to the backend over HTTP.
-3. Open the Meet tab — the sidebar shows the goal + checklist that was just pushed.
-4. Click the Prompty toolbar icon once (this grants `activeTab`, which `tabCapture` needs as a user gesture). Then click "Start call" in the sidebar — Chrome prompts to share the tab's audio.
-5. Talk. Toast nudges fade in at the top of the Meet window as the agent decides they're worth surfacing. Press `Alt+Shift+Space` to ask "what should I ask?".
-6. Click "End call" — transcript + nudge log saved to `~/.prompty/calls/<stamp>-<attendee>.json`.
-7. In Claude Code, run `/prompty-save-call`. The skill reads the latest log, composes a post-call note, finds the person in Attio (never creates a new record), and attaches the note.
-
-The skills live at `~/.claude/skills/prompty-setup/` and `~/.claude/skills/prompty-save-call/`. Vendored copies sit in `prompty/skills/` for self-containment.
+```
+                                 ┌─────────────────────────────────┐
+                                 │ Cloudflare Worker (relay)       │
+                                 │  POST /auth/apple  (validate)   │
+                                 │  POST /deepgram/token (mint)    │
+                                 │  KV: rate-limit counters        │
+                                 └────────────┬────────────────────┘
+                                              │ HTTPS
+┌─────────────────────────────────────────────┴────────────────────┐
+│ Prompty.app (Electron, single signed bundle)                     │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ Main process (Node)                                      │   │
+│  │  - Floating panel window mgmt (BrowserWindow + panel)    │   │
+│  │  - Deepgram WS client (dual stream)                      │   │
+│  │  - Agent loop (Claude Agent SDK → user's `claude`)       │   │
+│  │  - Calendar-arm scheduler (via `claude` skill calls)     │   │
+│  │  - Mic-activation watcher                                │   │
+│  │  - Call log writer (~/.prompty/calls/*.json)             │   │
+│  │  - Relay client (auth, deepgram token)                   │   │
+│  └────┬─────────────────────────────────┬───────────────────┘   │
+│       │ IPC (renderer)                  │ stdout/stdin (PCM)    │
+│  ┌────▼──────────────────┐         ┌────▼──────────────────┐    │
+│  │ Renderer (React)      │         │ audio-sidecar (Swift) │    │
+│  │  - Floating panel UI  │         │  - CoreAudio tap      │    │
+│  │  - Heads-up bar       │         │  - SCK fallback       │    │
+│  │  - Onboarding         │         │  - Mic capture        │    │
+│  │  - Settings           │         │  - Screen-share watch │    │
+│  └───────────────────────┘         └───────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+         │                                       │
+         │ shells out                            │
+         ▼                                       ▼
+   ~/.claude/local/claude                  CoreAudio / SCK
+   (user's installed Claude Code)         (system frameworks)
+```
 
 ## Smoke tests
 
-The server has self-contained smoke tests for the two critical pieces.
+From `app/`:
 
-**Transcription** (mock Deepgram — no key needed):
-```bash
-cd server
-npm run smoke:transcribe-mock
+```sh
+npm test
 ```
 
-**Transcription against real Deepgram** (needs `DEEPGRAM_API_KEY` in `.env`):
-```bash
-npm run smoke:transcribe
-```
-Auto-synthesizes two short speech clips via macOS `say` if no fixtures are present. Drop your own 16kHz mono PCM `.wav` files at `server/test-fixtures/them.wav` and `server/test-fixtures/me.wav` to test against real recordings instead.
+Runs `smoke:transcribe-mock` (Deepgram client against a recorded fixture) and `smoke:agent` (agent loop against a synthetic transcript).
 
-Last verified 2026-06-01: pass. Both streams transcribed correctly with zero errors.
+## Distribution
 
-**Agent nudge loop** (calls Claude via the Agent SDK — consumes Max-plan quota):
-```bash
-cd server
-npm run smoke:agent
-```
-Last verified 2026-06-01: pass. 2 nudges + 2 checklist updates + 0 errors across 3 canned turns. Latency 3.9–5.3s/turn.
+See `app/RELEASING.md` for the signed-DMG + notarization + Sparkle auto-update flow.
 
-Context fetching and goal grilling are no longer server-side — both moved into Claude Code skills (`/prompty-setup`).
+## Last verified
 
-One SDK gotcha worth knowing for the in-call agent: set `pathToClaudeCodeExecutable` to the installed `claude` binary — the SDK's bundled `cli.js` doesn't carry your Claude.ai OAuth context. Handled by `server/claude-cli.ts`.
-
-## Architecture notes
-
-- The backend is the source of truth for the nudge loop. The extension is a thin audio + UI shim.
-- The Agent SDK call uses your Claude Max subscription via the local `claude` CLI — no API billing. Watch for rate-limit ceilings on long calls.
-- Audio is never persisted. Only transcript + nudge log are written, to `~/.prompty/calls/{stamp}-{attendee}.json`.
-- The sidebar and toast overlay live in separate shadow DOM hosts so Meet's styles can't bleed in.
-- In-call coaching style is mode-driven. Bundled modes (`server/prompts/modes/*.md`): `default`, `discovery`, `user-interview` (Mom Test), `hiring`. Drop your own at `~/.prompty/modes/<name>.md` to override or add — backend reads them per call, no rebuild.
+**2026-06-06** — End-to-end app builds and typechecks; manual call testing pending.
