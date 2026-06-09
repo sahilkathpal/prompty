@@ -1,0 +1,28 @@
+name = "prompty-relay"
+main = "src/index.ts"
+compatibility_date = "2024-12-18"
+compatibility_flags = ["nodejs_compat"]
+
+# KV bindings. Replace `id` and `preview_id` with values from
+#   wrangler kv namespace create GOOGLE_JWKS_CACHE
+#   wrangler kv namespace create RATE_LIMITS
+#   wrangler kv namespace create SESSIONS
+# (See relay/README.md.)
+[[kv_namespaces]]
+binding = "GOOGLE_JWKS_CACHE"
+id = "cd4fed5435a84fb79bd7ca31e5126026"
+preview_id = "beb5361ecfc7495fa5fb13b6f7ee70c5"
+
+[[kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "44520b69a8ff493386aa118637f3e004"
+preview_id = "1e584ddbe9414b90ae1221e3d80e7ff2"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "183f27acc9534850bb06fed866c613c6"
+preview_id = "e31c10cf9e324710b5e07ab8dfbfcbe2"
+
+# Non-secret config can live here; secrets go through `wrangler secret put`.
+[vars]
+DAILY_MINUTES_LIMIT = "6000"
