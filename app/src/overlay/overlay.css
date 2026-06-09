@@ -1,0 +1,303 @@
+/* Ported and adapted from extension/sidebar.css for the Electron panel. */
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+  color: #e5e5e5;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.prompty-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background: rgba(20, 22, 28, 0.78);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.prompty-drag {
+  -webkit-app-region: drag;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
+}
+.prompty-drag-handle {
+  -webkit-app-region: drag;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.prompty-drag .prompty-actions {
+  -webkit-app-region: no-drag;
+}
+
+.prompty-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px 8px;
+  flex-shrink: 0;
+}
+.prompty-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #cdd1ff;
+}
+.prompty-header-actions {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+.prompty-icon-btn {
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: none;
+  color: #9aa0b4;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.prompty-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.prompty-body-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 12px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.prompty-body-scroll::-webkit-scrollbar { width: 6px; }
+.prompty-body-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.prompty-goal {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.prompty-label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7e85a0;
+  margin-bottom: 2px;
+}
+.prompty-goal-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #e5e5e5;
+}
+
+.prompty-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.prompty-check {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #c8ccdf;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  user-select: none;
+  align-items: flex-start;
+}
+.prompty-check:hover { background: rgba(255, 255, 255, 0.06); }
+.prompty-check-icon {
+  width: 14px;
+  flex-shrink: 0;
+  color: #6e7590;
+}
+.prompty-check-text { flex: 1; word-wrap: break-word; }
+.prompty-check-covered { color: #6e7590; text-decoration: line-through; }
+.prompty-check-covered .prompty-check-icon { color: #6ad196; }
+.prompty-check-partial .prompty-check-icon { color: #e2c14c; }
+.prompty-check-skipped { color: #5d637a; text-decoration: line-through; opacity: 0.65; }
+
+.prompty-nudges {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prompty-nudge {
+  background: rgba(106, 113, 226, 0.12);
+  border-left: 2px solid #6a71e2;
+  border-radius: 6px;
+  padding: 8px 10px;
+  animation: prompty-fade-in 0.18s ease;
+}
+.prompty-nudge-high {
+  background: rgba(226, 106, 113, 0.15);
+  border-left-color: #e26a71;
+}
+.prompty-nudge-kind {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa0b4;
+  margin-bottom: 3px;
+}
+.prompty-nudge-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #f4f5fb;
+}
+.prompty-empty {
+  font-size: 12px;
+  color: #6e7590;
+  text-align: center;
+  padding: 16px 8px;
+}
+
+.prompty-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(20, 22, 28, 0.55);
+}
+.prompty-btn {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+.prompty-btn-start { background: #6a71e2; color: white; }
+.prompty-btn-end   { background: #3a3d4d; color: #f4f5fb; }
+
+@keyframes prompty-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Overlay header: status dot + heads-up-bar toggle ---- */
+.prompty-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 2px;
+  flex-shrink: 0;
+}
+.prompty-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.prompty-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #6e7590;
+}
+.prompty-status-green { background: #6ad196; }
+.prompty-status-amber { background: #e2c14c; }
+.prompty-status-red   { background: #ff6b6b; }
+.prompty-status-dot.pulsing { animation: prompty-pulse 1.4s ease-in-out infinite; }
+.prompty-status-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #c8ccdf;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prompty-status-idle { color: #6e7590; }
+
+@keyframes prompty-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.78); }
+}
+
+.prompty-headsup-toggle {
+  -webkit-app-region: no-drag;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #4a4f63;
+  background: transparent;
+  color: #c8ccdf;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.prompty-headsup-toggle.on {
+  border-color: #6a71e2;
+  background: #6a71e2;
+  color: white;
+}
+
+/* ---- Overlay footer actions ---- */
+.prompty-overlay-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.prompty-ask-btn {
+  -webkit-app-region: no-drag;
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: #6a71e2;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.prompty-ask-btn:hover { background: #7b82ec; }
+.prompty-ask-hint {
+  font-size: 10px;
+  color: #7e85a0;
+  flex-shrink: 0;
+}
+.prompty-end-btn {
+  -webkit-app-region: no-drag;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: #ff3b30;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}

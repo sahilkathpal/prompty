@@ -1,0 +1,47 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
+.teleprompter-root {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  background: #111315;
+  color: #f5f6f7;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.teleprompter-root.visible {
+  opacity: 1;
+}
+
+/* High-urgency nudges get a red treatment to match the overlay. */
+.teleprompter-root.high {
+  background: #b3261e;
+  color: #fff;
+  box-shadow: 0 6px 24px rgba(179, 38, 30, 0.45);
+}
