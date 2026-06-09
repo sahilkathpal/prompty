@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { verifyGoogleIdentityToken } from "./auth";
+import { exchangeAuthCode, refreshAccessToken } from "./google-oauth";
 import { mintDeepgramKey } from "./deepgram";
 import { signSessionToken, verifySessionToken } from "./jwt";
 import {
@@ -50,6 +51,60 @@ app.post("/auth/google", async (c) => {
       { error: `session mint failed: ${(err as Error).message}` },
       500
     );
+  }
+});
+
+// The app needs the OAuth client ID (public) to build the authorize URL. It
+// lives in the relay so the desktop bundle ships neither the ID nor the secret.
+app.get("/auth/google/client-id", (c) => {
+  return c.json({ clientId: c.env.GOOGLE_CLIENT_ID });
+});
+
+// Broker the PKCE authorization-code exchange so the client secret stays
+// server-side. Body: { code, codeVerifier, redirectUri }.
+app.post("/auth/google/exchange", async (c) => {
+  let body: { code?: unknown; codeVerifier?: unknown; redirectUri?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const { code, codeVerifier, redirectUri } = body;
+  if (
+    typeof code !== "string" ||
+    typeof codeVerifier !== "string" ||
+    typeof redirectUri !== "string" ||
+    !code ||
+    !codeVerifier ||
+    !redirectUri
+  ) {
+    return c.json({ error: "code, codeVerifier, redirectUri required" }, 400);
+  }
+  try {
+    const tokens = await exchangeAuthCode(c.env, { code, codeVerifier, redirectUri });
+    return c.json(tokens);
+  } catch (err) {
+    return c.json({ error: `token exchange failed: ${(err as Error).message}` }, 502);
+  }
+});
+
+// Broker the refresh-token grant. Body: { refreshToken }.
+app.post("/auth/google/refresh", async (c) => {
+  let body: { refreshToken?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const refreshToken = body?.refreshToken;
+  if (typeof refreshToken !== "string" || !refreshToken) {
+    return c.json({ error: "refreshToken required" }, 400);
+  }
+  try {
+    const tokens = await refreshAccessToken(c.env, refreshToken);
+    return c.json(tokens);
+  } catch (err) {
+    return c.json({ error: `token refresh failed: ${(err as Error).message}` }, 502);
   }
 });
 

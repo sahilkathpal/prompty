@@ -6,6 +6,7 @@ export interface Env {
 
   // Secrets (set via `wrangler secret put`)
   GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
   PROMPTY_JWT_SECRET: string;
   DEEPGRAM_MASTER_KEY: string;
   DEEPGRAM_PROJECT_ID: string;
