@@ -33,6 +33,7 @@ export type SessionStatus =
   | "starting"
   | "listening"
   | "no-audio"
+  | "mic-silent"
   | "reconnecting"
   | "error";
 

@@ -19,6 +19,16 @@ final class MicCapture {
     }()
 
     func start() throws {
+        // macOS may start the engine and deliver all-zero (silent) buffers when
+        // mic access isn't effectively granted, rather than failing. Surface the
+        // authorization state up front so a denial is visible in the logs even
+        // though capture still "succeeds". The app's runtime silence detector is
+        // the authoritative backstop for the granted-but-silent case.
+        let micAuth = AVCaptureDevice.authorizationStatus(for: .audio)
+        if micAuth != .authorized {
+            Log.error("microphone not authorized (status=\(micAuth.rawValue)) — capture may be silent; grant Microphone access in System Settings → Privacy & Security")
+        }
+
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0 else {

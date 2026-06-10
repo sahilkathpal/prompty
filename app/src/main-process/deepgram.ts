@@ -82,6 +82,19 @@ function pipePcm(src: Readable, dg: DeepgramStream, onError: (e: Error) => void)
   });
 }
 
+// Deepgram closes an idle socket after ~10s with code 1011. The system-audio
+// tap emits no PCM frames while nothing is playing, so its socket would starve
+// and drop mid-call. Sending a KeepAlive every few seconds of silence holds the
+// connection open. Kept well under the 10s window.
+const KEEPALIVE_MS = 5_000;
+// Backoff bounds for reconnecting after an unexpected drop.
+const RECONNECT_BASE_MS = 500;
+const RECONNECT_MAX_MS = 8_000;
+const MAX_RECONNECT_ATTEMPTS = 6;
+// Cap the buffer of audio held while a socket is down so a long outage can't
+// grow memory without bound (~a few seconds of 16 kHz mono PCM).
+const MAX_PENDING_CHUNKS = 400;
+
 export function openDeepgramStream(
   speaker: Speaker,
   apiKey: string,
@@ -91,61 +104,101 @@ export function openDeepgramStream(
     return openMockStream(speaker, events);
   }
 
-  const ws = new WebSocket(DG_URL, {
-    headers: { Authorization: `Token ${apiKey}` },
-  });
-
-  let openedAt = 0;
+  let ws: WebSocket;
   let bytesSent = 0;
   let chunksSeen = 0;
+  let lastAudioSentAt = 0;
   let closing = false;
+  let reconnectAttempts = 0;
+  let reconnectTimer: NodeJS.Timeout | null = null;
   const pending: Buffer[] = [];
 
-  ws.on("open", () => {
-    openedAt = Date.now();
-    console.log(`[dg ${speaker}] connected`);
-    events.onStatus?.("open", speaker);
-    for (const chunk of pending) ws.send(chunk);
-    pending.length = 0;
-  });
-
-  ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
+  // Periodically poke the socket if no real audio has gone out recently. A
+  // single timer spans reconnects — it only ever inspects the current `ws`.
+  const keepAliveTimer = setInterval(() => {
+    if (closing || ws.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - lastAudioSentAt < KEEPALIVE_MS) return;
     try {
-      const text = Buffer.isBuffer(data)
-        ? data.toString()
-        : Array.isArray(data)
-          ? Buffer.concat(data).toString()
-          : Buffer.from(data as ArrayBuffer).toString();
-      const msg = JSON.parse(text);
-      if (msg.type !== "Results") {
-        if (msg.type) console.log(`[dg ${speaker}] ${msg.type} ${JSON.stringify(msg).slice(0, 500)}`);
-        return;
-      }
-      const alt = msg.channel?.alternatives?.[0];
-      if (!alt || !alt.transcript) return;
-      events.onUtterance({
-        speaker,
-        text: alt.transcript,
-        startMs: Math.round((msg.start ?? 0) * 1000),
-        endMs: Math.round(((msg.start ?? 0) + (msg.duration ?? 0)) * 1000),
-        isFinal: !!msg.is_final,
-      });
-    } catch (e) {
-      events.onError(e as Error);
+      ws.send(JSON.stringify({ type: "KeepAlive" }));
+    } catch {
+      /* a failed send means the socket is going down; close handler recovers */
     }
-  });
+  }, KEEPALIVE_MS);
 
-  ws.on("error", (e: Error) => {
-    console.log(`[dg ${speaker}] ws error: ${e.message}`);
-    events.onStatus?.("error", speaker);
-    events.onError(e);
-  });
-  ws.on("close", (code: number, reason: Buffer) => {
-    console.log(`[dg ${speaker}] ws closed code=${code} reason=${reason.toString().slice(0, 100)}`);
-    // An unexpected close (not triggered by our own close()) means the
-    // transcription dropped mid-call — surface it as an error status.
-    if (!closing && code !== 1000) events.onStatus?.("error", speaker);
-  });
+  const scheduleReconnect = () => {
+    if (closing || reconnectTimer) return;
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.error(`[dg ${speaker}] giving up after ${reconnectAttempts} reconnect attempts`);
+      events.onStatus?.("error", speaker);
+      return;
+    }
+    events.onStatus?.("reconnecting", speaker);
+    const delay = Math.min(
+      RECONNECT_MAX_MS,
+      RECONNECT_BASE_MS * 2 ** reconnectAttempts,
+    );
+    reconnectAttempts++;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      console.log(`[dg ${speaker}] reconnecting (attempt ${reconnectAttempts})`);
+      connect();
+    }, delay);
+  };
+
+  function connect() {
+    ws = new WebSocket(DG_URL, {
+      headers: { Authorization: `Token ${apiKey}` },
+    });
+
+    ws.on("open", () => {
+      reconnectAttempts = 0;
+      console.log(`[dg ${speaker}] connected`);
+      events.onStatus?.("open", speaker);
+      for (const chunk of pending) ws.send(chunk);
+      pending.length = 0;
+    });
+
+    ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
+      try {
+        const text = Buffer.isBuffer(data)
+          ? data.toString()
+          : Array.isArray(data)
+            ? Buffer.concat(data).toString()
+            : Buffer.from(data as ArrayBuffer).toString();
+        const msg = JSON.parse(text);
+        if (msg.type !== "Results") {
+          if (msg.type) console.log(`[dg ${speaker}] ${msg.type} ${JSON.stringify(msg).slice(0, 500)}`);
+          return;
+        }
+        const alt = msg.channel?.alternatives?.[0];
+        if (!alt || !alt.transcript) return;
+        events.onUtterance({
+          speaker,
+          text: alt.transcript,
+          startMs: Math.round((msg.start ?? 0) * 1000),
+          endMs: Math.round(((msg.start ?? 0) + (msg.duration ?? 0)) * 1000),
+          isFinal: !!msg.is_final,
+        });
+      } catch (e) {
+        events.onError(e as Error);
+      }
+    });
+
+    ws.on("error", (e: Error) => {
+      console.log(`[dg ${speaker}] ws error: ${e.message}`);
+      events.onError(e);
+      // A 'close' event always follows; reconnect is handled there.
+    });
+    ws.on("close", (code: number, reason: Buffer) => {
+      console.log(`[dg ${speaker}] ws closed code=${code} reason=${reason.toString().slice(0, 100)}`);
+      // A clean, caller-initiated close (1000) is final. Anything else mid-call
+      // — including Deepgram's 1011 idle timeout — should reconnect rather than
+      // permanently kill this speaker's transcription.
+      if (!closing && code !== 1000) scheduleReconnect();
+    });
+  }
+
+  connect();
 
   return {
     sendAudio(pcm16) {
@@ -156,6 +209,7 @@ export function openDeepgramStream(
           : Buffer.from(pcm16);
       bytesSent += buf.byteLength;
       chunksSeen++;
+      lastAudioSentAt = Date.now();
       if (chunksSeen === 1) {
         const samples: number[] = [];
         for (let i = 0; i < Math.min(8, buf.byteLength / 2); i++) {
@@ -167,10 +221,20 @@ export function openDeepgramStream(
         console.log(`[dg ${speaker}] sent ${chunksSeen} chunks, ${bytesSent} bytes total, ws=${ws.readyState}`);
       }
       if (ws.readyState === WebSocket.OPEN) ws.send(buf);
-      else pending.push(buf);
+      else {
+        pending.push(buf);
+        // Drop the oldest frames if a reconnect drags on — bounded memory beats
+        // replaying a stale backlog the moment we recover.
+        while (pending.length > MAX_PENDING_CHUNKS) pending.shift();
+      }
     },
     async close() {
       closing = true;
+      clearInterval(keepAliveTimer);
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "CloseStream" }));
       }
@@ -184,7 +248,6 @@ export function openDeepgramStream(
           resolve();
         }, 3000);
       });
-      void openedAt;
       void bytesSent;
     },
   };

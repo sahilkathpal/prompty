@@ -35,6 +35,29 @@ export type Agent = {
 export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<Agent> {
   const { query, tool, createSdkMcpServer } = await loadSdk();
   const decisionCounters = { nudge: 0, quiet: 0, checklist: 0 };
+  // Tracks the start of the most recent consider() turn so the emit_nudge
+  // handler can log hotkey/auto latency. 0 = no turn in flight.
+  let considerStart = 0;
+  let considerTrigger: "auto" | "hotkey" | null = null;
+  // Turns accumulated in this persistent session — if latency climbs alongside
+  // this number over a call, the growing context is the bottleneck.
+  let turnCount = 0;
+
+  // Once the agent makes its user-facing decision (a nudge or an explicit
+  // stay-quiet) the turn has produced everything we need. Left to its own
+  // devices it keeps running — more tool calls, a wrap-up message — for many
+  // seconds, holding this single serial session and blocking the next
+  // consider() (including a hotkey press). interruptTurn() cuts the turn short
+  // the moment the decision lands. Assigned once the query handle exists below.
+  let turnDecided = false;
+  let interruptedTurn = false;
+  let interruptQuery: () => void = () => {};
+  const finishTurnEarly = () => {
+    if (turnDecided) return;
+    turnDecided = true;
+    interruptedTurn = true;
+    interruptQuery();
+  };
 
   const mcp = createSdkMcpServer({
     name: "prompty-nudges",
@@ -61,6 +84,12 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
         async (args) => {
           decisionCounters.nudge++;
+          if (considerStart > 0) {
+            console.log(
+              `[timing] ${considerTrigger ?? "?"} nudge emitted ${Date.now() - considerStart}ms after consider() (turn #${turnCount})`,
+            );
+            considerStart = 0;
+          }
           events.onNudge({
             id: `n_${Date.now()}_${decisionCounters.nudge}`,
             kind: args.kind,
@@ -68,6 +97,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
             urgency: args.urgency,
             createdAt: Date.now(),
           });
+          finishTurnEarly();
           return { content: [{ type: "text", text: "nudge_emitted" }] };
         },
       ),
@@ -93,6 +123,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         async (args) => {
           decisionCounters.quiet++;
           events.onStayQuiet(args.reason);
+          finishTurnEarly();
           return { content: [{ type: "text", text: "quiet_logged" }] };
         },
       ),
@@ -137,6 +168,9 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   const q = query({
     prompt: inputStream,
     options: {
+      // Nudges are short, structured outputs the user is actively waiting on
+      // after a hotkey — use the fastest model rather than the CLI default.
+      model: "claude-haiku-4-5",
       systemPrompt: buildSystemPrompt(setup),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
       mcpServers: { "prompty-nudges": mcp },
@@ -151,13 +185,23 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
     },
   });
 
+  interruptQuery = () => {
+    void q.interrupt().catch(() => {
+      // The turn may have already wound down on its own; nothing to interrupt.
+    });
+  };
+
   (async () => {
     try {
       for await (const msg of q) {
         if (msg.type === "result") {
-          if (msg.subtype !== "success") {
+          // A non-success subtype is only an error if we didn't deliberately
+          // cut the turn short after the decision landed.
+          if (msg.subtype !== "success" && !interruptedTurn) {
             events.onError(new Error(`agent error: ${msg.subtype}`));
           }
+          turnDecided = false;
+          interruptedTurn = false;
           turnDoneWaiters.shift()?.();
         }
       }
@@ -188,10 +232,17 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
           ? "The user just hit the hotkey asking 'what should I ask?'. Emit one helpful nudge of kind 'answer' even if you would otherwise stay quiet — but keep it ≤15 words and concrete."
           : "Recent transcript chunk. Decide: emit_nudge / update_checklist / stay_quiet. Default to stay_quiet unless a nudge is clearly warranted.";
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
+      const t0 = Date.now();
+      turnCount++;
+      considerStart = t0;
+      considerTrigger = trigger;
       pushUserMessage?.(
         `${triggerLine}\n\n--- transcript ---\n${transcriptBlock}\n--- end ---`,
       );
       await turnDone;
+      console.log(
+        `[timing] ${trigger} consider() turn fully done in ${Date.now() - t0}ms`,
+      );
     },
     async close() {
       closeInput?.();

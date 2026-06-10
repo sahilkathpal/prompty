@@ -132,9 +132,44 @@ export async function startSession(
     currentStatus = s;
     opts.onStatus?.({ state: s, audioPulse, reason });
   };
+
+  // ---- Mic silence detection ----
+  // macOS can report microphone permission as "granted" yet feed a
+  // separately-signed helper (our Swift sidecar) all-zero buffers — the session
+  // looks healthy ("listening") while Deepgram receives digital silence and
+  // never returns transcripts, so no nudges ever fire. A real microphone always
+  // carries a non-zero noise floor, so a sustained run of exactly-zero PCM at
+  // the start of a session is an unambiguous signal that the sidecar isn't
+  // getting real audio (permission not effective, wrong/muted input device).
+  const MIC_SILENCE_BYTES = 16_000 * 2 * 4; // ~4s of 16kHz mono Int16
+  const MIC_SILENCE_REASON =
+    "No audio is reaching the mic. Grant Microphone + Screen Recording permission (System Settings → Privacy & Security) and restart. In dev, the packaged app captures audio more reliably than `npm run dev`.";
+  let micBytesSeen = 0;
+  let micNonZeroSeen = false;
+  let micSilent = false;
+  const inspectMicChunk = (chunk: Buffer) => {
+    // Once any real audio has appeared, the mic is fine — stop inspecting.
+    if (micNonZeroSeen || micSilent) return;
+    for (let i = 0; i < chunk.length; i++) {
+      if (chunk[i] !== 0) {
+        micNonZeroSeen = true;
+        return;
+      }
+    }
+    micBytesSeen += chunk.length;
+    if (micBytesSeen >= MIC_SILENCE_BYTES) {
+      micSilent = true;
+      console.error(`[coach-session] mic silent — ${MIC_SILENCE_REASON}`);
+      emitStatus("mic-silent", false, MIC_SILENCE_REASON);
+    }
+  };
+
   // Called on every audio frame / utterance: flips to "listening" and pulses.
   const markAudio = () => {
     lastAudioAt = Date.now();
+    // Keep the mic-silent warning sticky — frames are arriving, they're just
+    // empty, so don't let the steady stream flip the dot back to "listening".
+    if (micSilent) return;
     const now = Date.now();
     if (currentStatus !== "listening" || now - lastPulseEmit >= 300) {
       lastPulseEmit = now;
@@ -153,6 +188,34 @@ export async function startSession(
     opts.onStateChange?.(s);
   };
 
+  // Auto-considers fire on every final utterance, but the agent processes one
+  // turn at a time. Without coalescing, fast speech piles up a backlog that a
+  // hotkey-triggered consider would have to wait behind. Keep at most one
+  // auto-consider in flight and at most one queued; the queued run always uses
+  // the freshest window, so dropping intermediate ones loses nothing.
+  let autoConsiderInFlight = false;
+  let autoConsiderPending = false;
+  const runAutoConsider = () => {
+    if (!agent) return;
+    if (autoConsiderInFlight) {
+      autoConsiderPending = true;
+      return;
+    }
+    autoConsiderInFlight = true;
+    void agent
+      .consider([...considerWindow], "auto")
+      .catch((e) => {
+        console.error("[coach-session] consider error:", (e as Error).message);
+      })
+      .finally(() => {
+        autoConsiderInFlight = false;
+        if (autoConsiderPending) {
+          autoConsiderPending = false;
+          runAutoConsider();
+        }
+      });
+  };
+
   const handleUtterance = (u: TranscriptUtterance) => {
     markAudio();
     if (u.isFinal) {
@@ -162,10 +225,8 @@ export async function startSession(
     }
     considerWindow.push(u);
     while (considerWindow.length > 12) considerWindow.shift();
-    if (u.isFinal && agent) {
-      void agent.consider([...considerWindow], "auto").catch((e) => {
-        console.error("[coach-session] consider error:", (e as Error).message);
-      });
+    if (u.isFinal) {
+      runAutoConsider();
     }
   };
 
@@ -195,8 +256,16 @@ export async function startSession(
           console.error("[coach-session] dg error:", e.message);
         },
         onStatus: (s) => {
-          if (s === "error" || s === "reconnecting") {
-            onTransportError(`deepgram ${s}`);
+          // "reconnecting" is transient — Deepgram dropped a socket and we're
+          // re-opening it. Show the softer "reconnecting" dot rather than a hard
+          // error; incoming audio frames flip it back to "listening" on success.
+          // "error" is only emitted after reconnect attempts are exhausted.
+          if (s === "reconnecting") {
+            if (currentStatus !== "error" && !micSilent) {
+              emitStatus("reconnecting", false, "Reconnecting to transcription…");
+            }
+          } else if (s === "error") {
+            onTransportError("deepgram error");
           }
         },
       });
@@ -246,6 +315,7 @@ export async function startSession(
   // (overlay/tray "End session").
   if (sidecar) {
     sidecar.micStream.on("data", markAudio);
+    sidecar.micStream.on("data", inspectMicChunk);
     sidecar.tapStream.on("data", markAudio);
   }
   // Flip to "no-audio" after a gap with no frames/utterances. Period is a
