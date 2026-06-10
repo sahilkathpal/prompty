@@ -26,6 +26,27 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 
 export type PrepMessageRole = "user" | "assistant" | "tool";
 
+/**
+ * Compact, authoritative snapshot of the rail, injected ahead of the user's
+ * next message so the model stays in sync with manual edits (never shown as a
+ * chat bubble). Exported as a pure function for deterministic testing.
+ */
+export function buildPrepStatePreamble(
+  goal: string,
+  checklist: ChecklistItem[],
+  mode: string,
+): string {
+  const items = checklist.map((c) => `- ${c.text}`);
+  return [
+    "[current-state] The user may have directly edited the rail since your last turn. This is the authoritative current state — treat it as ground truth and do not contradict, re-ask, or re-add anything below. Do not mention or quote this block.",
+    `goal: ${goal || "(not set yet)"}`,
+    `mode: ${mode || "(not set yet)"}`,
+    "checklist:",
+    items.length ? items.join("\n") : "(none yet)",
+    "[/current-state]",
+  ].join("\n");
+}
+
 export interface PrepMessage {
   id: string;
   role: PrepMessageRole;
@@ -52,6 +73,16 @@ export interface PrepSessionHandle {
   kick(): Promise<void>;
   /** UI-side override for the selected mode (chip-row clicks). */
   setMode(mode: string): void;
+  /**
+   * UI-side direct edits to the rail. These are SILENT — they mutate state and
+   * push a `You …` trace message, but never trigger a model turn. The current
+   * goal/checklist/mode is re-injected into the model on the next sendMessage so
+   * it stays in sync with manual edits.
+   */
+  setGoal(text: string): void;
+  addChecklistItem(text: string): ChecklistItem;
+  editChecklistItem(id: string, text: string): void;
+  removeChecklistItem(id: string): void;
   getState(): PrepState;
   /** Returns the snapshot used for pending-prep persistence. */
   snapshot(): {
@@ -207,13 +238,40 @@ function createMockPrepSession(
         throw new Error(`invalid mode: ${mode}`);
       }
       state.mode = mode;
-      state.messages.push({
-        id: mkId(),
-        role: "tool",
-        text: `Set mode: ${mode}`,
-        createdAt: Date.now(),
-        toolName: "set_mode",
-      });
+      pushTool("set_mode", `Set mode: ${mode}`);
+      emitState();
+    },
+    setGoal(text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("goal cannot be empty");
+      state.goal = v;
+      pushTool("set_goal", `You set goal: ${v}`);
+      emitState();
+    },
+    addChecklistItem(text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("checklist item cannot be empty");
+      const id = `c_${Date.now()}_${state.checklist.length + 1}`;
+      const item: ChecklistItem = { id, text: v, status: "open" };
+      state.checklist.push(item);
+      pushTool("add_checklist_item", `You added: ${v}`);
+      emitState();
+      return item;
+    },
+    editChecklistItem(id: string, text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("checklist item cannot be empty");
+      const item = state.checklist.find((c) => c.id === id);
+      if (!item) throw new Error("not_found");
+      item.text = v;
+      pushTool("update_checklist_item", `You edited: ${v}`);
+      emitState();
+    },
+    removeChecklistItem(id: string) {
+      const idx = state.checklist.findIndex((c) => c.id === id);
+      if (idx < 0) throw new Error("not_found");
+      const [removed] = state.checklist.splice(idx, 1);
+      pushTool("remove_checklist_item", `You removed: ${removed?.text ?? id}`);
       emitState();
     },
     getState() {
@@ -267,6 +325,27 @@ async function createRealPrepSession(
       checklist: [...state.checklist],
     });
 
+  // Set true whenever the user edits the rail directly (or when seeding a
+  // resumed session). Consumed once by the next sendMessage, which prepends an
+  // authoritative current-state block to the model's turn so it never re-asks
+  // for something already set or re-adds an item the user removed.
+  let railDirty = Boolean(
+    seed?.goal || (seed?.checklist?.length ?? 0) > 0 || seed?.mode,
+  );
+
+  const pushTrace = (toolName: string, text: string) => {
+    state.messages.push({
+      id: mkId(),
+      role: "tool",
+      text,
+      createdAt: Date.now(),
+      toolName,
+    });
+  };
+
+  const buildStatePreamble = (): string =>
+    buildPrepStatePreamble(state.goal, state.checklist, state.mode);
+
   const checklistMcp = createSdkMcpServer({
     name: "prompty-prep",
     version: "0.1.0",
@@ -290,8 +369,8 @@ async function createRealPrepSession(
       ),
       tool(
         "add_checklist_item",
-        "Append a new checklist item. Item text must be a concrete thing to ask or verify during the call.",
-        { text: z.string().min(1).max(300) },
+        "Append a new checklist item. Item text must be a SHORT topic label (2-6 words) the user can glance at — a track to mine or verify — not a full sentence or scripted question. e.g. \"Current Snowflake spend\".",
+        { text: z.string().min(1).max(80) },
         async (args) => {
           const id = `c_${Date.now()}_${state.checklist.length + 1}`;
           state.checklist.push({ id, text: args.text, status: "open" });
@@ -308,8 +387,8 @@ async function createRealPrepSession(
       ),
       tool(
         "update_checklist_item",
-        "Edit an existing checklist item by id.",
-        { id: z.string(), text: z.string().min(1).max(300) },
+        "Edit an existing checklist item by id. Keep it a SHORT topic label (2-6 words), not a sentence.",
+        { id: z.string(), text: z.string().min(1).max(80) },
         async (args) => {
           const item = state.checklist.find((c) => c.id === args.id);
           if (!item) {
@@ -496,6 +575,7 @@ async function createRealPrepSession(
 
   return {
     async sendMessage(text: string) {
+      // Visible bubble = the user's real text only (never the preamble).
       state.messages.push({
         id: mkId(),
         role: "user",
@@ -503,8 +583,15 @@ async function createRealPrepSession(
         createdAt: Date.now(),
       });
       emitState();
+      // Pump content MAY differ from the visible bubble: if the user edited the
+      // rail since the last turn (or this is the first turn after a resume),
+      // prepend the authoritative current-state block. Consumed once.
+      const pumpContent = railDirty
+        ? `${buildStatePreamble()}\n\n${text}`
+        : text;
+      railDirty = false;
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
-      pushUserMessage?.(text);
+      pushUserMessage?.(pumpContent);
       await turnDone;
     },
     async kick() {
@@ -522,13 +609,45 @@ async function createRealPrepSession(
         throw new Error(`invalid mode: ${mode}`);
       }
       state.mode = mode;
-      state.messages.push({
-        id: mkId(),
-        role: "tool",
-        text: `Set mode: ${mode}`,
-        createdAt: Date.now(),
-        toolName: "set_mode",
-      });
+      pushTrace("set_mode", `Set mode: ${mode}`);
+      railDirty = true;
+      emitState();
+    },
+    setGoal(text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("goal cannot be empty");
+      state.goal = v;
+      pushTrace("set_goal", `You set goal: ${v}`);
+      railDirty = true;
+      emitState();
+    },
+    addChecklistItem(text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("checklist item cannot be empty");
+      const id = `c_${Date.now()}_${state.checklist.length + 1}`;
+      const item: ChecklistItem = { id, text: v, status: "open" };
+      state.checklist.push(item);
+      pushTrace("add_checklist_item", `You added: ${v}`);
+      railDirty = true;
+      emitState();
+      return item;
+    },
+    editChecklistItem(id: string, text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("checklist item cannot be empty");
+      const item = state.checklist.find((c) => c.id === id);
+      if (!item) throw new Error("not_found");
+      item.text = v;
+      pushTrace("update_checklist_item", `You edited: ${v}`);
+      railDirty = true;
+      emitState();
+    },
+    removeChecklistItem(id: string) {
+      const idx = state.checklist.findIndex((c) => c.id === id);
+      if (idx < 0) throw new Error("not_found");
+      const [removed] = state.checklist.splice(idx, 1);
+      pushTrace("remove_checklist_item", `You removed: ${removed?.text ?? id}`);
+      railDirty = true;
       emitState();
     },
     getState() {

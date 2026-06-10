@@ -168,6 +168,23 @@ export interface InvokeChannels {
     request: { mode: string };
     response: { ok: boolean; error?: string };
   };
+  // Direct (silent) rail edits — see PrepSessionHandle.set/add/edit/remove.
+  "prep:set-goal": {
+    request: { text: string };
+    response: { ok: boolean; error?: string };
+  };
+  "prep:add-checklist-item": {
+    request: { text: string };
+    response: { ok: boolean; error?: string };
+  };
+  "prep:edit-checklist-item": {
+    request: { id: string; text: string };
+    response: { ok: boolean; error?: string };
+  };
+  "prep:remove-checklist-item": {
+    request: { id: string };
+    response: { ok: boolean; error?: string };
+  };
   "pending-prep:get": {
     request: void;
     response: PendingPrepPayload | null;

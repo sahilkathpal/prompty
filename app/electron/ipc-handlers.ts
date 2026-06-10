@@ -761,6 +761,54 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   });
 
+  handle("prep:set-goal", (payload) => {
+    if (!activePrep) {
+      return { ok: false, error: "no prep session" };
+    }
+    try {
+      activePrep.setGoal(payload.text);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
+  handle("prep:add-checklist-item", (payload) => {
+    if (!activePrep) {
+      return { ok: false, error: "no prep session" };
+    }
+    try {
+      activePrep.addChecklistItem(payload.text);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
+  handle("prep:edit-checklist-item", (payload) => {
+    if (!activePrep) {
+      return { ok: false, error: "no prep session" };
+    }
+    try {
+      activePrep.editChecklistItem(payload.id, payload.text);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
+  handle("prep:remove-checklist-item", (payload) => {
+    if (!activePrep) {
+      return { ok: false, error: "no prep session" };
+    }
+    try {
+      activePrep.removeChecklistItem(payload.id);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
   handle("prep:discard", async () => {
     try {
       if (activePrep) {

@@ -458,3 +458,78 @@ test("Stage 4: Notification click opens prep window pre-populated with event", a
     await app.close();
   }
 });
+
+test("Stage 4: Direct rail editing — set goal, add and remove checklist item", async () => {
+  const userDataDir = await freshUserDataDir();
+  await seedSettings(userDataDir);
+  await seedSession(userDataDir);
+
+  const app = await launchApp(userDataDir);
+  try {
+    await waitForReady(app);
+    const page = await getMainPage(app, "prep");
+    await page.click('[data-testid="home-adhoc-button"]');
+    const prep = await getPrepPage(app);
+
+    // Goal starts empty → click to edit, type, commit with Enter.
+    await prep.click('[data-testid="prep-goal-empty"]');
+    await prep.fill('[data-testid="prep-goal-input"]', "Close the pilot");
+    await prep.press('[data-testid="prep-goal-input"]', "Enter");
+    await prep.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="prep-goal-text"]');
+        return !!el && /Close the pilot/.test(el.textContent ?? "");
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    // A "You set goal" trace line appears in the thread (distinct from model edits).
+    await prep.waitForFunction(
+      () =>
+        Array.from(
+          document.querySelectorAll('[data-testid="prep-msg-tool"]'),
+        ).some((n) => /You set goal: Close the pilot/.test(n.textContent ?? "")),
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    // Add a checklist item via the rail.
+    await prep.click('[data-testid="prep-check-add"]');
+    await prep.fill('[data-testid="prep-check-add-input"]', "Budget owner");
+    await prep.press('[data-testid="prep-check-add-input"]', "Enter");
+    await prep.waitForFunction(
+      () =>
+        Array.from(
+          document.querySelectorAll('[data-testid="prep-check-text"]'),
+        ).some((n) => /Budget owner/.test(n.textContent ?? "")),
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    // Remove it — the × is hover-revealed (opacity 0), so click it via JS.
+    const clicked = await prep.evaluate(() => {
+      const rows = Array.from(
+        document.querySelectorAll('[data-testid="prep-check-row"]'),
+      );
+      const row = rows.find((r) => /Budget owner/.test(r.textContent ?? ""));
+      const btn = row?.querySelector(
+        '[data-testid="prep-check-remove"]',
+      ) as HTMLButtonElement | null;
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    expect(clicked).toBe(true);
+    await prep.waitForFunction(
+      () =>
+        !Array.from(
+          document.querySelectorAll('[data-testid="prep-check-text"]'),
+        ).some((n) => /Budget owner/.test(n.textContent ?? "")),
+      undefined,
+      { timeout: 5_000 },
+    );
+  } finally {
+    await app.close();
+  }
+});
