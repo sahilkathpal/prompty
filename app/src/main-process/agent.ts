@@ -17,7 +17,7 @@ import type {
   TranscriptUtterance,
 } from "./types";
 import { buildSystemPrompt } from "./prompts/system";
-import { resolveClaudeCli } from "./claude-cli";
+import { agentCwd, resolveClaudeCli } from "./claude-cli";
 
 export type AgentEvents = {
   onNudge: (n: Nudge) => void;
@@ -173,6 +173,8 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       model: "claude-haiku-4-5",
       systemPrompt: buildSystemPrompt(setup),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
+      // Keep the CLI's workspace scan out of the user's protected folders.
+      cwd: agentCwd(),
       mcpServers: { "prompty-nudges": mcp },
       allowedTools: [
         "mcp__prompty-nudges__emit_nudge",

@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { ChecklistItem } from "./types";
 import type { CalendarEvent } from "./calendar-arm";
 import { buildPrepSystemPrompt } from "./prompts/prep-system";
-import { resolveClaudeCli } from "./claude-cli";
+import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { EventEmitter } from "node:events";
 import { PREP_MODES, isPrepMode } from "../shared/types";
 
@@ -490,6 +490,8 @@ async function createRealPrepSession(
     options: {
       systemPrompt: buildPrepSystemPrompt(event),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
+      // Keep the CLI's workspace scan out of the user's protected folders.
+      cwd: agentCwd(),
       mcpServers: { "prompty-prep": checklistMcp },
       allowedTools: [
         "mcp__prompty-prep__set_goal",

@@ -1,9 +1,30 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 let cached: string | undefined;
+
+/**
+ * A neutral, app-owned working directory for the spawned `claude` CLI.
+ *
+ * Pinning the agent's cwd here keeps the CLI's startup workspace probing out of
+ * the user's TCC-protected folders (Desktop / Downloads / Documents / iCloud).
+ * Without it the CLI inherits `process.cwd()` — for a Finder-launched app that's
+ * `/` or the user's home — and its directory scan trips the macOS "Prompty wants
+ * to access your Desktop/Downloads/…" prompts. `~/.prompty` is a plain home
+ * dotfolder, not a protected location, so nothing prompts. Kept dependency-free
+ * (no electron `app`) so it works in the headless smoke tests too.
+ */
+export function agentCwd(): string {
+  const dir = join(homedir(), ".prompty", "agent");
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    // Best-effort; if creation fails the CLI still starts from this path.
+  }
+  return dir;
+}
 
 /**
  * Resolves the path to the user's installed `claude` CLI binary, throwing if
