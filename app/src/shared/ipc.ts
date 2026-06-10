@@ -52,7 +52,9 @@ export interface InvokeChannels {
     response: AppSettings;
   };
   "call:start": {
-    request: void;
+    // Optional call type (PrepMode). Lets a user start a call straight from the
+    // home screen by picking a type, with no prep required.
+    request: { mode?: string } | void;
     response: { ok: boolean; error?: string };
   };
   "call:end": {

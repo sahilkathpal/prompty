@@ -1,0 +1,436 @@
+/* Main window — Home / Settings / Completed-call detail.
+ *
+ * Adopts the dark token identity (../shared/tokens.css) shared with the prep
+ * view and overlay. Replaces the old light inline-style theme. Class prefix:
+ * `.mw-`. The window uses titleBarStyle:"hiddenInset" (see main-window.ts), so
+ * the top bar is a draggable region with the macOS traffic lights inset on the
+ * left. */
+
+.mw-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* ---- Top bar (draggable, traffic-light inset) ----------------------------- */
+.mw-topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 52px;
+  /* Left padding clears the traffic lights pinned at x:16 (see main-window.ts,
+   * trafficLightPosition) — the ~52px-wide button group ends near x:68. */
+  padding: 0 14px 0 84px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+.mw-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+/* ---- Buttons -------------------------------------------------------------- */
+.mw-btn {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 13px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease,
+    opacity 120ms ease;
+  white-space: nowrap;
+}
+.mw-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.mw-btn-primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.mw-btn-primary:not(:disabled):hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.mw-btn-secondary {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+}
+.mw-btn-secondary:not(:disabled):hover {
+  background: var(--surface-raised);
+}
+.mw-btn-ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.mw-btn-ghost:not(:disabled):hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+/* Icon button (gear). */
+.mw-icon-btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.mw-icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+/* ---- Preflight banner (full-bleed, dark amber) ---------------------------- */
+.mw-preflight {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 20px;
+  background: rgba(226, 193, 76, 0.1);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  color: var(--text);
+  font-size: 13px;
+}
+.mw-preflight-msg {
+  flex: 1;
+  color: var(--amber);
+}
+
+/* ---- Scroll body + centered content column ------------------------------- */
+.mw-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.mw-body::-webkit-scrollbar {
+  width: 8px;
+}
+.mw-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.mw-content {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 24px 40px;
+}
+
+/* ---- Section label (uppercase mini-header + count) ------------------------ */
+.mw-section {
+  margin-top: 26px;
+}
+.mw-section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.mw-section-count {
+  color: var(--faint);
+  letter-spacing: 0.04em;
+}
+
+/* ---- Hero (the one raised, prominent card) -------------------------------- */
+.mw-hero {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+.mw-hero-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.mw-hero-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-strong);
+  line-height: 1.3;
+}
+.mw-hero-meta {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.mw-hero-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* Idle hero — calm centered empty state. */
+.mw-hero.mw-hero-idle {
+  text-align: center;
+  padding: 30px 20px;
+}
+.mw-hero-idle .mw-hero-actions {
+  justify-content: center;
+}
+.mw-hero-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+/* Call-type chips on the idle hero — pick a type, then start with no prep. */
+.mw-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 16px;
+}
+.mw-chip {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.mw-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.mw-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ---- List rows (Upcoming / Completed) ------------------------------------- */
+.mw-list {
+  border-top: 1px solid var(--border);
+}
+.mw-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.mw-row:hover {
+  background: var(--surface-raised);
+}
+.mw-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.mw-row-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-row-meta {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Row action stays hidden until the row is hovered/focused. */
+.mw-row-action {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.mw-row:hover .mw-row-action,
+.mw-row:focus-within .mw-row-action {
+  opacity: 1;
+}
+.mw-row-chevron {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: 15px;
+}
+
+/* Empty-state line for a section. */
+.mw-empty {
+  font-size: 13px;
+  color: var(--faint);
+  padding: 6px 2px;
+  line-height: 1.5;
+}
+.mw-empty-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* "Show all (N)" expander. */
+.mw-show-all {
+  border: none;
+  background: transparent;
+  color: var(--muted-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 10px 2px 0;
+}
+.mw-show-all:hover {
+  color: var(--accent-text);
+}
+
+/* ---- Settings ------------------------------------------------------------- */
+.mw-back {
+  margin-bottom: 18px;
+}
+.mw-settings-h {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin-bottom: 4px;
+}
+.mw-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.mw-kv-key {
+  color: var(--text);
+}
+.mw-kv-val {
+  color: var(--muted);
+  text-align: right;
+}
+
+/* ---- Completed-call detail ------------------------------------------------ */
+.mw-detail-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin-bottom: 4px;
+}
+.mw-detail-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+.mw-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.mw-card-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.mw-card-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.mw-card-text:last-child {
+  margin-bottom: 0;
+}
+.mw-check-item {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.mw-check-item:last-child {
+  border-bottom: none;
+}
+.mw-check-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  margin-bottom: 3px;
+}
+.mw-check-glyph {
+  flex-shrink: 0;
+}
+.mw-check-glyph.covered { color: var(--green); }
+.mw-check-glyph.partial { color: var(--amber); }
+.mw-check-glyph.skipped { color: var(--red); }
+.mw-check-glyph.pending { color: var(--muted-dim); }
+.mw-check-answer {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.45;
+  padding-left: 22px;
+}
+.mw-transcript {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.mw-utt {
+  margin-bottom: 5px;
+}
+.mw-utt-speaker {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.mw-utt-speaker.me { color: var(--accent-text); }
+.mw-utt-speaker.them { color: var(--text-strong); }

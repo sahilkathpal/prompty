@@ -32,6 +32,14 @@ export function openMainWindow(tab?: MainTab): BrowserWindow {
     height: 600,
     title: "Prompty",
     show: false,
+    // Dark surface painted before the renderer mounts — no white flash on open.
+    backgroundColor: "#14161c",
+    // Merge the traffic lights into our own dark top bar (see .mw-topbar).
+    // Pin their position so it's deterministic across macOS versions; the
+    // .mw-topbar left padding is sized to clear this group. y centers them in
+    // the 52px-tall bar.
+    titleBarStyle: "hidden",
+    trafficLightPosition: { x: 16, y: 18 },
     minimizable: true,
     maximizable: true,
     fullscreenable: false,

@@ -1,0 +1,165 @@
+/* Onboarding / welcome flow — dark token identity, matching the main window.
+ *
+ * The window uses titleBarStyle:"hidden" (see onboarding-window.ts), so the top
+ * strip (.ob-titlebar) is a draggable region that also clears the inset macOS
+ * traffic lights pinned at x:16. Colors come from ../shared/tokens.css. */
+
+.ob-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* Draggable top strip; empty so the traffic lights have room. */
+.ob-titlebar {
+  flex-shrink: 0;
+  height: 44px;
+  -webkit-app-region: drag;
+}
+
+.ob-body {
+  flex: 1;
+  padding: 4px 48px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.ob-body::-webkit-scrollbar { width: 8px; }
+.ob-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.ob-h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin: 0 0 8px;
+}
+.ob-p {
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 14px;
+  margin: 8px 0;
+}
+.ob-muted {
+  color: var(--muted-dim);
+  font-size: 12px;
+}
+.ob-error {
+  color: var(--red);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.ob-strong {
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.ob-app kbd {
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Hero placeholder. */
+.ob-hero {
+  background: linear-gradient(135deg, #2a2f6b, #3a2150);
+  border-radius: var(--radius-lg);
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* Cards. */
+.ob-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-top: 16px;
+}
+.ob-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ob-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Status check chip. */
+.ob-check {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ob-check.ok { background: var(--green); color: #0c2a17; }
+.ob-check.bad { background: var(--red); color: #fff; }
+
+/* Footer + step dots. */
+.ob-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.ob-dots { display: flex; gap: 6px; }
+.ob-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border-strong);
+  transition: background 120ms ease;
+}
+.ob-dot.active { background: var(--accent); }
+
+/* Buttons. */
+.ob-btn {
+  appearance: none;
+  font-family: inherit;
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease,
+    opacity 120ms ease;
+}
+.ob-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.ob-btn-primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.ob-btn-primary:not(:disabled):hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.ob-btn-ghost {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+}
+.ob-btn-ghost:not(:disabled):hover { background: var(--surface-raised); }

@@ -1,0 +1,328 @@
+/* Prep view — dark-solid surface adopting the overlay's identity.
+ *
+ * The prep view is a full-window takeover when a prep is active, so it renders
+ * a SOLID dark surface (translucency is overlay-only, for floating over video).
+ * Colors come from ../shared/tokens.css. */
+
+.prep-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* ---- Header --------------------------------------------------------------- */
+.prep-header {
+  flex-shrink: 0;
+  /* The prep view is a full-window takeover of the frameless main window
+   * (titleBarStyle:"hidden"), so this header sits under the traffic lights —
+   * pad the left to clear them (pinned at x:16, see main-window.ts) and make
+   * the bar draggable, matching .mw-topbar on the home screen. */
+  padding: 14px 18px 14px 84px;
+  min-height: 52px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+.prep-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.prep-header-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- Body split: chat (left) + rail (right) ------------------------------- */
+.prep-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.prep-chat-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---- Transcript ----------------------------------------------------------- */
+.prep-transcript {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.prep-transcript::-webkit-scrollbar { width: 7px; }
+.prep-transcript::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.prep-empty {
+  color: var(--muted-dim);
+  font-size: 13px;
+  padding: 8px 2px;
+}
+
+.prep-msg-row {
+  display: flex;
+  margin-bottom: 10px;
+}
+.prep-msg-row.user { justify-content: flex-end; }
+.prep-msg-row.assistant { justify-content: flex-start; }
+
+.prep-bubble {
+  max-width: 78%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.prep-bubble.user {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 5px;
+}
+.prep-bubble.assistant {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 5px;
+}
+
+/* Tool/edit trace lines (model and "You …" edits). */
+.prep-trace {
+  color: var(--faint);
+  font-size: 11px;
+  font-style: italic;
+  padding: 2px 0 6px 4px;
+}
+
+.prep-typing {
+  color: var(--muted-dim);
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+/* ---- Input row ------------------------------------------------------------ */
+.prep-input-row {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.prep-textarea {
+  flex: 1;
+  resize: none;
+  font-family: inherit;
+  font-size: 13px;
+  min-height: 38px;
+  max-height: 120px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+}
+.prep-textarea::placeholder { color: var(--faint); }
+.prep-textarea:focus { border-color: var(--accent); }
+
+/* ---- Rail ----------------------------------------------------------------- */
+.prep-rail {
+  width: 320px;
+  flex-shrink: 0;
+  padding: 16px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.prep-rail::-webkit-scrollbar { width: 7px; }
+.prep-rail::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+/* Mode chips. */
+.prep-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.prep-chip {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.prep-chip:hover { color: var(--text); border-color: var(--accent); }
+.prep-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Cards. */
+.prep-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.prep-card-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* Goal — click to edit. */
+.prep-goal-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: text;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  margin: -4px -6px;
+}
+.prep-goal-text:hover { background: var(--surface-raised); }
+.prep-goal-empty {
+  font-size: 13px;
+  color: var(--faint);
+  cursor: text;
+  font-style: italic;
+}
+
+/* Shared inline edit input (goal + checklist). */
+.prep-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+/* Checklist. */
+.prep-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.prep-check-row:hover { background: var(--surface-raised); }
+.prep-check-bullet { color: var(--faint); flex-shrink: 0; }
+.prep-check-text {
+  flex: 1;
+  cursor: text;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+.prep-check-remove {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.prep-check-row:hover .prep-check-remove { opacity: 1; }
+.prep-check-remove:hover { color: var(--red); }
+
+.prep-check-empty {
+  font-size: 12px;
+  color: var(--faint);
+  font-style: italic;
+  padding: 2px 0;
+}
+
+/* "+ add item" row. */
+.prep-add-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 4px 6px 0;
+}
+.prep-add-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.prep-add-btn:hover { color: var(--accent-text); }
+
+/* ---- Footer --------------------------------------------------------------- */
+.prep-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.prep-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 15px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+.prep-btn:disabled { opacity: 0.45; cursor: default; }
+.prep-btn-secondary {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+}
+.prep-btn-secondary:not(:disabled):hover { background: var(--surface-raised); }
+.prep-btn-primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.prep-btn-primary:not(:disabled):hover { background: var(--accent-hover); }

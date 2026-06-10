@@ -223,11 +223,12 @@ async function lookupEventById(id?: string): Promise<CalendarEvent | null> {
   }
 }
 
-function defaultSetup(): CallSetup {
+function defaultSetup(mode?: string): CallSetup {
   return {
     goal: "",
     checklist: [],
     context: {},
+    mode,
   };
 }
 
@@ -307,7 +308,9 @@ async function preflight(): Promise<PreflightResult> {
   return { ok: true };
 }
 
-async function doStartSession(): Promise<{ ok: boolean; error?: string }> {
+async function doStartSession(
+  mode?: string,
+): Promise<{ ok: boolean; error?: string }> {
   if (activeSession) {
     return { ok: false, error: "session already active" };
   }
@@ -342,7 +345,7 @@ async function doStartSession(): Promise<{ ok: boolean; error?: string }> {
       clearPendingPrep();
       broadcast("pending-prep:changed", { prep: null });
     } else {
-      setup = defaultSetup();
+      setup = defaultSetup(mode);
     }
   }
   activeSessionSetup = setup;
@@ -478,8 +481,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return next;
   });
 
-  handle("call:start", async () => {
-    return doStartSession();
+  handle("call:start", async (payload) => {
+    return doStartSession(payload?.mode);
   });
 
   handle("call:end", async () => {

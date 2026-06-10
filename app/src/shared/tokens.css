@@ -1,0 +1,52 @@
+/* Shared design tokens — Prompty's visual identity, extracted from the overlay.
+ *
+ * Imported by each renderer entry (main.tsx) before that renderer's own CSS.
+ * The overlay floats over live video so it uses a translucent surface; full
+ * windows (prep) use the solid `--bg`/`--surface` variants below. */
+
+:root {
+  /* Indigo accent — the brand color. */
+  --accent: #6a71e2;
+  --accent-hover: #7b82ef;
+  --accent-text: #cdd1ff;
+
+  /* Solid dark surfaces (full windows). */
+  --bg: #14161c;
+  --surface: #1b1e26;
+  --surface-2: #22262f;
+  --surface-raised: #272b35;
+
+  /* Translucent variants (overlay, floating over video). */
+  --bg-translucent: rgba(20, 22, 28, 0.78);
+  --surface-translucent: rgba(255, 255, 255, 0.04);
+
+  /* Text. */
+  --text: #e5e5e5;
+  --text-strong: #f4f5fb;
+  --muted: #9aa0b4;
+  --muted-dim: #7e85a0;
+  --faint: #6e7590;
+
+  /* Lines + structure. */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Status. */
+  --green: #6ad196;
+  --amber: #e2c14c;
+  --red: #ff6b6b;
+  --danger-text: #d98a86;
+
+  /* Radii. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Shadows. */
+  --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25);
+
+  /* Type. */
+  --font: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+}

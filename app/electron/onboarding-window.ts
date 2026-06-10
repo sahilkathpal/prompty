@@ -22,6 +22,10 @@ export function openOnboardingWindow(): BrowserWindow {
     height: 540,
     title: "Welcome to Prompty",
     show: false,
+    backgroundColor: "#14161c",
+    // Match the main window's frameless dark chrome (see main-window.ts).
+    titleBarStyle: "hidden",
+    trafficLightPosition: { x: 16, y: 14 },
     minimizable: false,
     maximizable: false,
     resizable: false,

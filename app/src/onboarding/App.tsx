@@ -29,90 +29,9 @@ const baseSteps: StepDef[] = [
   { key: "done", title: "Done" },
 ];
 
-const styles = {
-  app: {
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
-    background: "#f5f5f7",
-    color: "#1d1d1f",
-    height: "100vh",
-    display: "flex",
-    flexDirection: "column" as const,
-  },
-  body: {
-    flex: 1,
-    padding: "32px 48px 16px",
-    overflowY: "auto" as const,
-  },
-  h1: { fontSize: 22, margin: "0 0 8px" },
-  p: { color: "#3a3a3c", lineHeight: 1.5, fontSize: 14, margin: "8px 0" },
-  muted: { color: "#86868b", fontSize: 12 },
-  footer: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "12px 24px",
-    borderTop: "1px solid #d2d2d7",
-    background: "#fff",
-  },
-  dots: { display: "flex", gap: 6 },
-  dot: (active: boolean) => ({
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    background: active ? "#1d1d1f" : "#d2d2d7",
-  }),
-  btn: (variant: "primary" | "ghost" = "primary", disabled = false) => ({
-    appearance: "none" as const,
-    border: "none",
-    borderRadius: 8,
-    padding: "8px 16px",
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: disabled ? "not-allowed" : "pointer",
-    background:
-      variant === "primary" ? (disabled ? "#a1a1a6" : "#1d1d1f") : "transparent",
-    color: variant === "primary" ? "#fff" : "#1d1d1f",
-    opacity: disabled ? 0.7 : 1,
-  }),
-  card: {
-    background: "#fff",
-    borderRadius: 12,
-    padding: 20,
-    border: "1px solid #e5e5ea",
-    marginTop: 16,
-  },
-  row: { display: "flex", alignItems: "center", gap: 10 },
-  hero: {
-    background: "linear-gradient(135deg, #d1d1f5, #f5d1e5)",
-    borderRadius: 12,
-    height: 160,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#3a3a3c",
-    fontSize: 13,
-    marginTop: 12,
-  },
-};
-
 function Check({ ok }: { ok: boolean }): JSX.Element {
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        alignItems: "center",
-        justifyContent: "center",
-        background: ok ? "#34c759" : "#ff3b30",
-        color: "white",
-        fontSize: 12,
-        fontWeight: 700,
-      }}
-    >
-      {ok ? "✓" : "×"}
-    </span>
+    <span className={`ob-check ${ok ? "ok" : "bad"}`}>{ok ? "✓" : "×"}</span>
   );
 }
 
@@ -244,19 +163,20 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <div style={styles.app}>
-      <div style={styles.body}>
+    <div className="ob-app">
+      <div className="ob-titlebar" />
+      <div className="ob-body">
         {step === "welcome" && (
           <>
-            <h1 style={styles.h1}>Welcome to Prompty</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">Welcome to Prompty</h1>
+            <p className="ob-p">
               Prompty is a real-time call coach for macOS. It listens to your
               meetings, tracks your goals and checklist, and surfaces quiet
               nudges in a floating panel — across Zoom, Meet, FaceTime, Slack,
               and more.
             </p>
-            <div style={styles.hero}>[screenshot placeholder]</div>
-            <p style={styles.muted}>
+            <div className="ob-hero">[screenshot placeholder]</div>
+            <p className="ob-muted">
               We'll walk through a few one-time setup steps.
             </p>
           </>
@@ -264,41 +184,41 @@ export default function App(): JSX.Element {
 
         {step === "claude" && (
           <>
-            <h1 style={styles.h1}>Claude Code</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">Claude Code</h1>
+            <p className="ob-p">
               Prompty runs its reasoning through your local Claude Code
               installation. We never send your transcripts to a third-party
               model server.
             </p>
-            <div style={styles.card}>
-              <div style={styles.row}>
+            <div className="ob-card">
+              <div className="ob-row">
                 <Check ok={!!claude?.found} />
                 <div>
                   {claude?.found ? (
                     <>
-                      <div style={{ fontWeight: 500 }}>Claude Code found</div>
-                      <div style={styles.muted}>{claude.path}</div>
+                      <div className="ob-strong">Claude Code found</div>
+                      <div className="ob-muted">{claude.path}</div>
                     </>
                   ) : (
                     <>
-                      <div style={{ fontWeight: 500 }}>Claude Code not found</div>
-                      <div style={styles.muted}>
+                      <div className="ob-strong">Claude Code not found</div>
+                      <div className="ob-muted">
                         Install Claude Code, then click Re-check.
                       </div>
                     </>
                   )}
                 </div>
               </div>
-              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <div className="ob-actions">
                 {!claude?.found && (
                   <button
-                    style={styles.btn("primary")}
+                    className="ob-btn ob-btn-primary"
                     onClick={() => openExternal("https://claude.ai/code")}
                   >
                     Install Claude Code
                   </button>
                 )}
-                <button style={styles.btn("ghost")} onClick={recheckClaude}>
+                <button className="ob-btn ob-btn-ghost" onClick={recheckClaude}>
                   Re-check
                 </button>
               </div>
@@ -308,16 +228,16 @@ export default function App(): JSX.Element {
 
         {step === "mic" && (
           <>
-            <h1 style={styles.h1}>Microphone access</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">Microphone access</h1>
+            <p className="ob-p">
               Prompty captures your microphone to transcribe your side of the
               call. Audio stays on your machine; only the transcript is sent
               upstream.
             </p>
-            <div style={styles.card}>
-              <div style={styles.row}>
+            <div className="ob-card">
+              <div className="ob-row">
                 <Check ok={micGranted} />
-                <div style={{ fontWeight: 500 }}>
+                <div className="ob-strong">
                   {perm?.microphone === "granted"
                     ? "Microphone access granted"
                     : perm?.microphone === "denied"
@@ -325,9 +245,9 @@ export default function App(): JSX.Element {
                       : "Microphone access pending"}
                 </div>
               </div>
-              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <div className="ob-actions">
                 <button
-                  style={styles.btn("primary", micBusy || micGranted)}
+                  className="ob-btn ob-btn-primary"
                   disabled={micBusy || micGranted}
                   onClick={requestMic}
                 >
@@ -335,7 +255,7 @@ export default function App(): JSX.Element {
                 </button>
                 {perm?.microphone === "denied" && (
                   <button
-                    style={styles.btn("ghost")}
+                    className="ob-btn ob-btn-ghost"
                     onClick={() =>
                       openExternal(
                         "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
@@ -352,27 +272,27 @@ export default function App(): JSX.Element {
 
         {step === "auth" && (
           <>
-            <h1 style={styles.h1}>Sign in with Google</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">Sign in with Google</h1>
+            <p className="ob-p">
               Sign in with Google to enable live transcription and let Prompty
               read your upcoming calendar events. Only your email + calendar
               read scope are requested.
             </p>
-            <div style={styles.card}>
-              <div style={styles.row}>
+            <div className="ob-card">
+              <div className="ob-row">
                 <Check ok={signedIn} />
                 <div>
-                  <div style={{ fontWeight: 500 }}>
+                  <div className="ob-strong">
                     {signedIn ? "Signed in" : "Not signed in"}
                   </div>
                   {signedInUser && (
-                    <div style={styles.muted}>{signedInUser}</div>
+                    <div className="ob-muted">{signedInUser}</div>
                   )}
                 </div>
               </div>
-              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <div className="ob-actions">
                 <button
-                  style={styles.btn("primary", authBusy || signedIn)}
+                  className="ob-btn ob-btn-primary"
                   disabled={authBusy || signedIn}
                   onClick={signIn}
                 >
@@ -383,33 +303,31 @@ export default function App(): JSX.Element {
                       : "Sign in with Google"}
                 </button>
               </div>
-              {authError && (
-                <p style={{ ...styles.muted, color: "#ff3b30" }}>{authError}</p>
-              )}
+              {authError && <p className="ob-error">{authError}</p>}
             </div>
           </>
         )}
 
         {step === "notifications" && (
           <>
-            <h1 style={styles.h1}>Notifications</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">Notifications</h1>
+            <p className="ob-p">
               Prompty uses notifications for call-ready toasts ("Ready for X")
               and post-call summaries. The first notification will ask macOS
               for permission.
             </p>
-            <div style={styles.card}>
-              <div style={styles.row}>
+            <div className="ob-card">
+              <div className="ob-row">
                 <Check ok={notifFired} />
-                <div style={{ fontWeight: 500 }}>
+                <div className="ob-strong">
                   {notifFired
                     ? "Notification sent — approve it in the macOS prompt if asked"
                     : "Send a test notification to enable them"}
                 </div>
               </div>
-              <div style={{ marginTop: 12 }}>
+              <div className="ob-actions">
                 <button
-                  style={styles.btn("primary", notifFired)}
+                  className="ob-btn ob-btn-primary"
                   disabled={notifFired}
                   onClick={fireNotification}
                 >
@@ -422,19 +340,19 @@ export default function App(): JSX.Element {
 
         {step === "screen" && (
           <>
-            <h1 style={styles.h1}>Screen Recording permission</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">Screen Recording permission</h1>
+            <p className="ob-p">
               You're on macOS {macOs?.major}.{macOs?.minor}. Prompty needs
               Screen Recording permission to capture the other person's audio.
               We never read pixels or take screenshots — only audio frames flow
               through.
             </p>
-            <p style={styles.p}>
+            <p className="ob-p">
               On macOS 14.4+ this isn't needed; we use a CoreAudio tap instead.
             </p>
-            <div style={styles.card}>
+            <div className="ob-card">
               <button
-                style={styles.btn("primary")}
+                className="ob-btn ob-btn-primary"
                 onClick={() =>
                   openExternal(
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -449,13 +367,13 @@ export default function App(): JSX.Element {
 
         {step === "done" && (
           <>
-            <h1 style={styles.h1}>You're all set</h1>
-            <p style={styles.p}>
+            <h1 className="ob-h1">You're all set</h1>
+            <p className="ob-p">
               Prompty lives in your menu bar. The floating panel will appear
               when a call starts — or you can open it from the tray icon any
               time.
             </p>
-            <p style={styles.muted}>
+            <p className="ob-muted">
               Press <kbd>Alt+Shift+Space</kbd> during a call to summon a nudge
               on demand.
             </p>
@@ -463,26 +381,29 @@ export default function App(): JSX.Element {
         )}
       </div>
 
-      <div style={styles.footer}>
+      <div className="ob-footer">
         <button
-          style={styles.btn("ghost", stepIdx === 0)}
+          className="ob-btn ob-btn-ghost"
           disabled={stepIdx === 0}
           onClick={back}
         >
           Back
         </button>
-        <div style={styles.dots}>
+        <div className="ob-dots">
           {steps.map((s, i) => (
-            <div key={s.key} style={styles.dot(i === stepIdx)} />
+            <div
+              key={s.key}
+              className={`ob-dot${i === stepIdx ? " active" : ""}`}
+            />
           ))}
         </div>
         {step === "done" ? (
-          <button style={styles.btn("primary")} onClick={finish}>
+          <button className="ob-btn ob-btn-primary" onClick={finish}>
             Open Prompty
           </button>
         ) : (
           <button
-            style={styles.btn("primary", !canAdvance())}
+            className="ob-btn ob-btn-primary"
             disabled={!canAdvance()}
             onClick={next}
           >
