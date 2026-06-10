@@ -8,7 +8,12 @@ import type { Nudge } from "@shared/types";
 //    (newest always kept);
 //  - a high-urgency nudge preempts whatever is showing immediately;
 //  - a nudge that waited longer than STALE_MS is dropped unshown.
+// dwell = minimum time a nudge holds the bar before a *queued* newer one may
+// replace it (so a burst doesn't flash). hide = how long a lone nudge lingers
+// when nothing is queued, before the bar auto-hides — long enough to actually
+// read it mid-call, short enough that it doesn't sit parked over the call.
 const DEFAULT_DWELL_MS = 2500;
+const DEFAULT_HIDE_MS = 8000;
 const DEFAULT_STALE_MS = 12_000;
 const MAX_QUEUE = 3;
 
@@ -36,6 +41,7 @@ export default function App(): JSX.Element {
   const shownAt = useRef(0);
   const hasCurrent = useRef(false);
   const dwellMs = useRef(readParam("dwellMs", DEFAULT_DWELL_MS)).current;
+  const hideMs = useRef(readParam("hideMs", DEFAULT_HIDE_MS)).current;
   const staleMs = useRef(readParam("staleMs", DEFAULT_STALE_MS)).current;
 
   const show = useCallback((n: Nudge) => {
@@ -90,10 +96,17 @@ export default function App(): JSX.Element {
 
     const tick = setInterval(() => {
       prune();
-      const dwellDone = Date.now() - shownAt.current >= dwellMs;
-      if (hasCurrent.current && dwellDone) {
-        advance();
-      } else if (!hasCurrent.current && queue.current.length > 0) {
+      const elapsed = Date.now() - shownAt.current;
+      if (hasCurrent.current) {
+        if (queue.current.length > 0) {
+          // A newer nudge is waiting: replace once the minimum dwell has passed.
+          if (elapsed >= dwellMs) advance();
+        } else if (elapsed >= hideMs) {
+          // Nothing queued: let the lone nudge linger, then hide.
+          setVisible(false);
+          hasCurrent.current = false;
+        }
+      } else if (queue.current.length > 0) {
         advance();
       }
     }, 200);
@@ -103,7 +116,7 @@ export default function App(): JSX.Element {
       offState();
       clearInterval(tick);
     };
-  }, [show, dwellMs, staleMs]);
+  }, [show, dwellMs, hideMs, staleMs]);
 
   return (
     <div

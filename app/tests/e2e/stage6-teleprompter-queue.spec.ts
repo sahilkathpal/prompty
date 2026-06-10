@@ -113,6 +113,9 @@ test("Stage 5: stale nudges are dropped unshown", async () => {
   const app = await launchApp({
     PROMPTY_TELEPROMPTER_STALE_MS: "800",
     PROMPTY_TELEPROMPTER_DWELL_MS: "1500",
+    // Short linger so the lone shown nudge auto-hides within the sample window
+    // once its stale queue has been pruned.
+    PROMPTY_TELEPROMPTER_HIDE_MS: "1000",
   });
   try {
     await waitForReady(app);

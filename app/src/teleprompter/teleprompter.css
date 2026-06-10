@@ -18,11 +18,13 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 18px;
-  background: #111315;
-  color: #f5f6f7;
-  border-radius: 10px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  padding: 0 24px;
+  /* Dark translucent liquid-glass HUD. */
+  background: rgba(12, 13, 17, 0.72);
+  color: #f4f6f8;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
   font-size: 15px;
   font-weight: 500;
   letter-spacing: 0.01em;
@@ -39,9 +41,8 @@ html, body {
   opacity: 1;
 }
 
-/* High-urgency nudges get a red treatment to match the overlay. */
+/* High-urgency: identical dark glass, just a red glow around it. Nothing else
+   changes (no fill/border/text recolor — those bled amber over the call). */
 .teleprompter-root.high {
-  background: #b3261e;
-  color: #fff;
-  box-shadow: 0 6px 24px rgba(179, 38, 30, 0.45);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 20px 2px rgba(255, 70, 60, 0.55);
 }
