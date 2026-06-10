@@ -220,6 +220,24 @@
   font-style: italic;
 }
 
+/* Free-text notes editor on the rail. */
+.prep-notes-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+}
+.prep-notes-input::placeholder { color: var(--faint); }
+.prep-notes-input:focus { border-color: var(--accent); }
+
 /* Shared inline edit input (goal + checklist). */
 .prep-edit-input {
   width: 100%;

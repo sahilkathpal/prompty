@@ -79,6 +79,18 @@ async function main() {
     "remove trace names the removed text",
   );
 
+  // --- setNotes --------------------------------------------------------------
+  session.setNotes("Skeptical CTO — mention SOC2.");
+  s = session.getState();
+  assert.equal(s.notes, "Skeptical CTO — mention SOC2.", "notes set");
+  assert.equal(
+    session.snapshot().notes,
+    "Skeptical CTO — mention SOC2.",
+    "snapshot carries notes",
+  );
+  tr = lastTrace(session);
+  assert.equal(tr?.toolName, "set_notes", "setNotes trace toolName");
+
   // --- empty input is rejected ----------------------------------------------
   assert.throws(() => session.setGoal("   "), "empty goal rejected");
   assert.throws(() => session.addChecklistItem(""), "empty item rejected");
@@ -93,6 +105,7 @@ async function main() {
       { id: "2", text: "Decision timeline", status: "open" },
     ],
     "discovery",
+    "Skeptical CTO — mention SOC2.",
   );
   assert.ok(full.startsWith("[current-state]"), "preamble is fenced");
   assert.ok(full.includes("[/current-state]"), "preamble closes the fence");
@@ -100,11 +113,13 @@ async function main() {
   assert.ok(full.includes("mode: discovery"), "preamble has mode");
   assert.ok(full.includes("- Current Kafka spend"), "preamble lists item 1");
   assert.ok(full.includes("- Decision timeline"), "preamble lists item 2");
+  assert.ok(full.includes("notes: Skeptical CTO"), "preamble has notes");
 
   const empty = buildPrepStatePreamble("", [], "");
   assert.ok(empty.includes("goal: (not set yet)"), "empty goal placeholder");
   assert.ok(empty.includes("mode: (not set yet)"), "empty mode placeholder");
   assert.ok(empty.includes("(none yet)"), "empty checklist placeholder");
+  assert.ok(empty.includes("notes: (none)"), "empty notes placeholder");
 
   console.log("[smoke-prep-edit] PASS");
   process.exit(0);

@@ -35,6 +35,7 @@ export function buildPrepStatePreamble(
   goal: string,
   checklist: ChecklistItem[],
   mode: string,
+  notes?: string,
 ): string {
   const items = checklist.map((c) => `- ${c.text}`);
   return [
@@ -43,6 +44,7 @@ export function buildPrepStatePreamble(
     `mode: ${mode || "(not set yet)"}`,
     "checklist:",
     items.length ? items.join("\n") : "(none yet)",
+    `notes: ${notes?.trim() || "(none)"}`,
     "[/current-state]",
   ].join("\n");
 }
@@ -61,6 +63,7 @@ export interface PrepMessage {
 export interface PrepState {
   goal: string;
   checklist: ChecklistItem[];
+  notes: string;
   mode: string;
   messages: PrepMessage[];
   event: CalendarEvent | null;
@@ -80,6 +83,7 @@ export interface PrepSessionHandle {
    * it stays in sync with manual edits.
    */
   setGoal(text: string): void;
+  setNotes(text: string): void;
   addChecklistItem(text: string): ChecklistItem;
   editChecklistItem(id: string, text: string): void;
   removeChecklistItem(id: string): void;
@@ -88,6 +92,7 @@ export interface PrepSessionHandle {
   snapshot(): {
     goal: string;
     checklist: ChecklistItem[];
+    notes: string;
     mode: string;
     event: CalendarEvent | null;
   };
@@ -111,6 +116,7 @@ export interface PrepSessionFactory {
 export interface PrepSeed {
   goal?: string;
   checklist?: ChecklistItem[];
+  notes?: string;
   mode?: string;
   messages?: PrepMessage[];
 }
@@ -125,6 +131,7 @@ function createMockPrepSession(
   const state: PrepState = {
     goal: seed?.goal ?? "",
     checklist: seed?.checklist ? [...seed.checklist] : [],
+    notes: seed?.notes ?? "",
     mode: seed?.mode ?? "",
     messages: seed?.messages ? [...seed.messages] : [],
     event,
@@ -248,6 +255,11 @@ function createMockPrepSession(
       pushTool("set_goal", `You set goal: ${v}`);
       emitState();
     },
+    setNotes(text: string) {
+      state.notes = text;
+      pushTool("set_notes", text.trim() ? `You set notes` : `You cleared notes`);
+      emitState();
+    },
     addChecklistItem(text: string) {
       const v = text.trim();
       if (!v) throw new Error("checklist item cannot be empty");
@@ -278,11 +290,18 @@ function createMockPrepSession(
       return { ...state, messages: [...state.messages], checklist: [...state.checklist] };
     },
     snapshot() {
-      return { goal: state.goal, checklist: [...state.checklist], mode: state.mode, event };
+      return {
+        goal: state.goal,
+        checklist: [...state.checklist],
+        notes: state.notes,
+        mode: state.mode,
+        event,
+      };
     },
     async discard() {
       state.goal = "";
       state.checklist = [];
+      state.notes = "";
       state.mode = "";
       state.messages = [];
       emitState();
@@ -310,6 +329,7 @@ async function createRealPrepSession(
   const state: PrepState = {
     goal: seed?.goal ?? "",
     checklist: seed?.checklist ? [...seed.checklist] : [],
+    notes: seed?.notes ?? "",
     mode: seed?.mode ?? "",
     messages: seed?.messages ? [...seed.messages] : [],
     event,
@@ -330,7 +350,10 @@ async function createRealPrepSession(
   // authoritative current-state block to the model's turn so it never re-asks
   // for something already set or re-adds an item the user removed.
   let railDirty = Boolean(
-    seed?.goal || (seed?.checklist?.length ?? 0) > 0 || seed?.mode,
+    seed?.goal ||
+      (seed?.checklist?.length ?? 0) > 0 ||
+      seed?.mode ||
+      seed?.notes,
   );
 
   const pushTrace = (toolName: string, text: string) => {
@@ -344,7 +367,7 @@ async function createRealPrepSession(
   };
 
   const buildStatePreamble = (): string =>
-    buildPrepStatePreamble(state.goal, state.checklist, state.mode);
+    buildPrepStatePreamble(state.goal, state.checklist, state.mode, state.notes);
 
   const checklistMcp = createSdkMcpServer({
     name: "prompty-prep",
@@ -488,7 +511,10 @@ async function createRealPrepSession(
   const q = query({
     prompt: inputStream,
     options: {
-      systemPrompt: buildPrepSystemPrompt(event),
+      // Mode is fixed for the SDK session: seed it at open. A mid-session mode
+      // chip won't rebuild this prompt (same seed-rebuild tradeoff as resume),
+      // but the in-call prompt is where mode truly bakes in.
+      systemPrompt: buildPrepSystemPrompt(event, seed?.mode),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
       // Keep the CLI's workspace scan out of the user's protected folders.
       cwd: agentCwd(),
@@ -623,6 +649,12 @@ async function createRealPrepSession(
       railDirty = true;
       emitState();
     },
+    setNotes(text: string) {
+      state.notes = text;
+      pushTrace("set_notes", text.trim() ? `You set notes` : `You cleared notes`);
+      railDirty = true;
+      emitState();
+    },
     addChecklistItem(text: string) {
       const v = text.trim();
       if (!v) throw new Error("checklist item cannot be empty");
@@ -663,6 +695,7 @@ async function createRealPrepSession(
       return {
         goal: state.goal,
         checklist: [...state.checklist],
+        notes: state.notes,
         mode: state.mode,
         event,
       };
@@ -670,6 +703,7 @@ async function createRealPrepSession(
     async discard() {
       state.goal = "";
       state.checklist = [];
+      state.notes = "";
       state.mode = "";
       state.messages = [];
       emitState();

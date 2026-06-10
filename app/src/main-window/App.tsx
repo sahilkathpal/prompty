@@ -217,6 +217,10 @@ function Home({
   // Call type picked for a no-prep ad-hoc start (idle hero). Defaults to the
   // general "default" coaching mode so a single click is enough to start.
   const [adhocMode, setAdhocMode] = useState<string>("default");
+  // Free-text notes for a no-prep start. Persisted into the draft on blur so
+  // call:start carries them. Seeded from any light (notes-only) draft.
+  const [notes, setNotes] = useState<string>("");
+  const notesFocused = useRef(false);
 
   const refreshUpcoming = () => {
     window.prompty
@@ -231,6 +235,14 @@ function Home({
       .catch(() => setCompleted([]));
   };
 
+  // Adopt a draft into local state: track it, and (unless the user is mid-edit)
+  // seed the idle notes + mode chip from it so a light draft is editable in place.
+  const adoptPending = (p: PendingPrepPayload | null) => {
+    setPending(p);
+    if (!notesFocused.current) setNotes(p?.notes ?? "");
+    if (p?.mode) setAdhocMode(p.mode);
+  };
+
   useEffect(() => {
     window.prompty
       .invoke("calendar:current-arm", undefined as never)
@@ -238,7 +250,7 @@ function Home({
       .catch(() => {});
     window.prompty
       .invoke("pending-prep:get", undefined as never)
-      .then(setPending)
+      .then(adoptPending)
       .catch(() => {});
     refreshUpcoming();
     refreshCompleted();
@@ -247,7 +259,7 @@ function Home({
       refreshUpcoming();
     });
     const offPP = window.prompty.on("pending-prep:changed", (p) => {
-      setPending(p.prep);
+      adoptPending(p.prep);
     });
     const offState = window.prompty.on("session:state-changed", (p) => {
       // When a session ends, refresh the completed list.
@@ -260,8 +272,20 @@ function Home({
     };
   }, []);
 
+  const commitNotes = async () => {
+    notesFocused.current = false;
+    if (notes !== (pending?.notes ?? "")) {
+      await window.prompty.invoke("draft:set-notes", { notes });
+    }
+  };
   const startNow = (mode?: string) =>
     window.prompty.invoke("call:start", mode ? { mode } : {});
+  // Idle quick-start: persist any pending notes into the draft BEFORE starting,
+  // since call:start consumes the draft on the main side.
+  const startIdle = async () => {
+    await commitNotes();
+    await startNow(adhocMode);
+  };
   const startPrep = () => window.prompty.invoke("prep:open", { eventId: armed?.id });
   const resumePrep = () =>
     window.prompty.invoke("prep:open", { eventId: pending?.eventId });
@@ -273,10 +297,13 @@ function Home({
       ? completed
       : completed.slice(0, COMPLETED_PREVIEW);
 
-  // Hero precedence: a prep you already built (most actionable) wins, then an
-  // imminent calendar call, else a calm "start a call" prompt.
+  // Hero precedence: a prep you actually built (has a goal or checklist) wins,
+  // then an imminent calendar call, else a calm "start a call" prompt. A light
+  // draft (notes-only, from the idle screen) is NOT "prepped" — it stays in the
+  // idle hero so the notes box and mode chips remain editable in place.
+  const prepped = !!pending && (!!pending.goal || pending.checklist.length > 0);
   let hero: JSX.Element;
-  if (pending) {
+  if (pending && prepped) {
     hero = (
       <div className="mw-hero" data-testid="pending-prep-card">
         <div className="mw-hero-eyebrow">Ready to run</div>
@@ -289,6 +316,11 @@ function Home({
           {pending.checklist.length} checklist item
           {pending.checklist.length === 1 ? "" : "s"}
         </div>
+        {pending.notes && (
+          <div className="mw-hero-notes" data-testid="pending-prep-notes">
+            {pending.notes}
+          </div>
+        )}
         <div className="mw-hero-actions">
           <button
             className="mw-btn mw-btn-primary"
@@ -370,10 +402,20 @@ function Home({
             );
           })}
         </div>
+        <textarea
+          className="mw-notes-input"
+          value={notes}
+          onFocus={() => (notesFocused.current = true)}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={commitNotes}
+          placeholder="Optional notes for the coach — context, names, facts to mention…"
+          data-testid="idle-notes"
+          rows={2}
+        />
         <div className="mw-hero-actions">
           <button
             className="mw-btn mw-btn-primary"
-            onClick={() => startNow(adhocMode)}
+            onClick={() => void startIdle()}
             data-testid="idle-start-call"
           >
             Start call
@@ -593,6 +635,36 @@ function GoalEditor({ goal }: { goal: string }): JSX.Element {
   );
 }
 
+// Free-text notes editor for the prep rail. Silent: writes via prep:set-notes
+// and never sends a chat message. Commits on blur when changed.
+function NotesEditor({ notes }: { notes: string }): JSX.Element {
+  const [draft, setDraft] = useState(notes);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(notes);
+  }, [notes, focused]);
+
+  const commit = () => {
+    setFocused(false);
+    if (draft !== notes) {
+      void window.prompty.invoke("prep:set-notes", { text: draft });
+    }
+  };
+
+  return (
+    <textarea
+      className="prep-notes-input"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={commit}
+      placeholder="Anything the coach should know — context, names, facts to mention…"
+      data-testid="prep-notes-input"
+      rows={3}
+    />
+  );
+}
+
 // Inline checklist editor — each row click-to-edit + hover-delete, plus an
 // "+ add item" affordance. All edits are silent (no chat message).
 function ChecklistEditor({ items }: { items: ChecklistItem[] }): JSX.Element {
@@ -787,7 +859,7 @@ function RunningPrep({ state }: { state: PrepStatePayload }): JSX.Element {
     }
   };
 
-  const { event, goal, checklist, messages, mode } = state;
+  const { event, goal, checklist, notes, messages, mode } = state;
   const canSaveAndStart = !!goal && checklist.length >= 1;
 
   return (
@@ -881,6 +953,10 @@ function RunningPrep({ state }: { state: PrepStatePayload }): JSX.Element {
           <div className="prep-card" data-testid="prep-checklist-card">
             <div className="prep-card-title">Checklist</div>
             <ChecklistEditor items={checklist} />
+          </div>
+          <div className="prep-card" data-testid="prep-notes-card">
+            <div className="prep-card-title">Notes</div>
+            <NotesEditor notes={notes} />
           </div>
         </aside>
       </div>

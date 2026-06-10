@@ -18,8 +18,12 @@ export interface PendingPrepMessage {
 }
 
 export interface PendingPrep {
-  goal: string;
-  checklist: ChecklistItem[];
+  // goal/checklist are optional: a draft can be just a mode (+ notes) when the
+  // user skips prep. The in-call prompt omits whatever is absent.
+  goal?: string;
+  checklist?: ChecklistItem[];
+  /** Free-text framing the user wants the in-call agent to know. */
+  notes?: string;
   mode?: string;
   eventId?: string;
   eventTitle?: string;
@@ -39,8 +43,9 @@ export function getPendingPrep(): PendingPrep | null {
     const raw = fs.readFileSync(filePath(), "utf8");
     const parsed = JSON.parse(raw) as PendingPrep;
     if (!parsed || typeof parsed !== "object") return null;
-    if (typeof parsed.goal !== "string") return null;
-    if (!Array.isArray(parsed.checklist)) return null;
+    // goal/checklist are optional (a notes-only or mode-only draft is valid);
+    // normalize checklist to an array so callers can always `.length`.
+    if (!Array.isArray(parsed.checklist)) parsed.checklist = [];
     return parsed;
   } catch {
     return null;

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.electron.json && node -e \"require('fs').cpSync('src/main-process/prompts/modes', 'dist/electron/src/main-process/prompts/modes', {recursive: true})\"",
+    "build:main": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.cpSync('src/main-process/prompts/modes','dist/electron/src/main-process/prompts/modes',{recursive:true});fs.cpSync('src/main-process/prompts/base.md','dist/electron/src/main-process/prompts/base.md')\"",
     "prebuild-sidecar": "node scripts/prebuild-sidecar.mjs",
     "build": "npm run prebuild-sidecar && npm run build:renderer && npm run build:main",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
@@ -22,7 +22,8 @@
     "smoke:pending-prep": "node --import tsx tests/smoke-pending-prep.ts",
     "smoke:prep-edit": "node --import tsx tests/smoke-prep-edit.ts",
     "smoke:prep-session": "node --import tsx tests/smoke-prep-session.ts",
-    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:pending-prep && npm run smoke:prep-edit && npm run smoke:prep-session",
+    "smoke:system-prompt": "node --import tsx tests/smoke-system-prompt.ts",
+    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:pending-prep && npm run smoke:prep-edit && npm run smoke:prep-session && npm run smoke:system-prompt",
     "e2e": "playwright test"
   },
   "dependencies": {

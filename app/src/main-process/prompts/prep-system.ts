@@ -4,6 +4,7 @@
 // committed goal + 3-5 short checklist topic labels, written via MCP tool calls.
 
 import type { CalendarEvent } from "../calendar-arm";
+import { loadModeFragment } from "./loader";
 
 export interface PrepPromptContext {
   event: CalendarEvent | null;
@@ -24,14 +25,25 @@ function formatEventBlock(event: CalendarEvent): string {
   ].join("\n");
 }
 
-export function buildPrepSystemPrompt(event: CalendarEvent | null): string {
+export function buildPrepSystemPrompt(
+  event: CalendarEvent | null,
+  mode?: string,
+): string {
   const eventBlock = event
     ? `You're prepping the user for an upcoming call.\n\n${formatEventBlock(event)}\n`
     : `You're prepping the user for an ad-hoc call (no calendar event).\n`;
 
+  // When a mode is already chosen (e.g. resuming a seeded draft), fold its prep
+  // guidance in so the interviewer shapes a mode-appropriate goal + checklist.
+  const flavor = mode ? loadModeFragment(mode, "prep").trim() : "";
+  const modeBlock = flavor
+    ? `\n# Mode guidance (${mode})\n${flavor}\n`
+    : "";
+
   return `You are Prompty's pre-call setup interviewer.
 
 ${eventBlock}
+${modeBlock}
 
 # Your job
 Interview the user relentlessly about this upcoming call until you reach a

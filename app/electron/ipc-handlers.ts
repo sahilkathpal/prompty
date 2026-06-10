@@ -108,7 +108,6 @@ let statusLog: SessionStatusEvent[] = [];
 let lastPreflightFailure:
   | { code: "mic" | "auth" | "claude"; message: string; at: number }
   | null = null;
-let pendingSetup: CallSetup | null = null;
 let calendarArm: CalendarArmHandle | null = null;
 let lastBroadcastState: SessionState | "idle" = "idle";
 let activePrep: PrepSessionHandle | null = null;
@@ -117,8 +116,9 @@ let activePrepEvent: CalendarEvent | null = null;
 function pendingPrepToPayload(p: PendingPrep | null) {
   if (!p) return null;
   return {
-    goal: p.goal,
-    checklist: p.checklist,
+    goal: p.goal ?? "",
+    checklist: p.checklist ?? [],
+    notes: p.notes,
     mode: p.mode,
     eventId: p.eventId,
     eventTitle: p.eventTitle,
@@ -130,6 +130,7 @@ function seedFromPending(p: PendingPrep): PrepSeed {
   return {
     goal: p.goal,
     checklist: p.checklist,
+    notes: p.notes,
     mode: p.mode,
     messages: (p.messages ?? []).map((m) => ({
       id: m.id,
@@ -146,6 +147,7 @@ function prepStateToPayload(handle: PrepSessionHandle) {
   return {
     goal: s.goal,
     checklist: s.checklist,
+    notes: s.notes,
     mode: s.mode,
     messages: s.messages,
     assistantBusy: s.assistantBusy,
@@ -195,12 +197,17 @@ async function lookupEventById(id?: string): Promise<CalendarEvent | null> {
   }
 }
 
-function defaultSetup(mode?: string): CallSetup {
+// The single bridge from the persisted draft to a CallSetup. A null/empty draft
+// yields a mode-only setup (the in-call prompt omits absent goal/checklist/notes).
+// `fallbackMode` applies only when the draft carries no mode (e.g. a pure idle
+// quick-start where the chip's mode is the only signal).
+function draftToSetup(draft: PendingPrep | null, fallbackMode?: string): CallSetup {
+  const notes = draft?.notes?.trim() || undefined;
   return {
-    goal: "",
-    checklist: [],
-    context: {},
-    mode,
+    goal: draft?.goal ?? "",
+    checklist: draft?.checklist ?? [],
+    context: notes ? { manualNotes: notes } : {},
+    mode: draft?.mode ?? fallbackMode,
   };
 }
 
@@ -300,25 +307,16 @@ async function doStartSession(
     return { ok: false, error: pf.code };
   }
   lastPreflightFailure = null;
-  let setup: CallSetup;
-  if (pendingSetup) {
-    setup = pendingSetup;
-    pendingSetup = null;
-  } else {
-    const pp = getPendingPrep();
-    if (pp) {
-      setup = {
-        goal: pp.goal,
-        checklist: pp.checklist,
-        context: {},
-        mode: pp.mode,
-      };
-      // Consume pending prep on session start.
-      clearPendingPrep();
-      broadcast("pending-prep:changed", { prep: null });
-    } else {
-      setup = defaultSetup(mode);
-    }
+  // Single source of truth: the persisted draft. It may carry any subset of
+  // mode/goal/checklist/notes (or be absent entirely for a bare quick-start).
+  // Note: when a draft exists, its mode wins over the idle chip's `mode` — but
+  // the chip is only shown when there's no draft hero, so they don't collide.
+  const draft = getPendingPrep();
+  const setup = draftToSetup(draft, mode);
+  if (draft) {
+    // Consume the draft on session start.
+    clearPendingPrep();
+    broadcast("pending-prep:changed", { prep: null });
   }
   activeSessionSetup = setup;
   statusLog = [];
@@ -687,8 +685,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return { ok: false, error: "no prep session" };
     }
     const snap = activePrep.snapshot();
-    if (!snap.goal || snap.checklist.length === 0) {
-      return { ok: false, error: "goal + ≥1 checklist item required" };
+    // A draft is worth saving if it carries any of goal / checklist / notes.
+    if (!snap.goal && snap.checklist.length === 0 && !snap.notes.trim()) {
+      return { ok: false, error: "nothing to save (set a goal, item, or note)" };
     }
     const fullState = activePrep.getState();
     const messages: PendingPrepMessage[] = fullState.messages.map((m) => ({
@@ -699,8 +698,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       toolName: m.toolName,
     }));
     const pp: PendingPrep = {
-      goal: snap.goal,
+      goal: snap.goal || undefined,
       checklist: snap.checklist,
+      notes: snap.notes.trim() || undefined,
       mode: snap.mode || undefined,
       eventId: snap.event?.id,
       eventTitle: snap.event?.title,
@@ -745,6 +745,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     try {
       activePrep.setGoal(payload.text);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
+  handle("prep:set-notes", (payload) => {
+    if (!activePrep) {
+      return { ok: false, error: "no prep session" };
+    }
+    try {
+      activePrep.setNotes(payload.text);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
@@ -797,6 +809,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     activePrep = null;
     activePrepEvent = null;
     broadcast("prep:state-changed", null);
+    return { ok: true };
+  });
+
+  handle("draft:set-notes", (payload) => {
+    // Notes added from the idle/home screen with no prep session open. Merge
+    // into the existing draft (or create a notes-only one) so call:start can
+    // carry the notes without ever running prep.
+    const cur = getPendingPrep();
+    const notes = payload.notes.trim() || undefined;
+    const next: PendingPrep = {
+      ...(cur ?? {}),
+      notes,
+      savedAt: Date.now(),
+    };
+    setPendingPrep(next);
+    broadcast("pending-prep:changed", { prep: pendingPrepToPayload(next) });
     return { ok: true };
   });
 

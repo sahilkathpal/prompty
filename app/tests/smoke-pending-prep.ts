@@ -79,5 +79,42 @@ assert(readMode!.mode === "discovery", `mode round-trip mismatch: ${readMode!.mo
 clearPendingPrep();
 assert(getPendingPrep() === null, "expected null after clear (mode case)");
 
+// Round-trip with notes.
+const ppWithNotes: PendingPrep = {
+  goal: "Goal with notes",
+  checklist: [{ id: "c1", text: "Ask budget", status: "open" }],
+  notes: "Skeptical CTO — mention SOC2.",
+  mode: "discovery",
+  savedAt: Date.now(),
+};
+setPendingPrep(ppWithNotes);
+const readNotes = getPendingPrep();
+assert(readNotes !== null, "expected pending prep w/ notes after set");
+assert(
+  readNotes!.notes === "Skeptical CTO — mention SOC2.",
+  `notes round-trip mismatch: ${readNotes!.notes}`,
+);
+clearPendingPrep();
+
+// Notes-only draft (no goal, no checklist) — the unified-draft path.
+const notesOnly: PendingPrep = {
+  notes: "Follow-up to last week's demo.",
+  savedAt: Date.now(),
+};
+setPendingPrep(notesOnly);
+const readNotesOnly = getPendingPrep();
+assert(readNotesOnly !== null, "expected notes-only draft to persist");
+assert(readNotesOnly!.goal === undefined, "notes-only draft should have no goal");
+assert(
+  Array.isArray(readNotesOnly!.checklist) && readNotesOnly!.checklist!.length === 0,
+  "notes-only draft checklist should normalize to []",
+);
+assert(
+  readNotesOnly!.notes === "Follow-up to last week's demo.",
+  "notes-only notes mismatch",
+);
+clearPendingPrep();
+assert(getPendingPrep() === null, "expected null after clear (notes cases)");
+
 console.log("[smoke-pending-prep] PASS");
 process.exit(0);

@@ -1,0 +1,1 @@
+This is a general conversation with no specialized lens. Help the user land a concrete, outcome-shaped goal and 3-5 short topic labels for tracks they want to mine. Don't impose a sales/research/hiring framing unless the user's answers clearly call for it.

@@ -179,6 +179,17 @@ export interface InvokeChannels {
     request: { text: string };
     response: { ok: boolean; error?: string };
   };
+  // Free-text notes added inside an open prep session (silent rail edit).
+  "prep:set-notes": {
+    request: { text: string };
+    response: { ok: boolean; error?: string };
+  };
+  // Notes added on the idle/home screen with no prep session open. Writes
+  // straight to the pending-prep draft so a call can carry notes without prep.
+  "draft:set-notes": {
+    request: { notes: string };
+    response: { ok: boolean };
+  };
   "prep:add-checklist-item": {
     request: { text: string };
     response: { ok: boolean; error?: string };
@@ -213,6 +224,7 @@ export interface PrepMessagePayload {
 export interface PrepStatePayload {
   goal: string;
   checklist: ChecklistItem[];
+  notes: string;
   mode: string;
   messages: PrepMessagePayload[];
   event: ArmedEvent | null;
@@ -222,6 +234,7 @@ export interface PrepStatePayload {
 export interface PendingPrepPayload {
   goal: string;
   checklist: ChecklistItem[];
+  notes?: string;
   mode?: string;
   eventId?: string;
   eventTitle?: string;
