@@ -6,3 +6,6 @@ release
 test-results
 playwright-report
 
+# Stray tsc output in the app root (source lives in src/, build emits to dist/)
+/*.js
+
