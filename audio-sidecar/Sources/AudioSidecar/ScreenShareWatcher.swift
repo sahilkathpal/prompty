@@ -16,7 +16,6 @@ import AudioSidecarCore
 /// For v1 we use a simpler, robust signal: check `CGWindowListCopyWindowInfo`
 /// for windows owned by the system's screen-sharing service. This catches
 /// QuickTime, Zoom share-screen overlays, and Meet's "you are sharing" banner.
-@available(macOS 13.0, *)
 final class ScreenShareWatcher {
     private var timer: DispatchSourceTimer?
     private var isSharing = false

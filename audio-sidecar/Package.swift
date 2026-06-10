@@ -4,7 +4,11 @@ import PackageDescription
 let package = Package(
     name: "AudioSidecar",
     platforms: [
-        .macOS(.v13)
+        // Prompty requires macOS 14.4+ (Core Audio process tap). SPM can't
+        // express the .4; the 14.4 floor is enforced at install via the app's
+        // LSMinimumSystemVersion, and a runtime `#available(macOS 14.4)` guard
+        // covers the 14.0→14.4 API gap.
+        .macOS(.v14)
     ],
     targets: [
         // Pure library — testable in isolation, no AVFoundation / SCK deps.

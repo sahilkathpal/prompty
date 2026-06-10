@@ -9,7 +9,7 @@ import AudioSidecarCore
 /// Core Audio Tap API introduced in macOS 14.4:
 ///
 ///   1. A `CATapDescription` for a *global* tap that excludes our own app's audio
-///      (mirrors SCK's `excludesCurrentProcessAudio`).
+///      (so Prompty's own sounds never land in the "them" stream).
 ///   2. `AudioHardwareCreateProcessTap` → a tap object.
 ///   3. A private aggregate device that contains the tap as a sub-tap, clocked by
 ///      the current default output device.
@@ -17,13 +17,14 @@ import AudioSidecarCore
 ///      resamples them to 16 kHz mono Int16 LE, and emits tag-0x03 frames.
 ///   5. Full teardown on stop().
 ///
-/// Unlike the ScreenCaptureKit fallback, this requires only an audio-capture
-/// consent — it never touches Screen Recording. `main.swift` prefers this path
-/// on 14.4+ and falls through to `ScreenCaptureAudio` only when `start()` throws.
+/// This requires only an audio-capture consent — it never touches Screen
+/// Recording. It is the sole system-audio path; Prompty requires macOS 14.4+.
 ///
-/// The class itself is available from the package's deployment target (macOS 13)
-/// so `main.swift` can hold an optional reference unconditionally; every call into
-/// the 14.4-only Core Audio Tap surface is guarded with `if #available`.
+/// The class is available from the package's deployment target (macOS 14) so
+/// `main.swift` can hold an optional reference unconditionally; `start()` and the
+/// helpers that touch the 14.4-only Tap API are annotated `@available(macOS 14.4)`,
+/// and `stop()` guards its teardown internally so it stays callable from the
+/// shutdown path.
 final class CoreAudioTap {
     private var tapID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
@@ -34,7 +35,7 @@ final class CoreAudioTap {
     private var stopped = false
 
     /// 16 kHz mono, Int16, interleaved, little-endian — the wire format every
-    /// downstream consumer (tag 0x03) expects. Identical to MicCapture/SCK.
+    /// downstream consumer (tag 0x03) expects. Identical to MicCapture.
     private let targetFormat: AVAudioFormat = AVAudioFormat(
         commonFormat: .pcmFormatInt16,
         sampleRate: 16_000,
@@ -46,18 +47,8 @@ final class CoreAudioTap {
 
     init() {}
 
-    /// True iff the Core Audio process-tap path is usable (macOS 14.4+).
-    static func isAvailable() -> Bool {
-        if #available(macOS 14.4, *) { return true }
-        return false
-    }
-
+    @available(macOS 14.4, *)
     func start() throws {
-        guard #available(macOS 14.4, *) else {
-            throw NSError(domain: "CoreAudioTap", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Core Audio Tap requires macOS 14.4+"])
-        }
-
         // 1. Tap description: global mixdown of all system audio EXCEPT our own
         //    app (the Electron parent). Excluding ourselves keeps Prompty's own
         //    sounds out of the "them" stream. If we can't resolve the parent
@@ -179,9 +170,8 @@ final class CoreAudioTap {
     // MARK: - IOProc
 
     /// Pull the tap's float buffers out of the IOProc input, resample to
-    /// 16 kHz mono Int16 LE, and emit. Mirrors the proven conversion in
-    /// ScreenCaptureAudio — but reads the AudioBufferList directly (no
-    /// CMSampleBuffer extraction, which was the SCK path's bug).
+    /// 16 kHz mono Int16 LE, and emit. Reads the AudioBufferList directly via
+    /// `AVAudioConverter` — the same conversion the mic path uses.
     private func process(inputData: UnsafePointer<AudioBufferList>) {
         guard let inputFormat = inputFormat, let converter = converter else { return }
 

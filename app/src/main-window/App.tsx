@@ -1121,7 +1121,6 @@ function SettingsTab({
       <div className="mw-section">
         <div className="mw-section-label">Permissions</div>
         <div className="mw-kv"><span className="mw-kv-key">Microphone</span><span className="mw-kv-val">—</span></div>
-        <div className="mw-kv"><span className="mw-kv-key">Screen Recording (macOS &lt;14.4)</span><span className="mw-kv-val">—</span></div>
         <div className="mw-kv"><span className="mw-kv-key">Notifications</span><span className="mw-kv-val">—</span></div>
       </div>
 

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { findClaudeBinary } from "../src/main-process/claude-cli";
 import { closeOnboardingWindow } from "./onboarding-window";
-import type { MacOsVersion, MediaPermissionStatus, PermissionStatus } from "../src/shared/types";
+import type { MediaPermissionStatus, PermissionStatus } from "../src/shared/types";
 import type {
   InvokeChannel,
   InvokeChannels,
@@ -84,24 +84,6 @@ export interface IpcDeps {
   onOnboardingComplete?: () => void;
 }
 
-function parseMacOsVersion(): MacOsVersion {
-  let raw = "";
-  try {
-    const fn = (process as unknown as { getSystemVersion?: () => string })
-      .getSystemVersion;
-    if (typeof fn === "function") raw = fn.call(process);
-  } catch {}
-  if (!raw) raw = os.release();
-  const parts = raw.split(".").map((s) => parseInt(s, 10));
-  const major = Number.isFinite(parts[0]) ? parts[0] : 0;
-  const minor = Number.isFinite(parts[1]) ? parts[1] : 0;
-  const patch = Number.isFinite(parts[2]) ? parts[2] : 0;
-  const needsScreenRecording =
-    process.platform === "darwin" &&
-    (major < 14 || (major === 14 && minor < 4));
-  return { major, minor, patch, needsScreenRecording };
-}
-
 function micStatus(): MediaPermissionStatus {
   if (process.platform !== "darwin") return "granted";
   try {
@@ -111,19 +93,9 @@ function micStatus(): MediaPermissionStatus {
   }
 }
 
-function screenStatus(): MediaPermissionStatus {
-  if (process.platform !== "darwin") return "granted";
-  try {
-    return systemPreferences.getMediaAccessStatus("screen") as MediaPermissionStatus;
-  } catch {
-    return "unknown";
-  }
-}
-
 function permissionStatus(): PermissionStatus {
   return {
     microphone: micStatus(),
-    screen: screenStatus(),
     notifications: Notification.isSupported() ? "enabled" : "unknown",
   };
 }
@@ -627,8 +599,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return { granted: false };
     }
   });
-
-  handle("onboarding:macos-version", () => parseMacOsVersion());
 
   handle("onboarding:permission-status", () => permissionStatus());
 

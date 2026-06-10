@@ -15,7 +15,6 @@ import type {
   CallSetup,
   TranscriptUtterance,
   PermissionStatus,
-  MacOsVersion,
   MainTab,
   SessionStatusEvent,
 } from "./types";
@@ -113,10 +112,6 @@ export interface InvokeChannels {
   "onboarding:request-mic": {
     request: void;
     response: { granted: boolean };
-  };
-  "onboarding:macos-version": {
-    request: void;
-    response: MacOsVersion;
   };
   "onboarding:permission-status": {
     request: void;

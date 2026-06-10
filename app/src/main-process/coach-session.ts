@@ -143,7 +143,7 @@ export async function startSession(
   // getting real audio (permission not effective, wrong/muted input device).
   const MIC_SILENCE_BYTES = 16_000 * 2 * 4; // ~4s of 16kHz mono Int16
   const MIC_SILENCE_REASON =
-    "No audio is reaching the mic. Grant Microphone + Screen Recording permission (System Settings → Privacy & Security) and restart. In dev, the packaged app captures audio more reliably than `npm run dev`.";
+    "No audio is reaching the mic. Grant Microphone permission (System Settings → Privacy & Security) and restart. In dev, the packaged app captures audio more reliably than `npm run dev`.";
   let micBytesSeen = 0;
   let micNonZeroSeen = false;
   let micSilent = false;

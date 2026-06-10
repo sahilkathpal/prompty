@@ -32,7 +32,8 @@ mac:
   # We notarize ourselves in scripts/notarize.mjs (afterSign hook), so disable
   # electron-builder's built-in notarytool integration.
   notarize: false
-  minimumSystemVersion: "13.0"
+  # Core Audio process tap (system-audio capture) requires macOS 14.4+.
+  minimumSystemVersion: "14.4"
   extendInfo:
     NSMicrophoneUsageDescription: "Prompty needs microphone access to transcribe your side of the call."
     LSUIElement: true

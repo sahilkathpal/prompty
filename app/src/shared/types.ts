@@ -147,13 +147,5 @@ export type MediaPermissionStatus =
 
 export interface PermissionStatus {
   microphone: MediaPermissionStatus;
-  screen: MediaPermissionStatus;
   notifications: "enabled" | "unknown";
-}
-
-export interface MacOsVersion {
-  major: number;
-  minor: number;
-  patch: number;
-  needsScreenRecording: boolean;
 }

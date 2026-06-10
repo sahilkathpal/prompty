@@ -85,46 +85,29 @@ do {
     FrameWriter.writeControl(["type": "error", "msg": "mic_start: \(error.localizedDescription)"])
 }
 
-// Tap path — prefer CoreAudio Tap (14.4+) when implemented; otherwise fall through to SCK.
+// System-audio ("them") capture via the Core Audio process tap. This is the
+// only path — Prompty requires macOS 14.4+ (enforced at install via the app's
+// LSMinimumSystemVersion). The audio-only tap replaced the old ScreenCaptureKit
+// fallback, which required Screen Recording.
 var coreAudio: CoreAudioTap?
-var sck: AnyObject?  // ScreenCaptureAudio, gated by availability
-var shareWatcher: AnyObject?
+let shareWatcher = ScreenShareWatcher()
 
-if #available(macOS 14.4, *), CoreAudioTap.isAvailable() {
+if #available(macOS 14.4, *) {
     let tap = CoreAudioTap()
     do {
         try tap.start()
         coreAudio = tap
         Log.info("using CoreAudio Tap path")
     } catch {
-        Log.error("CoreAudio tap failed, falling back to SCK: \(error.localizedDescription)")
+        Log.error("CoreAudio tap start failed: \(error.localizedDescription)")
+        FrameWriter.writeControl(["type": "error", "msg": "tap_start: \(error.localizedDescription)"])
     }
+} else {
+    Log.error("macOS 14.4+ required for system-audio capture")
+    FrameWriter.writeControl(["type": "error", "msg": "unsupported_os: macOS 14.4+ required"])
 }
 
-if coreAudio == nil {
-    if #available(macOS 13.0, *) {
-        let s = ScreenCaptureAudio()
-        sck = s
-        Log.info("using ScreenCaptureKit path")
-        Task {
-            do {
-                try await s.start()
-            } catch {
-                Log.error("SCK start failed: \(error.localizedDescription)")
-                FrameWriter.writeControl(["type": "error", "msg": "sck_start: \(error.localizedDescription)"])
-            }
-        }
-    } else {
-        Log.error("macOS 13+ required")
-        exit(4)
-    }
-}
-
-if #available(macOS 13.0, *) {
-    let w = ScreenShareWatcher()
-    w.start()
-    shareWatcher = w
-}
+shareWatcher.start()
 
 FrameWriter.writeControl(["type": "ready"])
 
@@ -139,14 +122,8 @@ func shutdown() {
     Log.info("shutting down")
     mic.stop()
     coreAudio?.stop()
-    if #available(macOS 13.0, *) {
-        (sck as? ScreenCaptureAudio)?.stop()
-        (shareWatcher as? ScreenShareWatcher)?.stop()
-    }
-    // Give SCK a beat to flush its async stop.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-        exit(0)
-    }
+    shareWatcher.stop()
+    exit(0)
 }
 
 for sig in [SIGTERM, SIGINT, SIGHUP] {

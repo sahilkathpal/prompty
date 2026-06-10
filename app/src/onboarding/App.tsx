@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import type {
-  MacOsVersion,
   MediaPermissionStatus,
   PermissionStatus,
 } from "../shared/types";
@@ -11,7 +10,6 @@ type StepKey =
   | "mic"
   | "auth"
   | "notifications"
-  | "screen"
   | "done";
 
 interface StepDef {
@@ -25,7 +23,6 @@ const baseSteps: StepDef[] = [
   { key: "mic", title: "Microphone" },
   { key: "auth", title: "Sign in" },
   { key: "notifications", title: "Notifications" },
-  { key: "screen", title: "Screen Recording" },
   { key: "done", title: "Done" },
 ];
 
@@ -37,7 +34,6 @@ function Check({ ok }: { ok: boolean }): JSX.Element {
 
 export default function App(): JSX.Element {
   const [stepIdx, setStepIdx] = useState(0);
-  const [macOs, setMacOs] = useState<MacOsVersion | null>(null);
   const [claude, setClaude] = useState<{ found: boolean; path: string | null } | null>(null);
   const [perm, setPerm] = useState<PermissionStatus | null>(null);
   const [signedIn, setSignedIn] = useState(false);
@@ -50,13 +46,11 @@ export default function App(): JSX.Element {
   // Initial probes + listen to auth state changes.
   useEffect(() => {
     void (async () => {
-      const [v, c, p, auth] = await Promise.all([
-        window.prompty.invoke("onboarding:macos-version", undefined as never),
+      const [c, p, auth] = await Promise.all([
         window.prompty.invoke("onboarding:check-claude", undefined as never),
         window.prompty.invoke("onboarding:permission-status", undefined as never),
         window.prompty.invoke("auth:status", undefined as never),
       ]);
-      setMacOs(v);
       setClaude(c);
       setPerm(p);
       setSignedIn(auth.signedIn);
@@ -80,12 +74,7 @@ export default function App(): JSX.Element {
     };
   }, []);
 
-  const steps = useMemo<StepDef[]>(() => {
-    return baseSteps.filter((s) => {
-      if (s.key === "screen") return macOs?.needsScreenRecording === true;
-      return true;
-    });
-  }, [macOs]);
+  const steps = baseSteps;
 
   const step = steps[stepIdx]?.key ?? "welcome";
 
@@ -106,8 +95,6 @@ export default function App(): JSX.Element {
         return signedIn;
       case "notifications":
         return notifFired;
-      case "screen":
-        return true; // explainer only, advance freely
       case "done":
         return true;
     }
@@ -334,33 +321,6 @@ export default function App(): JSX.Element {
                   {notifFired ? "Sent" : "Enable notifications"}
                 </button>
               </div>
-            </div>
-          </>
-        )}
-
-        {step === "screen" && (
-          <>
-            <h1 className="ob-h1">Screen Recording permission</h1>
-            <p className="ob-p">
-              You're on macOS {macOs?.major}.{macOs?.minor}. Prompty needs
-              Screen Recording permission to capture the other person's audio.
-              We never read pixels or take screenshots — only audio frames flow
-              through.
-            </p>
-            <p className="ob-p">
-              On macOS 14.4+ this isn't needed; we use a CoreAudio tap instead.
-            </p>
-            <div className="ob-card">
-              <button
-                className="ob-btn ob-btn-primary"
-                onClick={() =>
-                  openExternal(
-                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-                  )
-                }
-              >
-                Open System Settings
-              </button>
             </div>
           </>
         )}
