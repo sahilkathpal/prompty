@@ -1,5 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { AppSettings, ChecklistItem, TranscriptUtterance, CallSetup } from "@shared/types";
+import type {
+  AppSettings,
+  ChecklistItem,
+  TranscriptUtterance,
+  CallSetup,
+  MediaPermissionStatus,
+  PermissionStatus,
+} from "@shared/types";
 import type {
   ArmedEvent,
   PendingPrepPayload,
@@ -1048,6 +1055,21 @@ function CompletedCallDetail({
   );
 }
 
+function micPermLabel(s: MediaPermissionStatus | undefined): string {
+  switch (s) {
+    case "granted":
+      return "Granted";
+    case "denied":
+      return "Denied";
+    case "restricted":
+      return "Restricted";
+    case "not-determined":
+      return "Not requested";
+    default:
+      return "—";
+  }
+}
+
 function SettingsTab({
   settings,
   onBack,
@@ -1056,8 +1078,22 @@ function SettingsTab({
   onBack: () => void;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
+  const [perm, setPerm] = useState<PermissionStatus | null>(null);
   const signedIn = !!settings?.signedIn;
   const email = settings?.signedInEmail ?? null;
+
+  // Reflect live OS permission state. Re-poll on window focus since the user
+  // may have toggled a permission in System Settings while away.
+  useEffect(() => {
+    const load = () =>
+      window.prompty
+        .invoke("onboarding:permission-status", undefined as never)
+        .then(setPerm)
+        .catch(() => {});
+    void load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, []);
 
   const signIn = async () => {
     setBusy(true);
@@ -1120,8 +1156,18 @@ function SettingsTab({
 
       <div className="mw-section">
         <div className="mw-section-label">Permissions</div>
-        <div className="mw-kv"><span className="mw-kv-key">Microphone</span><span className="mw-kv-val">—</span></div>
-        <div className="mw-kv"><span className="mw-kv-key">Notifications</span><span className="mw-kv-val">—</span></div>
+        <div className="mw-kv">
+          <span className="mw-kv-key">Microphone</span>
+          <span className="mw-kv-val" data-testid="settings-perm-microphone">
+            {micPermLabel(perm?.microphone)}
+          </span>
+        </div>
+        <div className="mw-kv">
+          <span className="mw-kv-key">Notifications</span>
+          <span className="mw-kv-val" data-testid="settings-perm-notifications">
+            {perm?.notifications === "enabled" ? "Enabled" : "—"}
+          </span>
+        </div>
       </div>
 
       <div className="mw-section">
