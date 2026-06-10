@@ -43,6 +43,23 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   // this number over a call, the growing context is the bottleneck.
   let turnCount = 0;
 
+  // --- Optional turn-timing instrumentation (PROMPTY_AGENT_TIMING=1) ---------
+  // Observe-only. Splits each turn into queue-wait (enqueue → start) and model
+  // time (start → decision), and records what the turn decided. turnStartAt /
+  // turnMeta are set the moment a message is actually pulled for processing (at
+  // the yield below), so they stay accurate when turns queue behind one another
+  // — unlike considerStart, which is enqueue-time and gets overwritten.
+  const TIMING = process.env.PROMPTY_AGENT_TIMING === "1";
+  let turnStartAt = 0;
+  let turnMeta: { trigger: string; turnId: number; enqueuedAt: number } | null = null;
+  const logDecision = (decision: string, extra = "") => {
+    if (!TIMING || !turnMeta) return;
+    console.log(
+      `[timing] turn #${turnMeta.turnId} (${turnMeta.trigger}) DECIDED ${decision} after ${Date.now() - turnStartAt}ms model${extra}`,
+    );
+    turnMeta = null;
+  };
+
   // Once the agent makes its user-facing decision (a nudge or an explicit
   // stay-quiet) the turn has produced everything we need. Left to its own
   // devices it keeps running — more tool calls, a wrap-up message — for many
@@ -90,6 +107,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
             );
             considerStart = 0;
           }
+          logDecision("emit_nudge", ` kind=${args.kind} text="${args.text}"`);
           events.onNudge({
             id: `n_${Date.now()}_${decisionCounters.nudge}`,
             kind: args.kind,
@@ -110,6 +128,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
         async (args) => {
           decisionCounters.checklist++;
+          logDecision("update_checklist", ` item=${args.item_id} ${args.status}`);
           events.onChecklistUpdate(args.item_id, args.status);
           return { content: [{ type: "text", text: "checklist_updated" }] };
         },
@@ -122,6 +141,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
         async (args) => {
           decisionCounters.quiet++;
+          logDecision("stay_quiet", ` reason="${args.reason}"`);
           events.onStayQuiet(args.reason);
           finishTurnEarly();
           return { content: [{ type: "text", text: "quiet_logged" }] };
@@ -130,17 +150,18 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
     ],
   });
 
-  let pushUserMessage: ((msg: string) => void) | null = null;
+  type TurnMeta = { trigger: string; turnId: number; enqueuedAt: number };
+  let pushUserMessage: ((msg: string, meta?: TurnMeta) => void) | null = null;
   let closeInput: (() => void) | null = null;
   const turnDoneWaiters: Array<() => void> = [];
 
   const inputStream = (async function* () {
-    const queue: string[] = [];
+    const queue: { content: string; meta?: TurnMeta }[] = [];
     let waiter: (() => void) | null = null;
     let closed = false;
 
-    pushUserMessage = (msg: string) => {
-      queue.push(msg);
+    pushUserMessage = (msg: string, meta?: TurnMeta) => {
+      queue.push({ content: msg, meta });
       waiter?.();
     };
     closeInput = () => {
@@ -156,9 +177,18 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         if (closed && queue.length === 0) return;
       }
       const next = queue.shift()!;
+      // A turn begins processing the moment it's pulled here. Anchor timing so
+      // the decision log can split queue-wait from model time.
+      turnStartAt = Date.now();
+      turnMeta = next.meta ?? null;
+      if (TIMING && next.meta) {
+        console.log(
+          `[timing] turn #${next.meta.turnId} (${next.meta.trigger}) START — waited ${turnStartAt - next.meta.enqueuedAt}ms in queue`,
+        );
+      }
       yield {
         type: "user" as const,
-        message: { role: "user" as const, content: next },
+        message: { role: "user" as const, content: next.content },
         parent_tool_use_id: null,
         session_id: "",
       };
@@ -240,6 +270,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       considerTrigger = trigger;
       pushUserMessage?.(
         `${triggerLine}\n\n--- transcript ---\n${transcriptBlock}\n--- end ---`,
+        { trigger, turnId: turnCount, enqueuedAt: t0 },
       );
       await turnDone;
       console.log(
