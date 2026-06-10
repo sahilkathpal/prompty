@@ -68,6 +68,15 @@ export interface InvokeChannels {
     request: { source: "panel" };
     response: { ok: boolean };
   };
+  // Renderer asks the overlay window to fit its content height. "grow" only
+  // increases height (revealing the sticky-note stack without shrinking a
+  // height the user dragged taller); "exact" snaps to the measured height
+  // (used when the feed is hidden, to drop the now-unused space). Width is
+  // never touched — it stays under manual control.
+  "overlay:set-height": {
+    request: { height: number; mode: "grow" | "exact" };
+    response: { ok: boolean };
+  };
   // Last recent pre-flight failure — queried by the main window on mount so a
   // just-opened window (e.g. via the T-0 notification path) doesn't miss the
   // one-shot preflight:failed broadcast.

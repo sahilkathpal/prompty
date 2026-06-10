@@ -14,7 +14,7 @@ import type {
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
 import { openMainWindow } from "./main-window";
-import { showOverlay, hideOverlay } from "./overlay-window";
+import { showOverlay, hideOverlay, setOverlayHeight } from "./overlay-window";
 import { showTeleprompter, hideTeleprompter } from "./teleprompter-window";
 import {
   openPrepSession,
@@ -423,6 +423,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle("overlay:close", () => {
     hideOverlay();
+  });
+
+  handle("overlay:set-height", (payload) => {
+    setOverlayHeight(payload.height, payload.mode);
+    return { ok: true };
   });
 
   handle("calls:list", async () => {

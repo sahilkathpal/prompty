@@ -92,6 +92,11 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.15);
   border-radius: 3px;
 }
+/* flow-root so the wrapper's measured height includes its children's margins
+   (the overlay's auto-resize relies on this natural-height measurement). */
+.prompty-body-content {
+  display: flow-root;
+}
 
 .prompty-goal {
   background: rgba(255, 255, 255, 0.04);
@@ -143,33 +148,79 @@ html, body, #root {
 .prompty-check-partial .prompty-check-icon { color: #e2c14c; }
 .prompty-check-skipped { color: #5d637a; text-decoration: line-through; opacity: 0.65; }
 
-.prompty-nudges {
+/* ---- Sticky-note prompts: a pile, newest on top, pale-yellow paper ---- */
+.prompty-notes {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
-.prompty-nudge {
-  background: rgba(106, 113, 226, 0.12);
-  border-left: 2px solid #6a71e2;
-  border-radius: 6px;
-  padding: 8px 10px;
-  animation: prompty-fade-in 0.18s ease;
+.prompty-note-stack {
+  position: relative;
+  /* Generous top gap so the post-its sit clear of the checklist — and so the
+     peeking edges (which poke up via transform, outside layout) don't crowd it. */
+  margin: 22px 6px 6px;
 }
-.prompty-nudge-high {
-  background: rgba(226, 106, 113, 0.15);
-  border-left-color: #e26a71;
+.prompty-note {
+  border-radius: 4px;
+  padding: 12px 13px 14px;
+  background: #fdef9a; /* pale Post-it yellow */
+  color: #2c2713;      /* dark ink */
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.4);
 }
-.prompty-nudge-kind {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #9aa0b4;
-  margin-bottom: 3px;
+/* High-urgency keeps the plain yellow paper — urgency is communicated by a
+   hand-scribbled mark scrawled in the corner (see .prompty-note-urgent), not
+   by recoloring the note. */
+.prompty-note-urgent {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+  animation: prompty-scribble 0.28s ease-out;
 }
-.prompty-nudge-text {
-  font-size: 13px;
-  line-height: 1.4;
-  color: #f4f5fb;
+.prompty-note-mark {
+  width: 18px;
+  height: 30px;
+}
+/* Slightly different angles so the two read as a hand-scrawled "!!". */
+.prompty-note-mark:first-child { transform: rotate(-9deg); }
+/* Pull the second in so they sit tight together. */
+.prompty-note-mark:last-child { transform: rotate(-2deg) translateY(3px); margin-left: -8px; }
+@keyframes prompty-scribble {
+  from { opacity: 0; transform: scale(0.55) rotate(-14deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.prompty-note-text {
+  font-size: 13.5px;
+  line-height: 1.45;
+  font-weight: 500;
+  padding-right: 42px; /* clearance for the two-mark corner urgency scribble */
+}
+/* The newest note is in flow (defines the stack height) and drops in on top. */
+.prompty-note-top {
+  position: relative;
+  z-index: 10;
+  transform: rotate(-0.8deg);
+  animation: prompty-note-drop 0.24s cubic-bezier(0.2, 0.8, 0.3, 1.15);
+}
+/* Older notes sit behind, offset up so just their edge peeks out. */
+.prompty-note-peek {
+  position: absolute;
+  inset: 0;
+}
+.prompty-note-peek[data-depth="1"] {
+  z-index: 9;
+  transform: rotate(1.5deg) translateY(-6px);
+  filter: brightness(0.95);
+}
+.prompty-note-peek[data-depth="2"] {
+  z-index: 8;
+  transform: rotate(-2.2deg) translateY(-11px);
+  filter: brightness(0.9);
+}
+@keyframes prompty-note-drop {
+  from { opacity: 0; transform: translateY(-12px) rotate(-3deg) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) rotate(-0.8deg) scale(1); }
 }
 .prompty-empty {
   font-size: 12px;
@@ -198,11 +249,6 @@ html, body, #root {
 }
 .prompty-btn-start { background: #6a71e2; color: white; }
 .prompty-btn-end   { background: #3a3d4d; color: #f4f5fb; }
-
-@keyframes prompty-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 
 /* ---- Overlay header: status dot + heads-up-bar toggle ---- */
 .prompty-overlay-header {
@@ -239,29 +285,63 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 .prompty-status-idle { color: #6e7590; }
+.prompty-status-reason {
+  font-size: 10px;
+  font-weight: 400;
+  color: #ff8f8f;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
 
 @keyframes prompty-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.45; transform: scale(0.78); }
 }
 
-.prompty-headsup-toggle {
+/* A real toggle switch (label + sliding track), not a filled pill. */
+.prompty-headsup-switch {
   -webkit-app-region: no-drag;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid #4a4f63;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  border: none;
   background: transparent;
-  color: #c8ccdf;
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 500;
   flex-shrink: 0;
 }
-.prompty-headsup-toggle.on {
-  border-color: #6a71e2;
-  background: #6a71e2;
-  color: white;
+.prompty-switch-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #9aa0b4;
+  white-space: nowrap;
 }
+.prompty-headsup-switch.on .prompty-switch-label { color: #c8ccdf; }
+.prompty-switch-track {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: #3a3d4d;
+  transition: background 140ms ease;
+  flex-shrink: 0;
+}
+.prompty-headsup-switch.on .prompty-switch-track { background: #6a71e2; }
+.prompty-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: transform 140ms ease;
+}
+.prompty-headsup-switch.on .prompty-switch-thumb { transform: translateX(12px); }
 
 /* ---- Overlay footer actions ---- */
 .prompty-overlay-actions {
@@ -272,32 +352,47 @@ html, body, #root {
   padding: 8px 10px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
-.prompty-ask-btn {
+/* A quiet inline suggestion — plain text + a key cap, not a filled button. */
+.prompty-ask-hint-btn {
   -webkit-app-region: no-drag;
   flex: 1;
-  padding: 6px 10px;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 2px;
   border: none;
-  background: #6a71e2;
-  color: white;
-  font-size: 12px;
-  font-weight: 500;
+  background: transparent;
+  color: #7e85a0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  text-align: left;
   cursor: pointer;
 }
-.prompty-ask-btn:hover { background: #7b82ec; }
-.prompty-ask-hint {
+.prompty-ask-hint-btn:hover { color: #c8ccdf; }
+.prompty-kbd {
+  font-family: inherit;
   font-size: 10px;
-  color: #7e85a0;
-  flex-shrink: 0;
+  color: #c8ccdf;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 .prompty-end-btn {
   -webkit-app-region: no-drag;
-  padding: 6px 10px;
+  padding: 5px 12px;
   border-radius: 6px;
-  border: none;
-  background: #ff3b30;
-  color: white;
-  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #d98a86;
+  font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
   flex-shrink: 0;
+}
+.prompty-end-btn:hover {
+  background: rgba(255, 59, 48, 0.14);
+  color: #ff6b60;
 }

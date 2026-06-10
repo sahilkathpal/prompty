@@ -1,18 +1,26 @@
 import { BrowserWindow, screen } from "electron";
 import path from "node:path";
-import { getSettings, setPanelPosition } from "./settings-store";
+import { getSettings, setPanelPosition, setPanelSize } from "./settings-store";
 
-const DEFAULT_W = 240;
-const DEFAULT_H = 420;
+// Roomier default so the goal + full checklist + nudges are glanceable without
+// scrolling. The user can resize from any edge; the chosen size is persisted.
+const DEFAULT_W = 320;
+const DEFAULT_H = 560;
+const MIN_W = 260;
+const MIN_H = 360;
+// Cap the width: past this a glanceable coaching panel just looks like a wide
+// empty slab and the sticky-note lines get too long to scan. Height is left
+// unbounded (it auto-fits content up to the work area).
+const MAX_W = 520;
 
 let overlay: BrowserWindow | null = null;
 let devUrlCached: string | undefined;
 
-function defaultPosition(): { x: number; y: number } {
+function defaultPosition(width: number): { x: number; y: number } {
   const display = screen.getPrimaryDisplay();
   const { workArea } = display;
   return {
-    x: workArea.x + workArea.width - DEFAULT_W - 16,
+    x: workArea.x + workArea.width - width - 16,
     y: workArea.y + 16,
   };
 }
@@ -31,18 +39,22 @@ export function createOverlayWindow(): BrowserWindow {
   }
 
   const settings = getSettings();
-  const pos = settings.panelPosition ?? defaultPosition();
+  const size = settings.panelSize ?? { width: DEFAULT_W, height: DEFAULT_H };
+  const pos = settings.panelPosition ?? defaultPosition(size.width);
 
   overlay = new BrowserWindow({
-    width: DEFAULT_W,
-    height: DEFAULT_H,
+    width: Math.min(size.width, MAX_W),
+    height: size.height,
+    minWidth: MIN_W,
+    minHeight: MIN_H,
+    maxWidth: MAX_W,
     x: pos.x,
     y: pos.y,
     show: false,
     frame: false,
     transparent: true,
     hasShadow: true,
-    resizable: false,
+    resizable: true,
     movable: true,
     minimizable: false,
     maximizable: false,
@@ -83,11 +95,32 @@ export function createOverlayWindow(): BrowserWindow {
     setPanelPosition({ x, y });
   });
 
+  overlay.on("resize", () => {
+    if (!overlay || overlay.isDestroyed()) return;
+    const [width, height] = overlay.getSize();
+    setPanelSize({ width, height });
+  });
+
   overlay.on("closed", () => {
     overlay = null;
   });
 
   return overlay;
+}
+
+// Fit the overlay's height to its content. Width is never changed — it stays
+// under manual control. "grow" only ever increases the height (so it reveals
+// the sticky-note stack without shrinking a height the user dragged taller);
+// "exact" sets it to the measured height (snapping closed the unused feed space
+// when the heads-up bar is toggled on). Always clamped to the work area.
+export function setOverlayHeight(targetHeight: number, mode: "grow" | "exact"): void {
+  if (!overlay || overlay.isDestroyed()) return;
+  const { workArea } = screen.getPrimaryDisplay();
+  const maxH = Math.max(MIN_H, workArea.height - 32);
+  const clamped = Math.round(Math.min(maxH, Math.max(MIN_H, targetHeight)));
+  const [width, height] = overlay.getSize();
+  const nextH = mode === "grow" ? Math.max(height, clamped) : clamped;
+  if (nextH !== height) overlay.setSize(width, nextH, false);
 }
 
 export function showOverlay(): void {

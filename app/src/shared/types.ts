@@ -107,6 +107,9 @@ export type MainTab = "prep" | "in-call" | "past-calls" | "settings";
 
 export interface AppSettings {
   panelPosition: { x: number; y: number } | null;
+  // Persisted overlay size; null until the user resizes it, then restored on
+  // the next session so the panel keeps whatever footprint they chose.
+  panelSize: { width: number; height: number } | null;
   launchAtLogin: boolean;
   hotkey: string;
   signedIn: boolean;
@@ -123,6 +126,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   panelPosition: null,
+  panelSize: null,
   launchAtLogin: false,
   hotkey: "Alt+Shift+Space",
   signedIn: false,

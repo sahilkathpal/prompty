@@ -39,3 +39,7 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
 export function setPanelPosition(pos: { x: number; y: number }): void {
   updateSettings({ panelPosition: pos });
 }
+
+export function setPanelSize(size: { width: number; height: number }): void {
+  updateSettings({ panelSize: size });
+}

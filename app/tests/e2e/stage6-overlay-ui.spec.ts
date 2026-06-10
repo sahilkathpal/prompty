@@ -148,7 +148,7 @@ test("Stage 4: status dot reaches Listening (green) once audio flows", async () 
   }
 });
 
-test("Stage 4: 'What should I ask?' button produces a nudge in the overlay feed", async () => {
+test("Stage 4: ask-hint produces a nudge in the overlay feed", async () => {
   const dir = await freshUserDataDir();
   const calls = await freshCallLogDir();
   // headsUpBar OFF → nudges land in the in-overlay feed where we can assert them.
