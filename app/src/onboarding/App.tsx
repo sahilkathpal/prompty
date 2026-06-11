@@ -42,6 +42,7 @@ export default function App(): JSX.Element {
   const [authBusy, setAuthBusy] = useState(false);
   const [notifFired, setNotifFired] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
+  const [claudeBusy, setClaudeBusy] = useState(false);
 
   // Initial probes + listen to auth state changes.
   useEffect(() => {
@@ -108,8 +109,13 @@ export default function App(): JSX.Element {
   }
 
   async function recheckClaude(): Promise<void> {
-    const c = await window.prompty.invoke("onboarding:check-claude", undefined as never);
-    setClaude(c);
+    setClaudeBusy(true);
+    try {
+      const c = await window.prompty.invoke("onboarding:check-claude", undefined as never);
+      setClaude(c);
+    } finally {
+      setClaudeBusy(false);
+    }
   }
 
   async function requestMic(): Promise<void> {
@@ -205,8 +211,12 @@ export default function App(): JSX.Element {
                     Install Claude Code
                   </button>
                 )}
-                <button className="ob-btn ob-btn-ghost" onClick={recheckClaude}>
-                  Re-check
+                <button
+                  className="ob-btn ob-btn-ghost"
+                  onClick={recheckClaude}
+                  disabled={claudeBusy}
+                >
+                  {claudeBusy ? "Checking…" : "Re-check"}
                 </button>
               </div>
             </div>
