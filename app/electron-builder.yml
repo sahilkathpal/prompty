@@ -6,6 +6,10 @@ directories:
   buildResources: build
 files:
   - dist/**/*
+  # Tray icon lives outside dist/; bundle it at the asar path tray.ts resolves
+  # to (__dirname/../../../resources/tray-icon-Template.png) or the menu-bar
+  # icon is invisible in packaged builds.
+  - resources/tray-icon-Template*.png
   - package.json
   - "!**/*.map"
   - "!**/.DS_Store"
@@ -36,7 +40,6 @@ mac:
   minimumSystemVersion: "14.4"
   extendInfo:
     NSMicrophoneUsageDescription: "Prompty needs microphone access to transcribe your side of the call."
-    LSUIElement: true
 dmg:
   writeUpdateInfo: true
   sign: false

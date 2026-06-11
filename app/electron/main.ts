@@ -55,10 +55,9 @@ if (E2E_MODE) {
   }
 }
 
-// Hide from dock — this is a menubar app with a floating overlay.
-if (process.platform === "darwin") {
-  app.dock?.hide();
-}
+// Show a Dock icon. Clicking it re-opens the main window via the
+// `activate` handler below; the floating overlay/teleprompter still
+// appear over fullscreen apps because they set visibleOnFullScreen.
 
 let trayCreated = false;
 
