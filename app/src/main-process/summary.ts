@@ -17,6 +17,7 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 
 import type { CallSetup, ChecklistItem, TranscriptUtterance } from "./types";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
+import { modelFor } from "./models";
 
 export interface CallSummaryItem {
   id: string;
@@ -92,6 +93,7 @@ export async function summarizeCall(
     const q = query({
       prompt,
       options: {
+        model: modelFor("recap"),
         pathToClaudeCodeExecutable: resolveClaudeCli(),
         // Keep the CLI's workspace scan out of the user's protected folders.
         cwd: agentCwd(),

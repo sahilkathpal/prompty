@@ -18,6 +18,7 @@ import type {
 } from "./types";
 import { buildSystemPrompt } from "./prompts/system";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
+import { modelFor } from "./models";
 
 export type AgentEvents = {
   onNudge: (n: Nudge) => void;
@@ -200,7 +201,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
     options: {
       // Nudges are short, structured outputs the user is actively waiting on
       // after a hotkey — use the fastest model rather than the CLI default.
-      model: "claude-haiku-4-5",
+      model: modelFor("nudge"),
       systemPrompt: buildSystemPrompt(setup),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
       // Keep the CLI's workspace scan out of the user's protected folders.
