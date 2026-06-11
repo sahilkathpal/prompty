@@ -12,6 +12,8 @@
 import path from "node:path";
 import { Notification, shell } from "electron";
 import { openAgent, type Agent } from "./agent";
+import { answerNow } from "./answer";
+import { createSummaryKeeper, type SummaryKeeper } from "./running-summary";
 import { writeCallLog } from "./call-log";
 import { openJournal, type JournalHandle } from "./journal";
 import { spawnSidecar, type SidecarHandle } from "./sidecar";
@@ -108,6 +110,12 @@ export async function startSession(
   const usingMockDeepgram =
     opts.mockDeepgram ?? process.env.PROMPTY_MOCK_DEEPGRAM === "1";
   const usingMockAgent = process.env.PROMPTY_MOCK_AGENT === "1";
+  const isE2E = process.env.PROMPTY_E2E === "1";
+
+  // Background running summary of the live call — read instantly by the hotkey
+  // one-shot. Skip the model machinery in mock/E2E runs.
+  const summaryKeeper: SummaryKeeper | null =
+    usingMockAgent || isE2E ? null : createSummaryKeeper(setup);
 
   let state: SessionState = "starting";
   let logPath: string | null = null;
@@ -226,6 +234,7 @@ export async function startSession(
     considerWindow.push(u);
     while (considerWindow.length > 12) considerWindow.shift();
     if (u.isFinal) {
+      summaryKeeper?.note(transcript);
       runAutoConsider();
     }
   };
@@ -410,9 +419,33 @@ export async function startSession(
     },
     requestNudge() {
       if (!agent) return;
-      void agent.consider([...considerWindow], "hotkey").catch((e) => {
-        console.error("[coach-session] hotkey consider error:", (e as Error).message);
-      });
+      // Mock/E2E: keep the canned consider("hotkey") path the tests assert on.
+      if (usingMockAgent || isE2E) {
+        void agent.consider([...considerWindow], "hotkey").catch((e) => {
+          console.error("[coach-session] hotkey consider error:", (e as Error).message);
+        });
+        return;
+      }
+      // Real path: dedicated one-shot over the full live context, so the answer
+      // lands this turn instead of a turn late via the persistent session.
+      const recent = transcript.slice(-60);
+      const recentNudges = nudges.slice(-5).map((n) => n.text);
+      void answerNow({
+        setup,
+        summary: summaryKeeper?.current() ?? "",
+        recent,
+        recentNudges,
+      })
+        .then((n) => {
+          if (!n) return;
+          nudges.push(n);
+          journal?.appendNudge(n);
+          console.log(`[coach-session nudge ${n.kind}/${n.urgency}] ${n.text}`);
+          opts.onNudge?.(n);
+        })
+        .catch((e) => {
+          console.error("[coach-session] hotkey answer error:", (e as Error).message);
+        });
     },
     simulateTransportError(reason) {
       onTransportError(reason ?? "simulated");

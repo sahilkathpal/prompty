@@ -19,11 +19,12 @@
     "smoke:calendar-filter": "node --import tsx tests/smoke-calendar-filter.ts",
     "smoke:google-token-refresh": "node --import tsx tests/smoke-google-token-refresh.ts",
     "smoke:coach-session": "node --import tsx tests/smoke-coach-session.ts",
+    "smoke:hotkey-answer": "node --import tsx tests/smoke-hotkey-answer.ts",
     "smoke:pending-prep": "node --import tsx tests/smoke-pending-prep.ts",
     "smoke:prep-edit": "node --import tsx tests/smoke-prep-edit.ts",
     "smoke:prep-session": "node --import tsx tests/smoke-prep-session.ts",
     "smoke:system-prompt": "node --import tsx tests/smoke-system-prompt.ts",
-    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:pending-prep && npm run smoke:prep-edit && npm run smoke:prep-session && npm run smoke:system-prompt",
+    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:pending-prep && npm run smoke:prep-edit && npm run smoke:prep-session && npm run smoke:system-prompt",
     "e2e": "playwright test"
   },
   "dependencies": {
