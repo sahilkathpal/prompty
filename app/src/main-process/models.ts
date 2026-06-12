@@ -3,9 +3,11 @@
 // Kept out of the individual query() call sites so the model choice per role is
 // visible in one place and overridable without a rebuild (env vars below).
 //
-//   - nudge:   the persistent in-call nudging session (agent.ts). High
-//              frequency — an auto-consider per final utterance — so it favours
-//              the fastest model.
+//   - nudge:   the persistent in-call nudging session (agent.ts). Runs an
+//              auto-consider per final utterance, but its nudge taxonomy
+//              (strategic/opportunity, direction-drift, deepen, behavioral)
+//              needs real judgment, so it favours quality over raw speed. The
+//              coalescing queue + stay_quiet default bound the call volume.
 //   - hotkey:  the on-demand "what should I ask?" one-shot (answer.ts). The one
 //              line the user actively waits on, so it favours quality.
 //   - summary: the background running brief (running-summary.ts). Off the
@@ -16,7 +18,7 @@
 export type ModelRole = "nudge" | "hotkey" | "summary" | "recap";
 
 const DEFAULTS: Record<ModelRole, string> = {
-  nudge: "claude-haiku-4-5",
+  nudge: "claude-sonnet-4-6",
   hotkey: "claude-sonnet-4-6",
   summary: "claude-haiku-4-5",
   recap: "claude-sonnet-4-6",
