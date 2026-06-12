@@ -30,6 +30,7 @@ import {
 } from "../src/main-process/pending-prep";
 import { rebuildMenu } from "./tray";
 import { startSession, type SessionHandle, type SessionState } from "../src/main-process/coach-session";
+import { debugDir } from "../src/main-process/debug-logger";
 import {
   getDeepgramToken,
   getSessionToken,
@@ -171,7 +172,7 @@ async function ensurePrepSession(
     activePrep = null;
   }
   activePrepEvent = event;
-  const handle = await openPrepSession(event, seed);
+  const handle = await openPrepSession(event, seed, { debug: getSettings().debugMode });
   handle.on("state-changed", () => {
     broadcast("prep:state-changed", prepStateToPayload(handle));
   });
@@ -327,6 +328,7 @@ async function doStartSession(
 
   try {
     const session = await startSession(setup, {
+      debug: getSettings().debugMode,
       onUtterance: (u) => broadcast("transcript:utterance", u),
       onNudge: (n) => broadcast("nudge:received", n),
       onStatus: (s) => {
@@ -452,7 +454,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         console.error("[ipc] teleprompter toggle failed:", (e as Error).message);
       }
     }
+    // Debug mode takes effect immediately mid-session: open/close the capture
+    // file on the active coach session and/or prep session right away.
+    if (payload.debugMode !== undefined) {
+      try {
+        activeSession?.setDebug(next.debugMode);
+        activePrep?.setDebug(next.debugMode);
+      } catch (e) {
+        console.error("[ipc] debug toggle failed:", (e as Error).message);
+      }
+    }
     return next;
+  });
+
+  handle("debug:reveal", async () => {
+    const dir = debugDir();
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      // openPath focuses the directory itself (showItemInFolder would need an
+      // existing file inside to highlight, which may not exist yet).
+      await shell.openPath(dir);
+      return { ok: true, path: dir };
+    } catch (e) {
+      console.error("[ipc] debug:reveal failed:", (e as Error).message);
+      return { ok: false, path: dir };
+    }
   });
 
   handle("call:start", async (payload) => {
@@ -727,6 +753,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
+    // Record the save in the debug log (before teardown) — captures the saved
+    // snapshot and whether it chained straight into a coaching call.
+    try { activePrep.noteSave(Boolean(payload.andStartCoaching)); } catch {}
     // Tear down the prep session. No separate prep window to close.
     try { await activePrep.close(); } catch {}
     activePrep = null;

@@ -19,12 +19,37 @@ import type {
 import { buildSystemPrompt } from "./prompts/system";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { modelFor } from "./models";
+import { debugFullPrompt } from "./debug-logger";
+
+/**
+ * Per-turn debug record emitted to AgentEvents.onDebug when debug mode is on.
+ * Captures the model's-eye view of one consider() turn: the dynamic context it
+ * saw, the raw text it produced, the tools it called, and what it decided.
+ */
+export interface AgentTurnDebug {
+  trigger: "auto" | "hotkey";
+  turnId: number;
+  /** The dynamic per-turn user message (trigger line + transcript window). */
+  context: string;
+  /** Resolved static system prompt — only under PROMPTY_DEBUG_FULL_PROMPT. */
+  systemPrompt?: string;
+  /** Raw assistant text for the turn (decisions ride on tool calls). */
+  assistantText: string;
+  toolCalls: { name: string; args: unknown }[];
+  decision: "emit_nudge" | "update_checklist" | "stay_quiet" | "none";
+  /** stay_quiet reason, when that was the decision. */
+  reason?: string;
+  nudgeFired: boolean;
+  latencyMs: number;
+}
 
 export type AgentEvents = {
   onNudge: (n: Nudge) => void;
   onChecklistUpdate: (id: string, status: ChecklistItem["status"]) => void;
   onStayQuiet: (reason: string) => void;
   onError: (e: Error) => void;
+  /** Optional verbose per-turn capture (debug mode). */
+  onDebug?: (turn: AgentTurnDebug) => void;
 };
 
 export type Agent = {
@@ -40,6 +65,20 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   // handler can log hotkey/auto latency. 0 = no turn in flight.
   let considerStart = 0;
   let considerTrigger: "auto" | "hotkey" | null = null;
+  // Per-turn debug accumulator (set in consider(), flushed on the turn's
+  // result). The session is serial — one consider() turn runs at a time in the
+  // real path — so a single mutable record is safe.
+  type DbgTurnState = {
+    trigger: "auto" | "hotkey";
+    turnId: number;
+    context: string;
+    systemPrompt?: string;
+    assistantText: string;
+    toolCalls: { name: string; args: unknown }[];
+    stayQuietReason?: string;
+    t0: number;
+  };
+  let dbgTurn: DbgTurnState | null = null;
   // Turns accumulated in this persistent session — if latency climbs alongside
   // this number over a call, the growing context is the bottleneck.
   let turnCount = 0;
@@ -102,6 +141,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
         async (args) => {
           decisionCounters.nudge++;
+          dbgTurn?.toolCalls.push({ name: "emit_nudge", args });
           if (considerStart > 0) {
             console.log(
               `[timing] ${considerTrigger ?? "?"} nudge emitted ${Date.now() - considerStart}ms after consider() (turn #${turnCount})`,
@@ -129,6 +169,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
         async (args) => {
           decisionCounters.checklist++;
+          dbgTurn?.toolCalls.push({ name: "update_checklist", args });
           logDecision("update_checklist", ` item=${args.item_id} ${args.status}`);
           events.onChecklistUpdate(args.item_id, args.status);
           return { content: [{ type: "text", text: "checklist_updated" }] };
@@ -142,6 +183,10 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
         async (args) => {
           decisionCounters.quiet++;
+          if (dbgTurn) {
+            dbgTurn.toolCalls.push({ name: "stay_quiet", args });
+            dbgTurn.stayQuietReason = args.reason;
+          }
           logDecision("stay_quiet", ` reason="${args.reason}"`);
           events.onStayQuiet(args.reason);
           finishTurnEarly();
@@ -227,12 +272,51 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   (async () => {
     try {
       for await (const msg of q) {
+        // Cast required: this IIFE both reads and assigns `dbgTurn` (= null
+        // below), so TS seeds local control-flow with the capture-time type
+        // (null) and never widens back to the declared union. The real value is
+        // set by consider() in a sibling closure.
+        const dt = dbgTurn as DbgTurnState | null;
+        if (msg.type === "assistant" && dt) {
+          for (const block of msg.message.content ?? []) {
+            if ((block as { type?: string }).type === "text") {
+              dt.assistantText += (block as { text?: string }).text ?? "";
+            }
+          }
+        }
         if (msg.type === "result") {
           // A non-success subtype is only an error if we didn't deliberately
           // cut the turn short after the decision landed.
           if (msg.subtype !== "success" && !interruptedTurn) {
             events.onError(new Error(`agent error: ${msg.subtype}`));
           }
+          // Flush the turn's debug record (if capturing). Done here, on the
+          // result, so it fires exactly once per turn regardless of whether the
+          // turn was interrupted early after its decision landed.
+          if (dt && events.onDebug) {
+            const tc = dt.toolCalls;
+            const nudgeFired = tc.some((c) => c.name === "emit_nudge");
+            const decision = nudgeFired
+              ? "emit_nudge"
+              : tc.some((c) => c.name === "stay_quiet")
+                ? "stay_quiet"
+                : tc.some((c) => c.name === "update_checklist")
+                  ? "update_checklist"
+                  : "none";
+            events.onDebug({
+              trigger: dt.trigger,
+              turnId: dt.turnId,
+              context: dt.context,
+              systemPrompt: dt.systemPrompt,
+              assistantText: dt.assistantText,
+              toolCalls: tc,
+              decision,
+              reason: dt.stayQuietReason,
+              nudgeFired,
+              latencyMs: Date.now() - dt.t0,
+            });
+          }
+          dbgTurn = null;
           turnDecided = false;
           interruptedTurn = false;
           turnDoneWaiters.shift()?.();
@@ -269,10 +353,19 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       turnCount++;
       considerStart = t0;
       considerTrigger = trigger;
-      pushUserMessage?.(
-        `${triggerLine}\n\n--- transcript ---\n${transcriptBlock}\n--- end ---`,
-        { trigger, turnId: turnCount, enqueuedAt: t0 },
-      );
+      const userMsg = `${triggerLine}\n\n--- transcript ---\n${transcriptBlock}\n--- end ---`;
+      if (events.onDebug) {
+        dbgTurn = {
+          trigger,
+          turnId: turnCount,
+          context: userMsg,
+          systemPrompt: debugFullPrompt() ? buildSystemPrompt(setup) : undefined,
+          assistantText: "",
+          toolCalls: [],
+          t0,
+        };
+      }
+      pushUserMessage?.(userMsg, { trigger, turnId: turnCount, enqueuedAt: t0 });
       await turnDone;
       console.log(
         `[timing] ${trigger} consider() turn fully done in ${Date.now() - t0}ms`,

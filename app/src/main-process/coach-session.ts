@@ -16,6 +16,8 @@ import { answerNow } from "./answer";
 import { createSummaryKeeper, type SummaryKeeper } from "./running-summary";
 import { writeCallLog } from "./call-log";
 import { openJournal, type JournalHandle } from "./journal";
+import { openDebugLog, type DebugLog } from "./debug-logger";
+import { buildSystemPrompt } from "./prompts/system";
 import { spawnSidecar, type SidecarHandle } from "./sidecar";
 import { startTranscription, type TranscriptionHandle } from "./deepgram";
 import { getDeepgramToken } from "./relay-client";
@@ -47,6 +49,8 @@ export interface SessionOpts {
   mockDeepgram?: boolean;
   /** Mocked agent factory — primarily for E2E. */
   agentFactory?: (setup: CallSetup, events: Parameters<typeof openAgent>[1]) => Promise<Agent>;
+  /** Start with verbose debug capture on (the `debugMode` setting). */
+  debug?: boolean;
 }
 
 export interface SessionHandle {
@@ -55,6 +59,8 @@ export interface SessionHandle {
   injectUtterance(u: TranscriptUtterance): void;
   /** Manually request a nudge from the agent — used by the hotkey. */
   requestNudge(): void;
+  /** Toggle verbose debug capture mid-session (the `debugMode` setting). */
+  setDebug(enabled: boolean): void;
   /** Force an "error" status — used by E2E to verify the status wiring. */
   simulateTransportError(reason?: string): void;
   getNudges(): Nudge[];
@@ -106,6 +112,33 @@ export async function startSession(
   const journal: JournalHandle | null = openJournal(setup, startedAt);
   const considerWindow: TranscriptUtterance[] = [];
 
+  // ---- Verbose debug capture (opt-in `debugMode`) ----
+  // Separate from the always-on journal: captures the model's-eye view
+  // (resolved prompt, per-turn context, raw responses, tool calls, latencies,
+  // interim utterances, status transitions). Null unless debug is on; can be
+  // opened/closed mid-session via setDebug() so a toggle takes effect at once.
+  let debugLog: DebugLog | null = null;
+  const openDebug = () => {
+    if (debugLog) return;
+    debugLog = openDebugLog("call", startedAt);
+    debugLog?.write("session-start", {
+      goal: setup.goal,
+      direction: setup.direction,
+      skill: setup.skill,
+      checklist: setup.checklist,
+      attendee: setup.context.attendee,
+      startedAt,
+      // Resolved static prompt, logged once (fidelity "B").
+      systemPrompt: buildSystemPrompt(setup),
+    });
+  };
+  const closeDebug = () => {
+    if (!debugLog) return;
+    debugLog.close();
+    debugLog = null;
+  };
+  if (opts.debug) openDebug();
+
   const usingMockAudio = opts.mockAudio ?? process.env.PROMPTY_MOCK_AUDIO === "1";
   const usingMockDeepgram =
     opts.mockDeepgram ?? process.env.PROMPTY_MOCK_DEEPGRAM === "1";
@@ -115,7 +148,9 @@ export async function startSession(
   // Background running summary of the live call — read instantly by the hotkey
   // one-shot. Skip the model machinery in mock/E2E runs.
   const summaryKeeper: SummaryKeeper | null =
-    usingMockAgent || isE2E ? null : createSummaryKeeper(setup);
+    usingMockAgent || isE2E
+      ? null
+      : createSummaryKeeper(setup, (s) => debugLog?.write("summary-update", { summary: s }));
 
   let state: SessionState = "starting";
   let logPath: string | null = null;
@@ -137,6 +172,9 @@ export async function startSession(
       : DEFAULT_NO_AUDIO_MS;
 
   const emitStatus = (s: SessionStatus, audioPulse?: boolean, reason?: string) => {
+    // Log transitions only — "listening" pulses fire every ~300ms and would
+    // flood the debug log with no added signal.
+    if (s !== currentStatus) debugLog?.write("status", { status: s, reason });
     currentStatus = s;
     opts.onStatus?.({ state: s, audioPulse, reason });
   };
@@ -229,7 +267,10 @@ export async function startSession(
     if (u.isFinal) {
       transcript.push(u);
       journal?.appendUtterance(u);
+      debugLog?.write("utterance", { ...u });
       opts.onUtterance?.(u);
+    } else {
+      debugLog?.write("interim", { ...u });
     }
     considerWindow.push(u);
     while (considerWindow.length > 12) considerWindow.shift();
@@ -293,6 +334,7 @@ export async function startSession(
       onNudge: (n) => {
         nudges.push(n);
         journal?.appendNudge(n);
+        debugLog?.write("nudge", { nudge: n });
         console.log(`[coach-session nudge ${n.kind}/${n.urgency}] ${n.text}`);
         opts.onNudge?.(n);
       },
@@ -307,8 +349,10 @@ export async function startSession(
       },
       onError: (e) => {
         console.error(`[coach-session agent error] ${e.message}`);
+        debugLog?.write("error", { where: "agent", message: e.message, stack: e.stack });
         opts.onError?.(e);
       },
+      onDebug: (turn) => debugLog?.write("agent-turn", { ...turn }),
     });
   } catch (e) {
     setState("error");
@@ -392,6 +436,8 @@ export async function startSession(
       } catch (e) {
         console.error("[coach-session] write log failed:", (e as Error).message);
       }
+      debugLog?.write("session-end", { endedAt: Date.now(), summary });
+      closeDebug();
       if (logPath && process.env.PROMPTY_E2E !== "1") {
         try {
           const n = new Notification({
@@ -430,22 +476,46 @@ export async function startSession(
       // lands this turn instead of a turn late via the persistent session.
       const recent = transcript.slice(-60);
       const recentNudges = nudges.slice(-5).map((n) => n.text);
+      let hotkeyDbg: import("./answer").AnswerDebug | null = null;
       void answerNow({
         setup,
         summary: summaryKeeper?.current() ?? "",
         recent,
         recentNudges,
+        onDebug: (d) => {
+          hotkeyDbg = d;
+        },
       })
         .then((n) => {
+          // Record the hotkey turn as an agent-turn (trigger:"hotkey"), with
+          // nudgeFired reflecting whether a usable line came back.
+          if (hotkeyDbg) {
+            debugLog?.write("agent-turn", {
+              trigger: "hotkey",
+              context: hotkeyDbg.context,
+              systemPrompt: hotkeyDbg.systemPrompt,
+              assistantText: hotkeyDbg.rawResponse,
+              toolCalls: [],
+              decision: "answer",
+              nudgeFired: !!n,
+              latencyMs: hotkeyDbg.latencyMs,
+            });
+          }
           if (!n) return;
           nudges.push(n);
           journal?.appendNudge(n);
+          debugLog?.write("nudge", { nudge: n });
           console.log(`[coach-session nudge ${n.kind}/${n.urgency}] ${n.text}`);
           opts.onNudge?.(n);
         })
         .catch((e) => {
           console.error("[coach-session] hotkey answer error:", (e as Error).message);
+          debugLog?.write("error", { where: "hotkey", message: (e as Error).message });
         });
+    },
+    setDebug(enabled) {
+      if (enabled) openDebug();
+      else closeDebug();
     },
     simulateTransportError(reason) {
       onTransportError(reason ?? "simulated");

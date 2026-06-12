@@ -1290,6 +1290,7 @@ function SettingsTab({
   const [perm, setPerm] = useState<PermissionStatus | null>(null);
   const signedIn = !!settings?.signedIn;
   const email = settings?.signedInEmail ?? null;
+  const debugMode = !!settings?.debugMode;
 
   // Reflect live OS permission state. Re-poll on window focus since the user
   // may have toggled a permission in System Settings while away.
@@ -1391,6 +1392,43 @@ function SettingsTab({
         <div className="mw-section-label">About</div>
         <div className="mw-kv"><span className="mw-kv-key">Version</span><span className="mw-kv-val">0.1.0 (dev)</span></div>
         <div className="mw-kv"><span className="mw-kv-key">Hotkey</span><span className="mw-kv-val">{settings?.hotkey ?? "Alt+Shift+Space"}</span></div>
+      </div>
+
+      <div className="mw-section">
+        <div className="mw-section-label">Debug</div>
+        <div className="mw-kv">
+          <span className="mw-kv-key">Debug mode</span>
+          <button
+            role="switch"
+            aria-checked={debugMode}
+            aria-label="Debug mode"
+            data-testid="settings-debug-toggle"
+            className={`mw-switch${debugMode ? " on" : ""}`}
+            onClick={() =>
+              window.prompty.invoke("settings:set", { debugMode: !debugMode })
+            }
+          >
+            <span className="mw-switch-track" aria-hidden>
+              <span className="mw-switch-thumb" />
+            </span>
+          </button>
+        </div>
+        <div className="mw-section-hint">
+          Writes a verbose, timestamped log of each prep and call session —
+          resolved prompts, per-turn context, raw model responses, tool calls,
+          and nudges — to <code>~/.prompty/debug/</code>. Off by default.
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button
+            className="mw-btn mw-btn-secondary"
+            data-testid="settings-debug-reveal"
+            onClick={() =>
+              window.prompty.invoke("debug:reveal", undefined as never)
+            }
+          >
+            Reveal logs in Finder
+          </button>
+        </div>
       </div>
     </>
   );

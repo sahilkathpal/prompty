@@ -12,6 +12,7 @@ import { buildPrepSystemPrompt } from "./prompts/prep-system";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { EventEmitter } from "node:events";
 import { listAvailableSkills } from "./prompts/loader";
+import { openDebugLog, debugFullPrompt, type DebugLog } from "./debug-logger";
 
 /**
  * A valid skill is the empty string (no skill — the resting state) or the name
@@ -113,6 +114,10 @@ export interface PrepSessionHandle {
   };
   discard(): Promise<void>;
   close(): Promise<void>;
+  /** Toggle verbose debug capture mid-session (the `debugMode` setting). */
+  setDebug(enabled: boolean): void;
+  /** Record a prep-save debug event (snapshot + whether it chained to a call). */
+  noteSave(chainedToCall: boolean): void;
   on(
     event: "state-changed",
     fn: (state: PrepState) => void,
@@ -137,11 +142,81 @@ export interface PrepSeed {
   messages?: PrepMessage[];
 }
 
+// ---- Debug recorder (opt-in `debugMode`) -------------------------------------
+//
+// Shared by both factories so the prep debug event shapes live in one place.
+// Writes prep-*.jsonl events; null/no-op unless debug is on. `snapshotState`
+// is supplied by each factory (its `state` is local) so prep-state-change /
+// prep-save carry the live rail snapshot.
+
+export interface PrepAgentTurnDebug {
+  context: string;
+  systemPrompt?: string;
+  assistantText: string;
+  toolCalls: { name: string; args: unknown }[];
+  latencyMs: number;
+}
+
+function makePrepDebug(
+  event: CalendarEvent | null,
+  seed: PrepSeed | undefined,
+  enabled: boolean,
+  snapshotState: () => Record<string, unknown>,
+) {
+  const startedAt = Date.now();
+  let log: DebugLog | null = null;
+  const seeded = Boolean(
+    seed &&
+      (seed.goal ||
+        seed.direction ||
+        (seed.checklist?.length ?? 0) > 0 ||
+        seed.notes ||
+        seed.skill ||
+        (seed.messages?.length ?? 0) > 0),
+  );
+  const open = () => {
+    if (log) return;
+    log = openDebugLog("prep", startedAt);
+    log?.write("prep-start", {
+      systemPrompt: buildPrepSystemPrompt(event, seed?.skill),
+      event: event ? { id: event.id, title: event.title } : null,
+      seededFromPending: seeded,
+    });
+  };
+  if (enabled) open();
+  return {
+    userTurn: (text: string, preamble?: string) =>
+      log?.write("prep-user-turn", { text, preamble }),
+    agentTurn: (d: PrepAgentTurnDebug) => log?.write("prep-agent-turn", { ...d }),
+    stateChange: (source: "tool" | "rail") =>
+      log?.write("prep-state-change", { state: snapshotState(), source }),
+    save: (chainedToCall: boolean) =>
+      log?.write("prep-save", { snapshot: snapshotState(), chainedToCall }),
+    discard: () => log?.write("prep-discard", {}),
+    error: (where: string, e: Error) =>
+      log?.write("prep-error", { where, message: e.message, stack: e.stack }),
+    setDebug: (on: boolean) => {
+      if (on) open();
+      else {
+        log?.close();
+        log = null;
+      }
+    },
+    close: () => {
+      log?.close();
+      log = null;
+    },
+  };
+}
+
+type PrepDebug = ReturnType<typeof makePrepDebug>;
+
 // ---- Mock factory (for E2E + smoke without claude quota) ---------------------
 
 function createMockPrepSession(
   event: CalendarEvent | null,
   seed?: PrepSeed,
+  debug = false,
 ): PrepSessionHandle {
   const emitter = new EventEmitter();
   const state: PrepState = {
@@ -154,6 +229,13 @@ function createMockPrepSession(
     event,
     assistantBusy: false,
   };
+  const dbg: PrepDebug = makePrepDebug(event, seed, debug, () => ({
+    goal: state.goal,
+    direction: state.direction,
+    checklist: [...state.checklist],
+    notes: state.notes,
+    skill: state.skill,
+  }));
   let userTurns = state.messages.filter((m) => m.role === "user").length;
   let nextId = 1;
   const mkId = () => `m_${Date.now()}_${nextId++}`;
@@ -183,6 +265,7 @@ function createMockPrepSession(
     msg.streaming = false;
     state.assistantBusy = false;
     emitState();
+    dbg.agentTurn({ context: "(mock)", assistantText: text, toolCalls: [], latencyMs: 0 });
   };
 
   const pushTool = (name: string, summary: string) => {
@@ -211,6 +294,7 @@ function createMockPrepSession(
           text,
           createdAt: Date.now(),
         });
+        dbg.userTurn(text);
         emitState();
       }
       if (isSyntheticKick) {
@@ -236,6 +320,7 @@ function createMockPrepSession(
           .trim()} broadly, stay curious, and steer toward the goal without forcing topics.`;
         state.direction = direction;
         pushTool("set_direction", `Set direction: ${direction}`);
+        dbg.stateChange("tool");
         await pushAssistant(
           `Locking in: ${goal}. Here's the direction I'll coach to: ${direction} You're prepped. Hit 'Save & run the call' when ready.`,
         );
@@ -257,6 +342,7 @@ function createMockPrepSession(
       state.skill = skill;
       pushTool("set_skill", skill ? `Set skill: ${skill}` : `Cleared skill`);
       emitState();
+      dbg.stateChange("rail");
     },
     setGoal(text: string) {
       const v = text.trim();
@@ -264,6 +350,7 @@ function createMockPrepSession(
       state.goal = v;
       pushTool("set_goal", `You set goal: ${v}`);
       emitState();
+      dbg.stateChange("rail");
     },
     setDirection(text: string) {
       const v = text.trim();
@@ -271,11 +358,13 @@ function createMockPrepSession(
       state.direction = v;
       pushTool("set_direction", `You set direction: ${v}`);
       emitState();
+      dbg.stateChange("rail");
     },
     setNotes(text: string) {
       state.notes = text;
       pushTool("set_notes", text.trim() ? `You set notes` : `You cleared notes`);
       emitState();
+      dbg.stateChange("rail");
     },
     addChecklistItem(text: string) {
       const v = text.trim();
@@ -284,7 +373,9 @@ function createMockPrepSession(
       const item: ChecklistItem = { id, text: v, status: "open" };
       state.checklist.push(item);
       pushTool("add_checklist_item", `You added: ${v}`);
-      emitState();      return item;
+      emitState();
+      dbg.stateChange("rail");
+      return item;
     },
     editChecklistItem(id: string, text: string) {
       const v = text.trim();
@@ -294,6 +385,7 @@ function createMockPrepSession(
       item.text = v;
       pushTool("update_checklist_item", `You edited: ${v}`);
       emitState();
+      dbg.stateChange("rail");
     },
     removeChecklistItem(id: string) {
       const idx = state.checklist.findIndex((c) => c.id === id);
@@ -301,6 +393,7 @@ function createMockPrepSession(
       const [removed] = state.checklist.splice(idx, 1);
       pushTool("remove_checklist_item", `You removed: ${removed?.text ?? id}`);
       emitState();
+      dbg.stateChange("rail");
     },
     getState() {
       return { ...state, messages: [...state.messages], checklist: [...state.checklist] };
@@ -322,9 +415,17 @@ function createMockPrepSession(
       state.notes = "";
       state.skill = "";
       state.messages = [];
+      dbg.discard();
       emitState();
     },
+    setDebug(enabled: boolean) {
+      dbg.setDebug(enabled);
+    },
+    noteSave(chainedToCall: boolean) {
+      dbg.save(chainedToCall);
+    },
     async close() {
+      dbg.close();
       emitter.removeAllListeners();
     },
     on(name: string, fn: (...args: unknown[]) => void) {
@@ -341,6 +442,7 @@ function createMockPrepSession(
 async function createRealPrepSession(
   event: CalendarEvent | null,
   seed?: PrepSeed,
+  debug = false,
 ): Promise<PrepSessionHandle> {
   const { query, tool, createSdkMcpServer } = await loadSdk();
   const emitter = new EventEmitter();
@@ -354,6 +456,22 @@ async function createRealPrepSession(
     event,
     assistantBusy: false,
   };
+  const dbg: PrepDebug = makePrepDebug(event, seed, debug, () => ({
+    goal: state.goal,
+    direction: state.direction,
+    checklist: [...state.checklist],
+    notes: state.notes,
+    skill: state.skill,
+  }));
+  // Per-turn debug accumulator (set in sendMessage/kick, flushed on result).
+  type PrepDbgTurn = {
+    context: string;
+    systemPrompt?: string;
+    assistantText: string;
+    toolCalls: { name: string; args: unknown }[];
+    t0: number;
+  };
+  let prepDbgTurn: PrepDbgTurn | null = null;
 
   let nextId = 1;
   const mkId = () => `m_${Date.now()}_${nextId++}`;
@@ -412,7 +530,10 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "set_goal",
           });
-          emitState();          return { content: [{ type: "text", text: "goal_set" }] };
+          prepDbgTurn?.toolCalls.push({ name: "set_goal", args });
+          emitState();
+          dbg.stateChange("tool");
+          return { content: [{ type: "text", text: "goal_set" }] };
         },
       ),
       tool(
@@ -428,7 +549,10 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "set_direction",
           });
-          emitState();          return { content: [{ type: "text", text: "direction_set" }] };
+          prepDbgTurn?.toolCalls.push({ name: "set_direction", args });
+          emitState();
+          dbg.stateChange("tool");
+          return { content: [{ type: "text", text: "direction_set" }] };
         },
       ),
       tool(
@@ -445,7 +569,10 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "add_checklist_item",
           });
-          emitState();          return { content: [{ type: "text", text: id }] };
+          prepDbgTurn?.toolCalls.push({ name: "add_checklist_item", args });
+          emitState();
+          dbg.stateChange("tool");
+          return { content: [{ type: "text", text: id }] };
         },
       ),
       tool(
@@ -467,7 +594,10 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "update_checklist_item",
           });
-          emitState();          return { content: [{ type: "text", text: "updated" }] };
+          prepDbgTurn?.toolCalls.push({ name: "update_checklist_item", args });
+          emitState();
+          dbg.stateChange("tool");
+          return { content: [{ type: "text", text: "updated" }] };
         },
       ),
       tool(
@@ -487,7 +617,10 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "remove_checklist_item",
           });
-          emitState();          return { content: [{ type: "text", text: "removed" }] };
+          prepDbgTurn?.toolCalls.push({ name: "remove_checklist_item", args });
+          emitState();
+          dbg.stateChange("tool");
+          return { content: [{ type: "text", text: "removed" }] };
         },
       ),
       tool(
@@ -507,7 +640,10 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "set_skill",
           });
-          emitState();          return { content: [{ type: "text", text: "skill_set" }] };
+          prepDbgTurn?.toolCalls.push({ name: "set_skill", args });
+          emitState();
+          dbg.stateChange("tool");
+          return { content: [{ type: "text", text: "skill_set" }] };
         },
       ),
     ],
@@ -616,6 +752,10 @@ async function createRealPrepSession(
                   messageId: currentAssistantId,
                 });
               }
+              // Cast: this IIFE both reads and (below) clears prepDbgTurn, so
+              // TS won't widen it back from the capture-time type on its own.
+              const acc = prepDbgTurn as PrepDbgTurn | null;
+              if (acc) acc.assistantText += block.text;
               emitState();
             }
           }
@@ -630,14 +770,28 @@ async function createRealPrepSession(
           }
           state.assistantBusy = false;
           emitState();
+          const dt = prepDbgTurn as PrepDbgTurn | null;
+          if (dt) {
+            dbg.agentTurn({
+              context: dt.context,
+              systemPrompt: dt.systemPrompt,
+              assistantText: dt.assistantText,
+              toolCalls: dt.toolCalls,
+              latencyMs: Date.now() - dt.t0,
+            });
+          }
+          prepDbgTurn = null;
           if (m.subtype && m.subtype !== "success") {
-            emitter.emit("error", new Error(`prep agent error: ${m.subtype}`));
+            const err = new Error(`prep agent error: ${m.subtype}`);
+            dbg.error("agent", err);
+            emitter.emit("error", err);
           }
           turnDoneWaiters.shift()?.();
         }
       }
       while (turnDoneWaiters.length) turnDoneWaiters.shift()!();
     } catch (e) {
+      dbg.error("stream", e as Error);
       emitter.emit("error", e as Error);
       while (turnDoneWaiters.length) turnDoneWaiters.shift()!();
     }
@@ -658,6 +812,16 @@ async function createRealPrepSession(
       // prepend the authoritative current-state block. Consumed once.
       const preamble = railDirty ? buildStatePreamble() : undefined;
       const pumpContent = preamble ? `${preamble}\n\n${text}` : text;
+      dbg.userTurn(text, preamble);
+      prepDbgTurn = {
+        context: pumpContent,
+        systemPrompt: debugFullPrompt()
+          ? buildPrepSystemPrompt(event, seed?.skill)
+          : undefined,
+        assistantText: "",
+        toolCalls: [],
+        t0: Date.now(),
+      };
       railDirty = false;
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
       pushUserMessage?.(pumpContent);
@@ -669,6 +833,15 @@ async function createRealPrepSession(
       // open with the right question.
       const kickMsg =
         "[system] The prep session just opened. Open the conversation now per your opening-turn instructions. Do not reference this message.";
+      prepDbgTurn = {
+        context: kickMsg,
+        systemPrompt: debugFullPrompt()
+          ? buildPrepSystemPrompt(event, seed?.skill)
+          : undefined,
+        assistantText: "",
+        toolCalls: [],
+        t0: Date.now(),
+      };
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
       pushUserMessage?.(kickMsg);
       await turnDone;
@@ -681,6 +854,7 @@ async function createRealPrepSession(
       pushTrace("set_skill", skill ? `Set skill: ${skill}` : `Cleared skill`);
       railDirty = true;
       emitState();
+      dbg.stateChange("rail");
     },
     setGoal(text: string) {
       const v = text.trim();
@@ -689,6 +863,7 @@ async function createRealPrepSession(
       pushTrace("set_goal", `You set goal: ${v}`);
       railDirty = true;
       emitState();
+      dbg.stateChange("rail");
     },
     setDirection(text: string) {
       const v = text.trim();
@@ -697,12 +872,14 @@ async function createRealPrepSession(
       pushTrace("set_direction", `You set direction: ${v}`);
       railDirty = true;
       emitState();
+      dbg.stateChange("rail");
     },
     setNotes(text: string) {
       state.notes = text;
       pushTrace("set_notes", text.trim() ? `You set notes` : `You cleared notes`);
       railDirty = true;
       emitState();
+      dbg.stateChange("rail");
     },
     addChecklistItem(text: string) {
       const v = text.trim();
@@ -712,7 +889,9 @@ async function createRealPrepSession(
       state.checklist.push(item);
       pushTrace("add_checklist_item", `You added: ${v}`);
       railDirty = true;
-      emitState();      return item;
+      emitState();
+      dbg.stateChange("rail");
+      return item;
     },
     editChecklistItem(id: string, text: string) {
       const v = text.trim();
@@ -723,6 +902,7 @@ async function createRealPrepSession(
       pushTrace("update_checklist_item", `You edited: ${v}`);
       railDirty = true;
       emitState();
+      dbg.stateChange("rail");
     },
     removeChecklistItem(id: string) {
       const idx = state.checklist.findIndex((c) => c.id === id);
@@ -731,6 +911,7 @@ async function createRealPrepSession(
       pushTrace("remove_checklist_item", `You removed: ${removed?.text ?? id}`);
       railDirty = true;
       emitState();
+      dbg.stateChange("rail");
     },
     getState() {
       return {
@@ -756,9 +937,17 @@ async function createRealPrepSession(
       state.notes = "";
       state.skill = "";
       state.messages = [];
+      dbg.discard();
       emitState();
     },
+    setDebug(enabled: boolean) {
+      dbg.setDebug(enabled);
+    },
+    noteSave(chainedToCall: boolean) {
+      dbg.save(chainedToCall);
+    },
     async close() {
+      dbg.close();
       closeInput?.();
       emitter.removeAllListeners();
     },
@@ -772,9 +961,10 @@ async function createRealPrepSession(
 export async function openPrepSession(
   event: CalendarEvent | null,
   seed?: PrepSeed,
+  opts?: { debug?: boolean },
 ): Promise<PrepSessionHandle> {
   if (process.env.PROMPTY_MOCK_PREP === "1") {
-    return createMockPrepSession(event, seed);
+    return createMockPrepSession(event, seed, opts?.debug ?? false);
   }
   // v1 tradeoff: when seeding, we rebuild the SDK session fresh (model has no
   // memory of the prior turns) but populate the visible thread + goal/checklist
@@ -782,5 +972,5 @@ export async function openPrepSession(
   // stream to replay the full history is non-trivial; this gives the right UX
   // for the resume case (user sees what they discussed; if they keep talking,
   // the model picks up from the current goal/checklist state).
-  return createRealPrepSession(event, seed);
+  return createRealPrepSession(event, seed, opts?.debug ?? false);
 }

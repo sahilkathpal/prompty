@@ -105,6 +105,13 @@ export interface InvokeChannels {
     request: { speaker: "me" | "them"; text: string; isFinal?: boolean };
     response: { ok: boolean; error?: string };
   };
+  // Reveal the debug-log directory (~/.prompty/debug/) in the OS file browser.
+  // Creates the directory first if it does not yet exist so the button always
+  // opens something. Used by the Debug section of the Settings tab.
+  "debug:reveal": {
+    request: void;
+    response: { ok: boolean; path: string };
+  };
   "onboarding:check-claude": {
     request: void;
     response: { found: boolean; path: string | null };

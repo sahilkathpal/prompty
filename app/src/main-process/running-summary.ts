@@ -94,7 +94,10 @@ async function runSummary(
   return collected.trim();
 }
 
-export function createSummaryKeeper(setup: CallSetup): SummaryKeeper {
+export function createSummaryKeeper(
+  setup: CallSetup,
+  onChange?: (summary: string) => void,
+): SummaryKeeper {
   let summary = "";
   let summarizedAt = 0; // transcript length covered by the last kicked refresh
   let inFlight = false;
@@ -107,6 +110,7 @@ export function createSummaryKeeper(setup: CallSetup): SummaryKeeper {
         if (text) {
           summary = text;
           summarizedAt = target;
+          onChange?.(text);
         }
       })
       .catch((e) => {

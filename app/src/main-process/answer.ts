@@ -24,6 +24,7 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 import type { CallSetup, Nudge, TranscriptUtterance } from "./types";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { modelFor } from "./models";
+import { debugFullPrompt } from "./debug-logger";
 
 const SYSTEM_PROMPT = `You are a real-time meeting copilot. The user is mid-call and just pressed a hotkey meaning: "What should I say or ask RIGHT NOW?"
 
@@ -81,6 +82,14 @@ function cleanLine(text: string): string {
   return line.replace(/^["'“”\-•*\s]+|["'“”\s]+$/g, "").trim();
 }
 
+/** Verbose per-press capture for debug mode (the hotkey one-shot's turn). */
+export interface AnswerDebug {
+  context: string;
+  systemPrompt?: string;
+  rawResponse: string;
+  latencyMs: number;
+}
+
 export interface AnswerInput {
   setup: CallSetup;
   summary: string;
@@ -88,12 +97,15 @@ export interface AnswerInput {
   recent: TranscriptUtterance[];
   /** Texts of the last few emitted nudges, to avoid repeats. */
   recentNudges: string[];
+  /** Optional verbose capture (debug mode). Fired once after the model replies. */
+  onDebug?: (d: AnswerDebug) => void;
 }
 
 export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
   try {
     const { query } = await loadSdk();
     const prompt = buildPrompt(input);
+    const t0 = Date.now();
     const q = query({
       prompt,
       options: {
@@ -116,6 +128,12 @@ export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
         }
       }
     }
+    input.onDebug?.({
+      context: prompt,
+      systemPrompt: debugFullPrompt() ? SYSTEM_PROMPT : undefined,
+      rawResponse: collected,
+      latencyMs: Date.now() - t0,
+    });
     const text = cleanLine(collected);
     if (!text) {
       console.error("[answer] empty reply");

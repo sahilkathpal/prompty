@@ -24,7 +24,10 @@
     "smoke:prep-edit": "node --import tsx tests/smoke-prep-edit.ts",
     "smoke:prep-session": "node --import tsx tests/smoke-prep-session.ts",
     "smoke:system-prompt": "node --import tsx tests/smoke-system-prompt.ts",
-    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:pending-prep && npm run smoke:prep-edit && npm run smoke:prep-session && npm run smoke:system-prompt",
+    "smoke:debug-logger": "node --import tsx tests/smoke-debug-logger.ts",
+    "smoke:debug-capture": "node --import tsx tests/smoke-debug-capture.ts",
+    "smoke:debug-prep": "node --import tsx tests/smoke-debug-prep.ts",
+    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:calendar-filter && npm run smoke:google-token-refresh && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:pending-prep && npm run smoke:prep-edit && npm run smoke:prep-session && npm run smoke:system-prompt && npm run smoke:debug-logger && npm run smoke:debug-capture && npm run smoke:debug-prep",
     "e2e": "playwright test"
   },
   "dependencies": {

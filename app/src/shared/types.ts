@@ -116,6 +116,11 @@ export interface AppSettings {
   // stays minimal. When false, the bar is hidden and nudges collect as a feed
   // inside the overlay. Replaces the old inverted `focusMode` flag.
   headsUpBar: boolean;
+  // When true, prep and in-call sessions write a verbose debug log (the
+  // model's-eye view: resolved prompts, per-turn context deltas, raw model
+  // responses, tool calls, latencies) to ~/.prompty/debug/. Off by default;
+  // opt-in developer/diagnostic capture. Takes effect immediately mid-session.
+  debugMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -130,6 +135,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   signedInEmail: null,
   lastTab: "prep",
   headsUpBar: true,
+  debugMode: false,
 };
 
 export type MediaPermissionStatus =
