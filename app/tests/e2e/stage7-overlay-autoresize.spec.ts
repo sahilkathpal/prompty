@@ -108,7 +108,7 @@ async function getOverlayPage(app: ElectronApplication): Promise<Page> {
 
 let seq = 0;
 async function emit(app: ElectronApplication, text: string): Promise<void> {
-  const nudge = { id: `n${seq++}`, kind: "info", urgency: "medium", text, createdAt: Date.now() };
+  const nudge = { id: `n${seq++}`, urgency: "medium", text, createdAt: Date.now() };
   await app.evaluate(async (_electron, n) => {
     (globalThis as unknown as { __prompty_e2e: { emitNudge: (x: unknown) => boolean } }).__prompty_e2e.emitNudge(n);
   }, nudge);

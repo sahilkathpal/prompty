@@ -69,7 +69,7 @@ async function main() {
   const agent = await openAgent(setup, {
     onNudge: (n) => {
       nudges.push(n);
-      console.log(`[smoke] NUDGE (${n.kind}/${n.urgency}): ${n.text}`);
+      console.log(`[smoke] NUDGE (${n.urgency}): ${n.text}`);
     },
     onChecklistUpdate: (id, status) => {
       checklistUpdates.push({ id, status });
@@ -85,12 +85,18 @@ async function main() {
     },
   });
 
+  // The hotkey window must yield a nudge (the "what should I ask?" one-shot).
+  // With the `kind` taxonomy gone, we assert that directly: a nudge arrived
+  // during the hotkey consider, rather than inspecting a kind label.
+  let hotkeyNudged = false;
   for (let i = 0; i < windows.length; i++) {
     const w = windows[i]!;
     console.log(`\n[smoke] consider window ${i + 1} (trigger=${w.trigger})…`);
+    const before = nudges.length;
     const t0 = Date.now();
     await agent.consider(w.utterances, w.trigger);
     console.log(`[smoke] window ${i + 1} done in ${Date.now() - t0}ms`);
+    if (w.trigger === "hotkey" && nudges.length > before) hotkeyNudged = true;
   }
 
   await agent.close();
@@ -106,7 +112,7 @@ async function main() {
     errors.length === 0 &&
     totalDecisions >= 2 &&
     nudges.length >= 1 &&
-    nudges.some((n) => n.kind === "answer");
+    hotkeyNudged;
 
   console.log(`\n[smoke] ${pass ? "PASS" : "FAIL"}`);
   process.exit(pass ? 0 : 1);

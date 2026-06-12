@@ -60,7 +60,6 @@ const debugAgentFactory = (_setup: CallSetup, events: AgentEvents): Promise<Agen
       });
       events.onNudge({
         id: `m-${turn}`,
-        kind: "fact-reminder",
         text: `Nudge ${turn}`,
         urgency: "medium",
         createdAt: 1700000000000 + turn,

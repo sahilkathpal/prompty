@@ -18,15 +18,15 @@ const bare: CallSetup = { goal: "", checklist: [], context: {} };
 const bareP = buildSystemPrompt(bare);
 assert(!bareP.includes("{{"), "bare prompt still has {{placeholders}}");
 assert(
-  !bareP.includes("## Direction (your primary steer)"),
+  !bareP.includes("## Direction\n"),
   "bare prompt should omit the Direction section",
 );
 assert(
-  !bareP.includes("## Goal of this call"),
+  !bareP.includes("## Goal\n"),
   "bare prompt should omit the Goal section",
 );
 assert(
-  !bareP.includes("## Checklist (secondary"),
+  !bareP.includes("## Checklist\n"),
   "bare prompt should omit the checklist section",
 );
 assert(
@@ -53,20 +53,20 @@ const full: CallSetup = {
 };
 const fullP = buildSystemPrompt(full);
 assert(
-  fullP.includes("## Direction (your primary steer)"),
+  fullP.includes("## Direction\n"),
   "full prompt missing Direction section",
 );
 assert(
   fullP.includes("Explore their ingestion pain before pitching"),
   "full prompt missing direction text",
 );
-assert(fullP.includes("## Goal of this call"), "full prompt missing Goal section");
+assert(fullP.includes("## Goal\n"), "full prompt missing Goal section");
 assert(
   fullP.includes("Get them to commit to a 2-week pilot"),
   "full prompt missing goal text",
 );
 assert(
-  fullP.includes("## Checklist (secondary"),
+  fullP.includes("## Checklist\n"),
   "full prompt missing checklist section",
 );
 assert(fullP.includes("[c1]") && fullP.includes("Budget authority"), "missing checklist item");
@@ -78,8 +78,7 @@ assert(
 );
 // Direction must render above the checklist (priority order).
 assert(
-  fullP.indexOf("## Direction (your primary steer)") <
-    fullP.indexOf("## Checklist (secondary"),
+  fullP.indexOf("## Direction\n") < fullP.indexOf("## Checklist\n"),
   "Direction section should precede the checklist section",
 );
 

@@ -5,7 +5,7 @@
 // Hits the user's `claude` binary — consumes a small quota.
 //
 // Pass criteria:
-//   1. answerNow() returns a non-empty kind:"answer" nudge of a sane length.
+//   1. answerNow() returns a non-empty nudge of a sane length.
 //   2. createSummaryKeeper() populates current() in the background once enough
 //      utterances have been fed.
 
@@ -55,11 +55,7 @@ async function main() {
     failures++;
   } else {
     const words = nudge.text.trim().split(/\s+/).length;
-    console.log(`[smoke] answer (${ms}ms, kind=${nudge.kind}, ${words}w): ${nudge.text}`);
-    if (nudge.kind !== "answer") {
-      console.error(`[smoke] FAIL — expected kind "answer", got "${nudge.kind}"`);
-      failures++;
-    }
+    console.log(`[smoke] answer (${ms}ms, ${words}w): ${nudge.text}`);
     if (nudge.text.trim().length === 0) {
       console.error("[smoke] FAIL — empty answer text");
       failures++;

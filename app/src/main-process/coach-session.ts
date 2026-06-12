@@ -12,6 +12,7 @@
 import path from "node:path";
 import { Notification, shell } from "electron";
 import { openAgent, type Agent } from "./agent";
+import { CONSIDER_WINDOW } from "./windowing";
 import { answerNow } from "./answer";
 import { createSummaryKeeper, type SummaryKeeper } from "./running-summary";
 import { writeCallLog } from "./call-log";
@@ -85,7 +86,6 @@ export function createMockAgent(
       counter++;
       events.onNudge({
         id: `mock-${counter}-${Date.now()}`,
-        kind: trigger === "hotkey" ? "answer" : "fact-reminder",
         text: `Mock nudge ${counter} (trigger=${trigger})`,
         urgency: "medium",
         createdAt: Date.now(),
@@ -273,7 +273,7 @@ export async function startSession(
       debugLog?.write("interim", { ...u });
     }
     considerWindow.push(u);
-    while (considerWindow.length > 12) considerWindow.shift();
+    while (considerWindow.length > CONSIDER_WINDOW) considerWindow.shift();
     if (u.isFinal) {
       summaryKeeper?.note(transcript);
       runAutoConsider();
@@ -335,7 +335,7 @@ export async function startSession(
         nudges.push(n);
         journal?.appendNudge(n);
         debugLog?.write("nudge", { nudge: n });
-        console.log(`[coach-session nudge ${n.kind}/${n.urgency}] ${n.text}`);
+        console.log(`[coach-session nudge ${n.urgency}] ${n.text}`);
         opts.onNudge?.(n);
       },
       onChecklistUpdate: (id, status) => {
@@ -505,7 +505,7 @@ export async function startSession(
           nudges.push(n);
           journal?.appendNudge(n);
           debugLog?.write("nudge", { nudge: n });
-          console.log(`[coach-session nudge ${n.kind}/${n.urgency}] ${n.text}`);
+          console.log(`[coach-session nudge ${n.urgency}] ${n.text}`);
           opts.onNudge?.(n);
         })
         .catch((e) => {

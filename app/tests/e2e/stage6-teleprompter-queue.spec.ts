@@ -51,7 +51,7 @@ async function emit(
   text: string,
   urgency: "high" | "medium" = "medium",
 ): Promise<void> {
-  const nudge = { id: `n${nudgeSeq++}`, kind: "info", urgency, text, createdAt: Date.now() };
+  const nudge = { id: `n${nudgeSeq++}`, urgency, text, createdAt: Date.now() };
   // NOTE: electronApplication.evaluate calls the fn with the electron module as
   // the FIRST arg and our payload as the SECOND — so ignore the first param.
   await app.evaluate(async (_electron, n) => {

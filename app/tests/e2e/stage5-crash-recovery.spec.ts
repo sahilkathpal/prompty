@@ -89,7 +89,7 @@ function makeJournal(startedAt: number): string {
       u: { speaker: "them", text: "we have eight brokers", startMs: 0, endMs: 900, isFinal: true },
     }) +
     "\n" +
-    JSON.stringify({ t: "nudge", n: { id: "n1", kind: "segue", text: "ask team size", createdAt: 5 } }) +
+    JSON.stringify({ t: "nudge", n: { id: "n1", urgency: "medium", text: "ask team size", createdAt: 5 } }) +
     "\n" +
     // Torn final line, exactly what an interrupted writeSync leaves behind.
     '{"t":"utt","u":{"speaker":"me","tex'

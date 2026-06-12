@@ -58,7 +58,7 @@ async function main() {
   const session = await startSession(setup, {
     onNudge: (n) => {
       nudgeCount++;
-      console.log(`[smoke] nudge: ${n.kind} — ${n.text}`);
+      console.log(`[smoke] nudge: ${n.urgency} — ${n.text}`);
     },
     onStateChange: (s) => console.log(`[smoke] state → ${s}`),
     silenceTimeoutMs: 5 * 60_000, // don't auto-end during the smoke

@@ -222,7 +222,7 @@ function formatEvent(e: Record<string, any>, t0: number): string {
     case "prep-user-turn":
       return `${ts} 🧑 **user:** ${oneLine(e.text)}${e.preamble ? " _(+state preamble)_" : ""}`;
     case "nudge":
-      return `${ts} 💡 **nudge** [${e.nudge?.kind}/${e.nudge?.urgency}]: ${oneLine(e.nudge?.text)}`;
+      return `${ts} 💡 **nudge** [${e.nudge?.urgency}]: ${oneLine(e.nudge?.text)}`;
     case "summary-update":
       return `${ts} 📝 **summary** — ${oneLine(e.summary)}`;
     case "status":

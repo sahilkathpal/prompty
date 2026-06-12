@@ -1,27 +1,13 @@
 // Shared domain types between main and renderer.
 
-// Agent-side nudge kind/urgency (matches ported server/agent.ts tool schema).
-export type AgentNudgeKind =
-  | "segue"
-  | "missed-goal"
-  | "fact-reminder"
-  | "correction"
-  | "answer";
+// Urgency is the one structured dimension on a nudge: it drives the high-urgency
+// (red) treatment in the overlay and the preempt behavior in the teleprompter.
+// There is deliberately no `kind` taxonomy — what a nudge is and when to fire it
+// lives in the (freely-editable) prompt prose, not in a code-side enum.
 export type AgentNudgeUrgency = "high" | "medium";
-
-// UI nudge kind — superset of the agent kinds plus a few renderer-only ones.
-export type NudgeKind =
-  | AgentNudgeKind
-  | "ask"
-  | "warn"
-  | "info"
-  | "covered"
-  | "wrap";
 
 export interface Nudge {
   id: string;
-  kind: NudgeKind;
-  // Set by the agent loop; drives the high-urgency (red) treatment in the UI.
   urgency: AgentNudgeUrgency;
   text: string;
   createdAt: number;

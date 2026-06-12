@@ -141,7 +141,6 @@ export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
     }
     return {
       id: `n_${Date.now()}_ans`,
-      kind: "answer",
       text,
       urgency: "high",
       createdAt: Date.now(),

@@ -124,13 +124,6 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         "emit_nudge",
         "Surface a single high-signal nudge to the user during the call.",
         {
-          kind: z.enum([
-            "segue",
-            "missed-goal",
-            "fact-reminder",
-            "correction",
-            "answer",
-          ]),
           text: z
             .string()
             .max(180)
@@ -148,10 +141,9 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
             );
             considerStart = 0;
           }
-          logDecision("emit_nudge", ` kind=${args.kind} text="${args.text}"`);
+          logDecision("emit_nudge", ` text="${args.text}"`);
           events.onNudge({
             id: `n_${Date.now()}_${decisionCounters.nudge}`,
-            kind: args.kind,
             text: args.text,
             urgency: args.urgency,
             createdAt: Date.now(),
@@ -346,7 +338,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         .join("\n");
       const triggerLine =
         trigger === "hotkey"
-          ? "The user just hit the hotkey asking 'what should I ask?'. Emit one helpful nudge of kind 'answer' even if you would otherwise stay quiet — but keep it ≤15 words and concrete."
+          ? "The user just hit the hotkey asking 'what should I ask?'. Emit one helpful nudge even if you would otherwise stay quiet — but keep it ≤15 words and concrete."
           : "Recent transcript chunk. Decide: emit_nudge / update_checklist / stay_quiet. Default to stay_quiet unless a nudge is clearly warranted.";
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
       const t0 = Date.now();

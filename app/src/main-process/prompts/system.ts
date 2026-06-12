@@ -6,16 +6,18 @@ export { listAvailableSkills } from "./loader";
 /**
  * Build the in-call agent's system prompt.
  *
- * Assembly is a list of conditional sections, joined with blank lines:
+ * This is a pure slot-filler: ALL coaching philosophy lives in base.md (the
+ * single editable prose file). Here we only stitch the invariant base, an
+ * optional skill playbook, and the per-call data into labelled sections. The
+ * section headers (`## Direction`, `## Goal`, `## Checklist`,
+ * `## Background context`) are the labels base.md tells the coach to read —
+ * keep them in sync with base.md's prose, but put no guidance here.
+ *
+ * Assembly is a list of conditional sections joined with blank lines:
  *   - the invariant base (always present), optionally followed by a skill's
  *     in-call playbook fragment (only when a skill is set)
- *   - `## Direction` — the synthesized prose paragraph; the PRIMARY driver of
- *     nudges. Rendered first (above goal/checklist) when set.
- *   - `## Goal` — only when a goal was set (it sharpens the direction; it is
- *     optional and not load-bearing)
- *   - `## Checklist` — only when the checklist is non-empty; a secondary
- *     "don't-forget" backstop, NOT the nudge engine
- *   - `## Background context` — only when there's any context to show
+ *   - `## Direction`, `## Goal`, `## Checklist`, `## Background context` —
+ *     each rendered only when its value is present, in priority order.
  *
  * Absent optional pieces produce NO section at all (never a "(none)" line that
  * would mis-tell the coach there is nothing to do).
@@ -31,33 +33,19 @@ export function buildSystemPrompt(setup: CallSetup): string {
 
   const direction = setup.direction?.trim();
   if (direction) {
-    parts.push(
-      "## Direction (your primary steer)\n" +
-        "This is what a good call looks like for the user — what to explore and " +
-        "the stance to carry. Let it drive your nudges: surface follow-ups, " +
-        "pivots, and reminders that serve this direction as the live conversation " +
-        "opens them up.\n\n" +
-        direction,
-    );
+    parts.push(`## Direction\n${direction}`);
   }
 
   const goal = setup.goal?.trim();
   if (goal) {
-    parts.push(`## Goal of this call\n${goal}`);
+    parts.push(`## Goal\n${goal}`);
   }
 
   if (setup.checklist.length) {
     const checklistBlock = setup.checklist
       .map((c) => `- (${c.status}) [${c.id}] ${c.text}`)
       .join("\n");
-    parts.push(
-      "## Checklist (secondary — concrete don't-forget items)\n" +
-        "These are specific items the user flagged. They are a backstop, NOT the " +
-        "engine — the Direction above drives your nudges. Surface a checklist item " +
-        "only when it fits the live thread, or near a wrap-up if it's still open. " +
-        "The status markers tell you what's already been touched.\n\n" +
-        checklistBlock,
-    );
+    parts.push(`## Checklist\n${checklistBlock}`);
   }
 
   const contextBlock = formatContext(setup.context);

@@ -9,7 +9,6 @@ export type {
   CallContextAttendee,
   CallSetup,
   Nudge,
-  AgentNudgeKind,
   AgentNudgeUrgency,
   SessionStatus,
   SessionStatusEvent,
