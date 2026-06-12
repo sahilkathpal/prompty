@@ -33,6 +33,7 @@ final class CoreAudioTap {
     private var inputFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
     private var stopped = false
+    private var formatListener: AudioObjectPropertyListenerBlock?
 
     /// 16 kHz mono, Int16, interleaved, little-endian — the wire format every
     /// downstream consumer (tag 0x03) expects. Identical to MicCapture.
@@ -129,6 +130,24 @@ final class CoreAudioTap {
                           userInfo: [NSLocalizedDescriptionKey: "Could not build tap AVAudioConverter"])
         }
 
+        // The tapped output device can change format mid-session (e.g. a VoIP
+        // call routes audio to a Bluetooth headset, or the output sample rate
+        // shifts). When it does, the IOProc starts delivering buffers in the new
+        // format while our converter still expects the old one — resampling
+        // against a stale rate, which garbles the "them" transcript. Listen for
+        // the tap format changing and rebuild the converter on the IO queue (the
+        // same queue `process` runs on, so converter access stays serialized).
+        var fmtAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioTapPropertyFormat,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.rebuildConverterForCurrentTapFormat()
+        }
+        formatListener = listener
+        AudioObjectAddPropertyListenerBlock(tapID, &fmtAddress, ioQueue, listener)
+
         // 5. Install the IOProc and start the device.
         var newIOProcID: AudioDeviceIOProcID?
         let procStatus = AudioDeviceCreateIOProcIDWithBlock(
@@ -215,6 +234,26 @@ final class CoreAudioTap {
         FrameWriter.write(tag: .tapPCM, payload: data)
     }
 
+    /// Re-read the tap's current stream format and rebuild the converter if it
+    /// changed. Runs on `ioQueue` (the listener's queue), so it never races the
+    /// IOProc's `process(inputData:)`.
+    @available(macOS 14.4, *)
+    private func rebuildConverterForCurrentTapFormat() {
+        guard !stopped, let newFormat = tapStreamFormat(tapID) else { return }
+        if let current = inputFormat,
+           current.sampleRate == newFormat.sampleRate,
+           current.channelCount == newFormat.channelCount {
+            return  // unchanged — nothing to do
+        }
+        guard let newConverter = AVAudioConverter(from: newFormat, to: targetFormat) else {
+            Log.error("tap reconfigure: could not rebuild converter for sr=\(newFormat.sampleRate)")
+            return
+        }
+        inputFormat = newFormat
+        converter = newConverter
+        Log.info("CoreAudio tap reconfigured (input sr=\(newFormat.sampleRate) ch=\(newFormat.channelCount))")
+    }
+
     // MARK: - Teardown helpers (reverse creation order)
 
     private func cleanupIOProc() {
@@ -233,6 +272,15 @@ final class CoreAudioTap {
     @available(macOS 14.4, *)
     private func cleanupTap() {
         guard tapID != AudioObjectID(kAudioObjectUnknown) else { return }
+        if let listener = formatListener {
+            var fmtAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioTapPropertyFormat,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(tapID, &fmtAddress, ioQueue, listener)
+            formatListener = nil
+        }
         AudioHardwareDestroyProcessTap(tapID)
         tapID = AudioObjectID(kAudioObjectUnknown)
     }

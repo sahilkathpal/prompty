@@ -8,6 +8,8 @@ import AudioSidecarCore
 final class MicCapture {
     private let engine = AVAudioEngine()
     private var converter: AVAudioConverter?
+    private var stopped = false
+    private var configObserver: NSObjectProtocol?
     private let targetFormat: AVAudioFormat = {
         // 16 kHz mono, Int16, interleaved, little-endian (native on macOS).
         return AVAudioFormat(
@@ -29,6 +31,31 @@ final class MicCapture {
             Log.error("microphone not authorized (status=\(micAuth.rawValue)) — capture may be silent; grant Microphone access in System Settings → Privacy & Security")
         }
 
+        let inputFormat = try installTapForCurrentInput()
+
+        try engine.start()
+        Log.info("MicCapture started (input sr=\(inputFormat.sampleRate) ch=\(inputFormat.channelCount))")
+
+        // The default input device's format can change mid-session — most
+        // commonly when a VoIP call (WhatsApp/Zoom/etc.) starts and macOS flips a
+        // Bluetooth headset from A2DP to narrowband HFP, or switches the input
+        // device outright. AVAudioEngine tears down the tap and posts this
+        // notification when that happens; without re-reading the format and
+        // rebuilding the converter, every subsequent buffer is resampled against
+        // a stale rate and the transcript turns to garble. Rebuild on change.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleConfigChange()
+        }
+    }
+
+    /// Read the current input format, (re)build the converter for it, and install
+    /// the tap. Returns the input format used. Caller starts the engine.
+    @discardableResult
+    private func installTapForCurrentInput() throws -> AVAudioFormat {
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0 else {
@@ -44,15 +71,30 @@ final class MicCapture {
 
         // ~100 ms buffer at input sample rate.
         let bufferSize = AVAudioFrameCount(inputFormat.sampleRate / 10)
+        input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
             self?.handle(buffer: buffer)
         }
+        return inputFormat
+    }
 
-        try engine.start()
-        Log.info("MicCapture started (input sr=\(inputFormat.sampleRate) ch=\(inputFormat.channelCount))")
+    private func handleConfigChange() {
+        guard !stopped else { return }
+        do {
+            let newFormat = try installTapForCurrentInput()
+            if !engine.isRunning { try engine.start() }
+            Log.info("MicCapture reconfigured (input sr=\(newFormat.sampleRate) ch=\(newFormat.channelCount))")
+        } catch {
+            Log.error("MicCapture reconfigure failed: \(error.localizedDescription)")
+        }
     }
 
     func stop() {
+        stopped = true
+        if let obs = configObserver {
+            NotificationCenter.default.removeObserver(obs)
+            configObserver = nil
+        }
         engine.inputNode.removeTap(onBus: 0)
         if engine.isRunning { engine.stop() }
         Log.info("MicCapture stopped")
