@@ -191,6 +191,12 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   type TurnMeta = { trigger: string; turnId: number; enqueuedAt: number };
   let pushUserMessage: ((msg: string, meta?: TurnMeta) => void) | null = null;
   let closeInput: (() => void) | null = null;
+  // Set by close(): once we deliberately tear down the session, the SDK kills
+  // the claude subprocess and the consumer loop throws "process exited with
+  // code 1". That's teardown noise, not an agent failure — swallow it so it
+  // never reaches onError (which would surface a spurious error on every normal
+  // call end, and trip the replay harness's error count).
+  let closing = false;
   const turnDoneWaiters: Array<() => void> = [];
 
   const inputStream = (async function* () {
@@ -316,7 +322,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       }
       while (turnDoneWaiters.length) turnDoneWaiters.shift()!();
     } catch (e) {
-      events.onError(e as Error);
+      if (!closing) events.onError(e as Error);
       while (turnDoneWaiters.length) turnDoneWaiters.shift()!();
     }
   })();
@@ -364,6 +370,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       );
     },
     async close() {
+      closing = true;
       closeInput?.();
     },
   };

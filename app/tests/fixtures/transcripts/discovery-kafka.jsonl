@@ -1,0 +1,12 @@
+{"kind":"session-start","goal":"Learn whether they have budget for managed streaming.","direction":"Explore their Kafka operational pain before pitching; stay curious, qualify fit, and let them talk.","skill":"discovery","checklist":[{"id":"team","text":"How big is the platform team?","status":"open"},{"id":"pain","text":"What pain at current scale?","status":"open"},{"id":"budget","text":"Is there a dedicated streaming budget?","status":"open"}],"attendee":{"name":"Dana","company":"Linear","bio":"Staff engineer, data platform."}}
+{"kind":"utterance","speaker":"them","text":"Hey, good to see you. How's the week going?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"Good, thanks — yours?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Busy. We're mid-way through a big infra push right now.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"We finally finished the Kafka rollout last quarter — about eight months end to end.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"Oh nice, that's faster than I'd have guessed.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"The platform team is only five people, so we had to be surgical about it.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Honestly the operational side is what's killing us now — rebalancing, partition skew, on-call.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"That sounds painful.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Yeah. Two of the five basically babysit the clusters most weeks.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Anyway — what did you want to dig into?","startMs":0,"endMs":0}
+{"kind":"agent-turn","trigger":"hotkey"}

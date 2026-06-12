@@ -1,29 +1,77 @@
 // Transcript-replay harness — the fast dev loop for iterating on the in-call
-// prompt.
+// prompt, WITHOUT running a live call.
 //
 // Problem it solves: seeing what the coach does normally requires a live call
 // (audio sidecar + a real conversation) — minutes per iteration, never
-// reproducible. This replays a fixed transcript through the *real* agent
-// offline, so every prompt edit shows you the exact nudges in seconds.
+// reproducible. This replays a fixed transcript through the *real* coaching
+// session offline, so every prompt edit shows you the exact nudges in seconds.
+//
+// How it stays honest: it drives the actual production orchestrator
+// (startSession from coach-session.ts) with mockAudio — no sidecar, no
+// Deepgram, but the real agent, the real running-summary keeper, the real
+// auto-consider window, and the real hotkey one-shot (answerNow). So what you
+// see here is what a live call would produce, and the harness can't drift from
+// production by re-implementing the loop.
+//
+// Pacing is "settle-between": each utterance is injected, then we await the
+// session's waitIdle() before the next one — so every turn gets a fair shot at
+// a nudge (no coalescing drops from racing the loop), while a 30-minute call
+// replays in a couple of model-bound minutes.
 //
 // It is a SEEING tool, not an assertion tool: the model is nondeterministic, so
 // the same transcript won't reproduce the same nudges run to run. Read the
 // timeline with your own judgement; don't build a regression diff on it.
 //
 // Usage:
-//   npm run replay                        # built-in hand-authored fixture
-//   npm run replay -- path/to/call-*.jsonl   # a recorded debug-log session
-//   npm run replay -- --parse-only [path]    # load + print the fixture, no model
+//   npm run replay                              # built-in committed fixture
+//   npm run replay -- path/to/call-*.jsonl      # one or more recorded sessions
+//   npm run replay -- ~/.prompty/calls/x.json   # an old call log (pre-debug-flow)
+//   npm run replay -- ~/.prompty/debug          # a directory: all *.jsonl in it
+//   npm run replay -- --parse-only [path...]    # load + print, no model
 //
-// Fixture sources:
+// Flags:
+//   --limit N            replay only the first N utterances (sample big calls cheaply)
+//   --skill <name>       impose a skill playbook the transcript didn't store
+//   --goal <text>        impose a goal
+//   --direction <text>   impose a direction steer
+//   --direction-file <p> like --direction, but read the whole prompt from a file
+//                        (the dev loop: edit a scratch prompt.md, re-run, repeat)
+// Overrides apply to every transcript in the run, letting you test a NEW skill or
+// direction against a real old transcript that was recorded without one.
+//
+// Fixture sources (one unified debug-JSONL format):
 //   1. A debug-logger JSONL (~/.prompty/debug/call-*.jsonl): its `session-start`
-//      event reconstructs the CallSetup and its `utterance` events the
-//      transcript. Record one once with debugMode on, then replay it forever.
-//   2. The built-in hand-authored fixture below — for deliberate edge cases
-//      before you have a recording worth replaying.
+//      event reconstructs the CallSetup, its `utterance` events the transcript,
+//      and its `agent-turn` events with trigger:"hotkey" mark where a hotkey was
+//      pressed. Record one once with debugMode on, then replay it forever. These
+//      stay LOCAL — real calls never get committed.
+//   2. Hand-authored fixtures under tests/fixtures/transcripts/*.jsonl — same
+//      format, committed and shared. Insert a {"kind":"agent-turn",
+//      "trigger":"hotkey"} line wherever you want the hotkey exercised.
 
 import fs from "node:fs";
-import { openAgent } from "../src/main-process/agent";
+import os from "node:os";
+import path from "node:path";
+
+// Keep replay output (journal + call log) out of the user's real ~/.prompty.
+process.env.PROMPTY_CALL_LOG_DIR ??= path.join(os.tmpdir(), "prompty-replay");
+
+// Quiet production's internal console.log chatter so the timeline reads clean.
+// We only drop known-noisy prefixes; the harness surfaces nudges, quiet reasons
+// and checklist moves through its own callbacks. console.error is untouched, so
+// real failures still show.
+{
+  const NOISE = ["[coach-session", "[timing]", "[sidecar"];
+  const rawLog = console.log.bind(console);
+  console.log = (...args: unknown[]) => {
+    const first = args[0];
+    if (typeof first === "string" && NOISE.some((p) => first.startsWith(p))) return;
+    rawLog(...args);
+  };
+}
+
+import { startSession } from "../src/main-process/coach-session";
+import { listAvailableSkills } from "../src/main-process/prompts/system";
 import { CONSIDER_WINDOW } from "../src/main-process/windowing";
 import type {
   CallSetup,
@@ -33,48 +81,104 @@ import type {
   TranscriptUtterance,
 } from "../src/main-process/types";
 
-type Fixture = { setup: CallSetup; utterances: TranscriptUtterance[]; label: string };
+const DEFAULT_FIXTURE = path.join(
+  __dirname,
+  "fixtures",
+  "transcripts",
+  "discovery-kafka.jsonl",
+);
 
-function utt(speaker: Speaker, text: string): TranscriptUtterance {
-  return { speaker, text, startMs: 0, endMs: 0, isFinal: true };
+// Where replay writes its readable debug artifacts (.jsonl + rendered .md), one
+// subfolder per source transcript. Deliberately NOT ~/.prompty/debug, so a later
+// `npm run replay -- ~/.prompty/debug` never re-ingests its own output.
+const REPLAY_DEBUG_ROOT = path.join(os.homedir(), ".prompty", "replay");
+
+// An ordered replay step: feed an utterance, or press the hotkey.
+type Step =
+  | { kind: "utterance"; u: TranscriptUtterance }
+  | { kind: "hotkey" };
+
+type Loaded = { setup: CallSetup; steps: Step[]; label: string };
+
+// ---- CLI options -------------------------------------------------------------
+interface Opts {
+  parseOnly: boolean;
+  /** Replay only the first N utterances of each transcript (Infinity = all). */
+  limit: number;
+  /** Setup overrides — impose a skill/goal/direction the transcript didn't store. */
+  skill?: string;
+  goal?: string;
+  direction?: string;
+  paths: string[];
 }
 
-// ---- Built-in hand-authored fixture -----------------------------------------
-// A short discovery call with a couple of gold threads to mine, so a healthy
-// prompt should fire at least one deepen/segue nudge.
-const BUILT_IN: Fixture = {
-  label: "built-in: discovery (Kafka migration)",
-  setup: {
-    goal: "Learn whether they have budget for managed streaming.",
-    direction:
-      "Explore their Kafka operational pain before pitching; stay curious, qualify fit, and let them talk.",
-    checklist: [
-      { id: "team", text: "How big is the platform team?", status: "open" },
-      { id: "pain", text: "What pain at current scale?", status: "open" },
-      { id: "budget", text: "Is there a dedicated streaming budget?", status: "open" },
-    ],
-    context: {
-      attendee: { name: "Dana", company: "Linear", bio: "Staff engineer, data platform." },
-    },
-    skill: "discovery",
-  },
-  utterances: [
-    utt("them", "Hey, good to see you. How's the week going?"),
-    utt("me", "Good, thanks — yours?"),
-    utt("them", "Busy. We're mid-way through a big infra push right now."),
-    utt("them", "We finally finished the Kafka rollout last quarter — about eight months end to end."),
-    utt("me", "Oh nice, that's faster than I'd have guessed."),
-    utt("them", "The platform team is only five people, so we had to be surgical about it."),
-    utt("them", "Honestly the operational side is what's killing us now — rebalancing, partition skew, on-call."),
-    utt("me", "That sounds painful."),
-    utt("them", "Yeah. Two of the five basically babysit the clusters most weeks."),
-    utt("them", "Anyway — what did you want to dig into?"),
-  ],
-};
+function parseArgs(argv: string[]): Opts {
+  const opts: Opts = { parseOnly: false, limit: Infinity, paths: [] };
+  // Pull the value of a flag given either `--flag value` or `--flag=value`.
+  const val = (a: string, i: number): [string, number] =>
+    a.includes("=") ? [a.slice(a.indexOf("=") + 1), i] : [argv[i + 1] ?? "", i + 1];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--parse-only") opts.parseOnly = true;
+    else if (a === "--limit" || a.startsWith("--limit=")) {
+      const [v, ni] = val(a, i);
+      opts.limit = Number(v) > 0 ? Number(v) : Infinity;
+      i = ni;
+    } else if (a === "--skill" || a.startsWith("--skill=")) {
+      const [v, ni] = val(a, i);
+      opts.skill = v;
+      i = ni;
+    } else if (a === "--goal" || a.startsWith("--goal=")) {
+      const [v, ni] = val(a, i);
+      opts.goal = v;
+      i = ni;
+    } else if (a === "--direction-file" || a.startsWith("--direction-file=")) {
+      const [v, ni] = val(a, i);
+      try {
+        opts.direction = fs.readFileSync(v, "utf8");
+      } catch {
+        console.error(`[replay] --direction-file: cannot read ${v}`);
+      }
+      i = ni;
+    } else if (a === "--direction" || a.startsWith("--direction=")) {
+      const [v, ni] = val(a, i);
+      opts.direction = v;
+      i = ni;
+    } else if (a.startsWith("--")) {
+      console.error(`[replay] ignoring unknown flag: ${a}`);
+    } else {
+      opts.paths.push(a);
+    }
+  }
+  return opts;
+}
 
-// ---- JSONL fixture loader ----------------------------------------------------
-function loadFromJsonl(path: string): Fixture {
-  const raw = fs.readFileSync(path, "utf8");
+/** Apply setup overrides and the utterance limit to a loaded transcript. */
+function applyOpts(l: Loaded, o: Opts): Loaded {
+  const setup: CallSetup = { ...l.setup };
+  if (o.skill !== undefined) setup.skill = o.skill;
+  if (o.goal !== undefined) setup.goal = o.goal;
+  if (o.direction !== undefined) setup.direction = o.direction;
+
+  let steps = l.steps;
+  if (Number.isFinite(o.limit)) {
+    const kept: Step[] = [];
+    let n = 0;
+    for (const s of steps) {
+      if (s.kind === "utterance") {
+        if (n >= o.limit) break;
+        n++;
+      }
+      kept.push(s);
+    }
+    steps = kept;
+  }
+  return { setup, steps, label: l.label };
+}
+
+// ---- JSONL loader (handles both recordings and hand-authored fixtures) -------
+function loadJsonl(file: string): Loaded {
+  const raw = fs.readFileSync(file, "utf8");
   const events: Record<string, any>[] = [];
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
@@ -95,26 +199,106 @@ function loadFromJsonl(path: string): Fixture {
     skill: start?.skill,
   };
 
-  // "utterance" events are finals; "interim" events are ignored (the live loop
-  // only ever feeds finals into consider()).
-  const utterances: TranscriptUtterance[] = events
-    .filter((e) => e.kind === "utterance")
-    .map((e) => ({
-      speaker: (e.speaker as Speaker) ?? "them",
-      text: String(e.text ?? ""),
-      startMs: Number(e.startMs ?? 0),
-      endMs: Number(e.endMs ?? 0),
-      isFinal: true,
-    }))
-    .filter((u) => u.text.trim().length > 0);
+  // Build the ordered timeline. We keep only what we *re-drive*:
+  //   - "utterance" finals → injected into the session
+  //   - "agent-turn" with trigger:"hotkey" → a hotkey press point
+  // Everything else (auto agent-turns, recorded nudges, interims, status,
+  // summary-update, session start/end) is ignored — the harness regenerates
+  // all of that live through the real session.
+  const steps: Step[] = [];
+  for (const e of events) {
+    if (e.kind === "utterance") {
+      const text = String(e.text ?? "");
+      if (!text.trim()) continue;
+      steps.push({
+        kind: "utterance",
+        u: {
+          speaker: (e.speaker as Speaker) ?? "them",
+          text,
+          startMs: Number(e.startMs ?? 0),
+          endMs: Number(e.endMs ?? 0),
+          isFinal: true,
+        },
+      });
+    } else if (e.kind === "agent-turn" && e.trigger === "hotkey") {
+      steps.push({ kind: "hotkey" });
+    }
+  }
 
-  return { setup, utterances, label: `jsonl: ${path}` };
+  return { setup, steps, label: path.basename(file) };
+}
+
+// ---- Call-log loader (old ~/.prompty/calls/*.json, pre-debug-flow) ----------
+// These predate the debug logger: a single JSON object (CallLog), not JSONL.
+// The transcript is all there, so we can still replay them — minus hotkey
+// markers (didn't exist) and direction (call logs never persisted it).
+function loadCallLog(file: string): Loaded {
+  const log = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
+  const checklist: ChecklistItem[] = Array.isArray(log.checklist) ? log.checklist : [];
+  // Legacy: pre-rename logs stored `mode`; "default" mode meant "no skill".
+  const skill =
+    log.skill ?? (log.mode && log.mode !== "default" ? String(log.mode) : undefined);
+  const setup: CallSetup = {
+    goal: log.goal ?? "",
+    direction: undefined,
+    checklist,
+    context: { attendee: log.attendee },
+    skill,
+  };
+  const steps: Step[] = (Array.isArray(log.transcript) ? log.transcript : [])
+    .filter((u: any) => String(u?.text ?? "").trim())
+    .map((u: any) => ({
+      kind: "utterance" as const,
+      u: {
+        speaker: (u.speaker as Speaker) ?? "them",
+        text: String(u.text ?? ""),
+        startMs: Number(u.startMs ?? 0),
+        endMs: Number(u.endMs ?? 0),
+        isFinal: true,
+      },
+    }));
+  return { setup, steps, label: path.basename(file) };
+}
+
+/** Dispatch by extension: .json = old call log, anything else = debug JSONL. */
+function load(file: string): Loaded {
+  return file.endsWith(".json") ? loadCallLog(file) : loadJsonl(file);
+}
+
+// ---- Input resolution: files, directories (→ *.jsonl), or the default -------
+function resolveInputs(paths: string[]): string[] {
+  if (paths.length === 0) return [DEFAULT_FIXTURE];
+
+  const files: string[] = [];
+  for (const p of paths) {
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(p);
+    } catch {
+      console.error(`[replay] skip (not found): ${p}`);
+      continue;
+    }
+    if (st.isDirectory()) {
+      const jsonls = fs
+        .readdirSync(p)
+        .filter((f) => f.endsWith(".jsonl"))
+        .sort()
+        .map((f) => path.join(p, f));
+      if (!jsonls.length) console.error(`[replay] no .jsonl files in ${p}`);
+      files.push(...jsonls);
+    } else {
+      files.push(p);
+    }
+  }
+  return files;
 }
 
 // ---- Pretty-printing ---------------------------------------------------------
-function printSetup(f: Fixture): void {
-  const s = f.setup;
-  console.log(`\n=== fixture: ${f.label} ===`);
+function printSetup(l: Loaded): void {
+  const s = l.setup;
+  const hotkeys = l.steps.filter((e) => e.kind === "hotkey").length;
+  const utterances = l.steps.length - hotkeys;
+  console.log(`\n=== fixture: ${l.label} ===`);
   if (s.goal) console.log(`goal:      ${s.goal}`);
   if (s.direction) console.log(`direction: ${s.direction}`);
   if (s.skill) console.log(`skill:     ${s.skill}`);
@@ -126,65 +310,142 @@ function printSetup(f: Fixture): void {
     console.log("checklist:");
     for (const c of s.checklist) console.log(`  - [${c.id}] (${c.status}) ${c.text}`);
   }
-  console.log(`utterances: ${f.utterances.length}, window: ${CONSIDER_WINDOW}`);
+  console.log(
+    `steps: ${utterances} utterance(s), ${hotkeys} hotkey press(es), window: ${CONSIDER_WINDOW}`,
+  );
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const parseOnly = args.includes("--parse-only");
-  const pathArg = args.find((a) => !a.startsWith("--"));
+// ---- One transcript through the real session --------------------------------
+async function replayOne(
+  file: string,
+  opts: Opts,
+): Promise<{ nudges: number; errors: number }> {
+  const loaded = applyOpts(load(file), opts);
+  printSetup(loaded);
 
-  const fixture = pathArg ? loadFromJsonl(pathArg) : BUILT_IN;
-  printSetup(fixture);
+  // Capture a full debug log + rendered .md for this replayed session, under
+  // ~/.prompty/replay/<source-stem>/. Set before startSession so openDebugLog
+  // (which reads PROMPTY_DEBUG_LOG_DIR fresh) lands the files here.
+  const stem = path.basename(file).replace(/\.jsonl$/i, "");
+  const outDir = path.join(REPLAY_DEBUG_ROOT, stem);
+  process.env.PROMPTY_DEBUG_LOG_DIR = outDir;
 
-  if (parseOnly) {
-    console.log("\n--- transcript (parse-only) ---");
-    fixture.utterances.forEach((u, i) =>
-      console.log(`#${String(i + 1).padStart(2, "0")} [${u.speaker}] ${u.text}`),
-    );
-    console.log("\n[replay] parse-only: fixture loaded OK, agent not invoked.");
-    process.exit(0);
-  }
+  // Per-step output buffer. onNudge / onChecklistUpdate / onError fire during
+  // the await; we collect them, then print under the step that triggered them.
+  let buffer: string[] = [];
+  let errorCount = 0;
 
-  // Per-turn decision buffer. The session is serial — we await each consider()
-  // before the next — so a single mutable buffer is safe.
-  let turnLines: string[] = [];
-  const errors: Error[] = [];
-  const agent = await openAgent(fixture.setup, {
-    onNudge: (n: Nudge) => turnLines.push(`      💡 ${n.urgency}: ${n.text}`),
-    onChecklistUpdate: (id, status) => turnLines.push(`      ☑ ${id} → ${status}`),
-    onStayQuiet: (reason) => turnLines.push(`      · quiet: ${reason}`),
+  const handle = await startSession(loaded.setup, {
+    mockAudio: true,
+    debug: true,
+    onNudge: (n: Nudge) => buffer.push(`      💡 ${n.urgency}: ${n.text}`),
+    onChecklistUpdate: (id, status) => buffer.push(`      ☑ ${id} → ${status}`),
+    onStayQuiet: (reason) => buffer.push(`      · quiet: ${reason}`),
     onError: (e) => {
-      errors.push(e);
-      turnLines.push(`      ❌ ${e.message}`);
+      errorCount++;
+      buffer.push(`      ❌ ${e.message}`);
     },
   });
 
   console.log("\n--- replay timeline ---");
-  console.log("(mirrors coach-session.ts: slide a CONSIDER_WINDOW-deep window,");
-  console.log(" fire consider() on every final utterance. Unlike production this");
-  console.log(" awaits every turn — no debounce/drop — so you see every decision.)\n");
+  console.log("(real session via mockAudio: auto-nudges fire on each utterance,");
+  console.log(" ⌨️ marks a hotkey press → answerNow(). Settle-between pacing:");
+  console.log(" each step awaits waitIdle() before the next.)\n");
 
-  const window: TranscriptUtterance[] = [];
   let nudgeCount = 0;
-  for (let i = 0; i < fixture.utterances.length; i++) {
-    const u = fixture.utterances[i]!;
-    window.push(u);
-    while (window.length > CONSIDER_WINDOW) window.shift();
-
-    turnLines = [];
-    await agent.consider([...window], "auto");
-
-    console.log(`#${String(i + 1).padStart(2, "0")} [${u.speaker}] ${u.text}`);
-    for (const line of turnLines) {
+  let utterNo = 0;
+  for (const step of loaded.steps) {
+    buffer = [];
+    if (step.kind === "utterance") {
+      utterNo++;
+      handle.injectUtterance(step.u);
+      await handle.waitIdle();
+      console.log(`#${String(utterNo).padStart(2, "0")} [${step.u.speaker}] ${step.u.text}`);
+    } else {
+      handle.requestNudge();
+      await handle.waitIdle();
+      console.log("⌨️  hotkey pressed");
+    }
+    for (const line of buffer) {
       console.log(line);
       if (line.includes("💡")) nudgeCount++;
     }
   }
 
-  await agent.close();
-  console.log(`\n[replay] done — ${fixture.utterances.length} turns, ${nudgeCount} nudge(s), ${errors.length} error(s).`);
-  process.exit(errors.length ? 1 : 0);
+  await handle.end();
+
+  // debug-logger renders the .md sibling on close. Surface the newest one in
+  // outDir so the user can open it straight away.
+  let mdPath: string | null = null;
+  try {
+    const mds = fs
+      .readdirSync(outDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => path.join(outDir, f));
+    mdPath = mds.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? null;
+  } catch {
+    // No debug dir (e.g. capture failed) — just skip the pointer.
+  }
+
+  console.log(
+    `\n[replay] ${loaded.label} — ${utterNo} turns, ${nudgeCount} nudge(s), ${errorCount} error(s).`,
+  );
+  if (mdPath) console.log(`[replay] readable log → ${mdPath}`);
+  return { nudges: nudgeCount, errors: errorCount };
+}
+
+async function main(): Promise<void> {
+  const opts = parseArgs(process.argv.slice(2));
+  const files = resolveInputs(opts.paths);
+
+  if (files.length === 0) {
+    console.error("[replay] no transcripts to replay.");
+    process.exit(1);
+  }
+
+  // Warn on a likely-typo'd skill override — it would silently run base-only.
+  if (opts.skill) {
+    const known = listAvailableSkills().map((s) => s.name);
+    if (!known.includes(opts.skill)) {
+      console.error(
+        `[replay] warning: --skill "${opts.skill}" is not a known skill (${known.join(", ") || "none"}). The call will run on base.md alone.`,
+      );
+    }
+  }
+
+  if (opts.parseOnly) {
+    for (const file of files) {
+      const loaded = applyOpts(load(file), opts);
+      printSetup(loaded);
+      console.log("\n--- steps (parse-only) ---");
+      let n = 0;
+      for (const step of loaded.steps) {
+        if (step.kind === "utterance") {
+          n++;
+          console.log(`#${String(n).padStart(2, "0")} [${step.u.speaker}] ${step.u.text}`);
+        } else {
+          console.log("⌨️  hotkey pressed");
+        }
+      }
+    }
+    console.log("\n[replay] parse-only: fixtures loaded OK, session not started.");
+    process.exit(0);
+  }
+
+  let totalNudges = 0;
+  let totalErrors = 0;
+  for (const file of files) {
+    const { nudges, errors } = await replayOne(file, opts);
+    totalNudges += nudges;
+    totalErrors += errors;
+  }
+
+  if (files.length > 1) {
+    console.log(
+      `\n[replay] all done — ${files.length} transcript(s), ${totalNudges} nudge(s), ${totalErrors} error(s).`,
+    );
+  }
+  process.exit(totalErrors ? 1 : 0);
 }
 
 main().catch((e) => {

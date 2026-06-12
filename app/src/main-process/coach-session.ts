@@ -41,6 +41,8 @@ export interface SessionOpts {
   onUtterance?: (u: TranscriptUtterance) => void;
   onNudge?: (n: Nudge) => void;
   onChecklistUpdate?: (id: string, status: ChecklistItem["status"]) => void;
+  /** The agent decided not to nudge this turn, with its reason. */
+  onStayQuiet?: (reason: string) => void;
   onStateChange?: (state: SessionState) => void;
   /** Live audio/transcription health for the overlay status dot. */
   onStatus?: (s: SessionStatusEvent) => void;
@@ -60,6 +62,12 @@ export interface SessionHandle {
   injectUtterance(u: TranscriptUtterance): void;
   /** Manually request a nudge from the agent — used by the hotkey. */
   requestNudge(): void;
+  /**
+   * Resolve once the session is idle: no auto-consider in flight or pending and
+   * no hotkey answer in flight. Dormant in real calls (no one awaits it); the
+   * replay harness uses it to feed utterances settle-between.
+   */
+  waitIdle(): Promise<void>;
   /** Toggle verbose debug capture mid-session (the `debugMode` setting). */
   setDebug(enabled: boolean): void;
   /** Force an "error" status — used by E2E to verify the status wiring. */
@@ -241,6 +249,21 @@ export async function startSession(
   // the freshest window, so dropping intermediate ones loses nothing.
   let autoConsiderInFlight = false;
   let autoConsiderPending = false;
+
+  // Idle tracking — lets a caller (the replay harness) await a settled turn.
+  // "Busy" = an auto-consider is running or queued, or a hotkey answer is in
+  // flight. settleIdle() drains the waiters the instant nothing is busy.
+  let hotkeyInFlight = false;
+  let idleWaiters: Array<() => void> = [];
+  const isBusy = () =>
+    autoConsiderInFlight || autoConsiderPending || hotkeyInFlight;
+  const settleIdle = () => {
+    if (isBusy()) return;
+    const waiters = idleWaiters;
+    idleWaiters = [];
+    for (const w of waiters) w();
+  };
+
   const runAutoConsider = () => {
     if (!agent) return;
     if (autoConsiderInFlight) {
@@ -259,6 +282,7 @@ export async function startSession(
           autoConsiderPending = false;
           runAutoConsider();
         }
+        settleIdle();
       });
   };
 
@@ -346,6 +370,7 @@ export async function startSession(
       },
       onStayQuiet: (reason) => {
         console.log(`[coach-session quiet] ${reason}`);
+        opts.onStayQuiet?.(reason);
       },
       onError: (e) => {
         console.error(`[coach-session agent error] ${e.message}`);
@@ -477,6 +502,7 @@ export async function startSession(
       const recent = transcript.slice(-60);
       const recentNudges = nudges.slice(-5).map((n) => n.text);
       let hotkeyDbg: import("./answer").AnswerDebug | null = null;
+      hotkeyInFlight = true;
       void answerNow({
         setup,
         summary: summaryKeeper?.current() ?? "",
@@ -511,7 +537,15 @@ export async function startSession(
         .catch((e) => {
           console.error("[coach-session] hotkey answer error:", (e as Error).message);
           debugLog?.write("error", { where: "hotkey", message: (e as Error).message });
+        })
+        .finally(() => {
+          hotkeyInFlight = false;
+          settleIdle();
         });
+    },
+    waitIdle() {
+      if (!isBusy()) return Promise.resolve();
+      return new Promise<void>((resolve) => idleWaiters.push(resolve));
     },
     setDebug(enabled) {
       if (enabled) openDebug();
