@@ -33,7 +33,7 @@ assert(
   !bareP.includes("## Background context"),
   "bare prompt should omit the context section",
 );
-assert(bareP.includes("in-ear coach"), "bare prompt should include the base role");
+assert(bareP.includes("real-time call coach"), "bare prompt should include the base role");
 assert(
   !bareP.includes("## Playbook:"),
   "no-skill prompt should append no playbook section",
@@ -89,7 +89,7 @@ assert(
   !unknownP.includes("## Playbook:"),
   "unknown skill should append no playbook section",
 );
-assert(unknownP.includes("in-ear coach"), "unknown-skill prompt still has the base");
+assert(unknownP.includes("real-time call coach"), "unknown-skill prompt still has the base");
 
 // 4) prep fragment loads for a known skill; "" for empty/unknown skill (no
 //    default fallback exists anymore).

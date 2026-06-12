@@ -25,10 +25,18 @@ const USER_SKILLS_DIR = join(USER_PROMPTS_DIR, "skills");
 
 export type Fragment = "in-call" | "prep";
 
-/** Read the invariant in-call core. User override wins; otherwise bundled. */
+/**
+ * Read the invariant in-call core.
+ *
+ * NOTE: the ~/.prompty user override is intentionally DISABLED while we finalise
+ * the prompts — the repo is the single source of truth, so a stray
+ * ~/.prompty/base.md can't silently shadow a repo edit. Re-enable by
+ * uncommenting the USER_PROMPTS_DIR line below (and the matching one in
+ * loadSkillFragment) when we want runtime overrides back.
+ */
 export function loadBase(): string {
   for (const path of [
-    join(USER_PROMPTS_DIR, "base.md"),
+    // join(USER_PROMPTS_DIR, "base.md"),
     join(BUNDLED_PROMPTS_DIR, "base.md"),
   ]) {
     const text = tryRead(path);
@@ -38,9 +46,10 @@ export function loadBase(): string {
 }
 
 /**
- * Read a skill's fragment, resolving:
- *   1. ~/.prompty/skills/<skill>/<fragment>.md   (user override)
- *   2. <bundled>/skills/<skill>/<fragment>.md     (bundled)
+ * Read a skill's fragment from the bundled/repo copy.
+ *
+ * The ~/.prompty/skills/<skill> user override is DISABLED for now (see loadBase)
+ * — repo is the single source of truth while we finalise the prompts.
  *
  * Skills are optional: an empty/blank `skill` returns "" (no playbook). When a
  * named skill has no matching fragment, this also returns "" — there is no
@@ -51,7 +60,7 @@ export function loadSkillFragment(skill: string, fragment: Fragment): string {
   const s = (skill || "").trim();
   if (!s) return "";
   for (const path of [
-    join(USER_SKILLS_DIR, s, `${fragment}.md`),
+    // join(USER_SKILLS_DIR, s, `${fragment}.md`),
     join(BUNDLED_SKILLS_DIR, s, `${fragment}.md`),
   ]) {
     const text = tryRead(path);
