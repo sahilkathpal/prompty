@@ -25,6 +25,22 @@ import { setupAutoUpdater } from "./auto-updater";
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const E2E_MODE = process.env.PROMPTY_E2E === "1";
 
+// When Prompty is launched from Finder (or the dev wrapper exits), the stdout/
+// stderr pipe can close while the app keeps running. The next console.log then
+// throws EPIPE — and because it surfaces as an uncaught exception, it crashes
+// the whole main process. The in-call audio path logs frequently, so this fires
+// reliably mid-call. Swallow EPIPE on the std streams so a dead pipe degrades to
+// "no logs" instead of a crash.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") return;
+    // Re-throw anything unexpected on the next tick so it isn't silently lost.
+    process.nextTick(() => {
+      throw err;
+    });
+  });
+}
+
 // In E2E mode, log every Notification ever constructed to a global array so
 // Playwright can read it via app.evaluate().
 if (E2E_MODE) {
