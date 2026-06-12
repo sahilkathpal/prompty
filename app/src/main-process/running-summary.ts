@@ -45,9 +45,12 @@ function buildPrompt(setup: CallSetup, transcript: TranscriptUtterance[]): strin
   return `You are keeping a running brief of a conversation that is STILL ONGOING. This brief is context for a real-time assistant helping the user — it is not shown to the user.
 
 ## Goal
-${setup.goal}
+${setup.goal || "(none set)"}
 
-## Checklist (things the user wanted to ask or verify)
+## Direction (what a good call looks like)
+${setup.direction?.trim() || "(none set)"}
+
+## Checklist (concrete things the user wanted to ask or verify)
 ${checklistBlock}
 
 ## Transcript so far
@@ -55,6 +58,7 @@ ${transcriptBlock}
 
 Write a tight brief (max ~150 words), plain prose, no preamble. Capture:
 - what's been established or decided so far
+- how the call is tracking against the direction (and any drift from it)
 - which checklist items have been answered vs are still open
 - the current open thread — what's being discussed right now
 

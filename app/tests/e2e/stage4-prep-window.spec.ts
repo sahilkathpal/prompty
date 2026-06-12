@@ -159,7 +159,7 @@ test("Stage 4: Open prep window from Prep tab (ad-hoc)", async () => {
   }
 });
 
-test("Stage 4: Conversation produces goal + checklist", async () => {
+test("Stage 4: Conversation produces goal + direction", async () => {
   const userDataDir = await freshUserDataDir();
   await seedSettings(userDataDir);
   await seedSession(userDataDir);
@@ -183,7 +183,8 @@ test("Stage 4: Conversation produces goal + checklist", async () => {
       { timeout: 10_000 },
     );
 
-    // Turn 2 (mock factory sets goal + 3 checklist items here).
+    // Turn 2 (mock factory sets goal + direction here; checklist stays empty —
+    // direction is the required artifact, the checklist is now opt-in).
     await prep.fill(
       '[data-testid="prep-input"]',
       "Goal: validate budget and timeline.",
@@ -193,30 +194,28 @@ test("Stage 4: Conversation produces goal + checklist", async () => {
     await prep.waitForFunction(
       () => {
         const goalCard = document.querySelector('[data-testid="prep-goal-card"]');
-        const checklistCard = document.querySelector(
-          '[data-testid="prep-checklist-card"]',
-        );
+        const directionInput = document.querySelector(
+          '[data-testid="prep-direction-input"]',
+        ) as HTMLTextAreaElement | null;
         return (
           !!goalCard &&
           /Mock goal/.test(goalCard.textContent ?? "") &&
-          !!checklistCard &&
-          (checklistCard.textContent?.match(/·/g)?.length ?? 0) >= 3
+          !!directionInput &&
+          /Mock direction/.test(directionInput.value ?? "")
         );
       },
       { timeout: 15_000 },
     );
 
-    // Chip row visible with all four mode chips.
-    await prep.waitForSelector('[data-testid="prep-mode-row"]');
-    for (const m of ["default", "discovery", "user-interview", "hiring"]) {
-      await prep.waitForSelector(`[data-testid="prep-mode-chip-${m}"]`);
-    }
+    // The skill picker rests as "+ Add a playbook" (no skill, the mock sets none).
+    await prep.waitForSelector('[data-testid="prep-skill-add"]');
+    expect(await prep.isVisible('[data-testid="prep-skill-tag"]')).toBe(false);
   } finally {
     await app.close();
   }
 });
 
-test("Stage 4: Mode chip click updates state", async () => {
+test("Stage 4: Skill picker — add via disclosure, swap, and clear to none", async () => {
   const userDataDir = await freshUserDataDir();
   await seedSettings(userDataDir);
   await seedSession(userDataDir);
@@ -228,28 +227,42 @@ test("Stage 4: Mode chip click updates state", async () => {
     await page.click('[data-testid="home-adhoc-button"]');
     const prep = await getPrepPage(app);
 
-    // Wait for chip row to render.
-    await prep.waitForSelector('[data-testid="prep-mode-row"]');
+    // Resting state: the "Add a playbook" affordance, no tag, no open menu.
+    await prep.waitForSelector('[data-testid="prep-skill-add"]');
+    expect(await prep.isVisible('[data-testid="prep-skill-menu"]')).toBe(false);
 
-    for (const m of ["discovery", "user-interview", "hiring", "default"]) {
-      await prep.click(`[data-testid="prep-mode-chip-${m}"]`);
-      await prep.waitForFunction(
-        (mode) => {
-          const el = document.querySelector(
-            `[data-testid="prep-mode-chip-${mode}"]`,
-          );
-          return !!el && el.getAttribute("data-active") === "true";
-        },
-        m,
-        { timeout: 5_000 },
-      );
-      // Verify others are not active.
-      const activeChips = await prep.$$eval(
-        '[data-testid^="prep-mode-chip-"][data-active="true"]',
-        (els) => els.map((e) => e.getAttribute("data-testid")),
-      );
-      expect(activeChips).toEqual([`prep-mode-chip-${m}`]);
+    // Open the disclosure → all three options appear.
+    await prep.click('[data-testid="prep-skill-add"]');
+    await prep.waitForSelector('[data-testid="prep-skill-menu"]');
+    for (const s of ["discovery", "user-interview", "hiring"]) {
+      await prep.waitForSelector(`[data-testid="prep-skill-option-${s}"]`);
     }
+
+    // Pick one → it collapses to a removable tag, the add affordance is gone.
+    await prep.click('[data-testid="prep-skill-option-discovery"]');
+    await prep.waitForSelector('[data-testid="prep-skill-tag"]');
+    expect(await prep.textContent('[data-testid="prep-skill-tag"]')).toContain(
+      "Discovery",
+    );
+    expect(await prep.isVisible('[data-testid="prep-skill-add"]')).toBe(false);
+
+    // Swap via "change" → reopen and pick a different skill.
+    await prep.click('[data-testid="prep-skill-change"]');
+    await prep.waitForSelector('[data-testid="prep-skill-menu"]');
+    await prep.click('[data-testid="prep-skill-option-hiring"]');
+    await prep.waitForFunction(
+      () => {
+        const tag = document.querySelector('[data-testid="prep-skill-tag"]');
+        return !!tag && /Hiring/.test(tag.textContent ?? "");
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    // Remove → back to the resting "Add a playbook" state (none-selected).
+    await prep.click('[data-testid="prep-skill-remove"]');
+    await prep.waitForSelector('[data-testid="prep-skill-add"]');
+    expect(await prep.isVisible('[data-testid="prep-skill-tag"]')).toBe(false);
   } finally {
     await app.close();
   }
@@ -490,6 +503,30 @@ test("Stage 4: Direct rail editing — set goal, add and remove checklist item",
         Array.from(
           document.querySelectorAll('[data-testid="prep-msg-tool"]'),
         ).some((n) => /You set goal: Close the pilot/.test(n.textContent ?? "")),
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    // Edit the direction via the rail textarea — commits on blur.
+    await prep.fill(
+      '[data-testid="prep-direction-input"]',
+      "Explore their migration pain; stay curious, gauge fit.",
+    );
+    await prep.evaluate(() => {
+      const el = document.querySelector(
+        '[data-testid="prep-direction-input"]',
+      ) as HTMLTextAreaElement | null;
+      el?.blur();
+    });
+    await prep.waitForFunction(
+      () =>
+        Array.from(
+          document.querySelectorAll('[data-testid="prep-msg-tool"]'),
+        ).some((n) =>
+          /You set direction: Explore their migration pain/.test(
+            n.textContent ?? "",
+          ),
+        ),
       undefined,
       { timeout: 5_000 },
     );

@@ -98,11 +98,18 @@ html, body, #root {
   display: flow-root;
 }
 
-.prompty-goal {
+.prompty-brief {
   background: rgba(255, 255, 255, 0.04);
   border-radius: 6px;
   padding: 8px 10px;
   margin-bottom: 8px;
+}
+/* The goal is secondary to the direction: a thin rule separates it and it sits
+   slightly quieter below. Only rendered when a goal was set. */
+.prompty-brief-goal {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .prompty-label {
   font-size: 9px;
@@ -111,10 +118,25 @@ html, body, #root {
   color: #7e85a0;
   margin-bottom: 2px;
 }
+/* The active coaching skill, as a small pill beside the Direction label. */
+.prompty-skill-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(120, 140, 255, 0.16);
+  color: #aab4ff;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  vertical-align: middle;
+}
 .prompty-goal-text {
   font-size: 13px;
   line-height: 1.4;
   color: #e5e5e5;
+}
+.prompty-brief-empty {
+  color: #7e85a0;
 }
 
 .prompty-checklist {

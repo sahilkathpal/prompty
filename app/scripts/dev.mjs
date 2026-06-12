@@ -40,13 +40,13 @@ const build = spawn(tscBin, ["-p", "tsconfig.electron.json"], {
 });
 await new Promise((res) => build.on("exit", res));
 
-// Copy non-TS assets (mode markdown templates) into dist so __dirname-relative
+// Copy non-TS assets (skill markdown templates) into dist so __dirname-relative
 // lookups in compiled main-process code can find them.
-const modesSrc = resolve(root, "src/main-process/prompts/modes");
-const modesDst = resolve(root, "dist/electron/src/main-process/prompts/modes");
-if (existsSync(modesSrc)) {
-  cpSync(modesSrc, modesDst, { recursive: true });
-  console.log("[dev] copied modes/ -> dist");
+const skillsSrc = resolve(root, "src/main-process/prompts/skills");
+const skillsDst = resolve(root, "dist/electron/src/main-process/prompts/skills");
+if (existsSync(skillsSrc)) {
+  cpSync(skillsSrc, skillsDst, { recursive: true });
+  console.log("[dev] copied skills/ -> dist");
 }
 
 console.log("[dev] waiting for vite…");

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DragHandle } from "./components/DragHandle";
-import { GoalBanner } from "./components/GoalBanner";
+import { Brief } from "./components/Brief";
 import { Checklist } from "./components/Checklist";
 import { NudgeFeed } from "./components/NudgeFeed";
 import type {
@@ -24,7 +24,9 @@ const STATUS_META: Record<SessionStatus, { label: string; tone: "amber" | "green
 };
 
 export default function App(): JSX.Element {
+  const [direction, setDirection] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
+  const [skill, setSkill] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [status, setStatus] = useState<SessionStatus | null>(null);
@@ -38,14 +40,20 @@ export default function App(): JSX.Element {
   const prevHeadsUp = useRef(headsUpBar);
 
   useEffect(() => {
+    // Mirror the agent's brief hierarchy: direction is the primary steer, goal
+    // and skill are optional. A null setup clears everything back to idle.
+    const applySetup = (s: CallSetup | null | undefined) => {
+      setDirection(s?.direction || null);
+      setGoal(s?.goal || null);
+      setSkill(s?.skill || null);
+      setChecklist(s?.checklist ?? []);
+    };
+
     window.prompty
       .invoke("session:state", undefined as never)
       .then((r) => {
         setSessionState(r.state);
-        if (r.setup) {
-          setGoal(r.setup.goal || null);
-          setChecklist(r.setup.checklist ?? []);
-        }
+        if (r.setup) applySetup(r.setup);
       })
       .catch(() => {});
 
@@ -55,9 +63,7 @@ export default function App(): JSX.Element {
       .catch(() => {});
 
     const offSetup = window.prompty.on("session:setup", (p) => {
-      const s: CallSetup = p.setup;
-      setGoal(s.goal || null);
-      setChecklist(s.checklist ?? []);
+      applySetup(p.setup);
     });
     const offState = window.prompty.on("session:state-changed", (p) => {
       setSessionState(p.state);
@@ -69,13 +75,7 @@ export default function App(): JSX.Element {
         setStatus(null);
       }
       if (p.setup !== undefined) {
-        if (p.setup) {
-          setGoal(p.setup.goal || null);
-          setChecklist(p.setup.checklist ?? []);
-        } else {
-          setGoal(null);
-          setChecklist([]);
-        }
+        applySetup(p.setup);
       }
     });
     const offStatus = window.prompty.on("session:status", (p) => {
@@ -136,7 +136,7 @@ export default function App(): JSX.Element {
     const toggledFeedHidden = headsUpBar && !prevHeadsUp.current;
     prevHeadsUp.current = headsUpBar;
     fitHeight(toggledFeedHidden ? "exact" : "grow");
-  }, [headsUpBar, goal, checklist, nudges, fitHeight]);
+  }, [headsUpBar, direction, goal, skill, checklist, nudges, fitHeight]);
 
   const toggleHeadsUpBar = useCallback(() => {
     setHeadsUpBar((cur) => {
@@ -203,7 +203,7 @@ export default function App(): JSX.Element {
 
       <div className="prompty-body-scroll" ref={bodyRef}>
         <div className="prompty-body-content" ref={contentRef}>
-          <GoalBanner goal={goal} />
+          <Brief direction={direction} goal={goal} skill={skill} />
           <Checklist items={checklist} onToggle={onToggleCheck} />
           {/* When the heads-up bar is OFF, nudges collect here as a feed. When ON,
               they flash in the floating teleprompter bar instead. */}

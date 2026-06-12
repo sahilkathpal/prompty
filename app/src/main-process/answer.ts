@@ -51,9 +51,12 @@ function buildPrompt(input: AnswerInput): string {
       ? "(none yet)"
       : recentNudges.map((t) => `- ${t}`).join("\n");
   return `## Goal
-${setup.goal}
+${setup.goal || "(none set — let the direction below guide you)"}
 
-## Checklist (things to ask or verify)
+## Direction (what a good call looks like — your primary steer)
+${setup.direction?.trim() || "(none set)"}
+
+## Checklist (concrete don't-forget items, secondary)
 ${checklistBlock}
 
 ## Call so far (running brief)
@@ -90,8 +93,9 @@ export interface AnswerInput {
 export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
   try {
     const { query } = await loadSdk();
+    const prompt = buildPrompt(input);
     const q = query({
-      prompt: buildPrompt(input),
+      prompt,
       options: {
         model: modelFor("hotkey"),
         systemPrompt: SYSTEM_PROMPT,

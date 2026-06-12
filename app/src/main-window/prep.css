@@ -160,30 +160,7 @@
   border-radius: 4px;
 }
 
-/* Mode chips. */
-.prep-mode-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-.prep-chip {
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 11px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-strong);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-.prep-chip:hover { color: var(--text); border-color: var(--accent); }
-.prep-chip.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
+/* The optional skill picker styles are shared and live in main-window.css. */
 
 /* Cards. */
 .prep-card {
@@ -221,7 +198,8 @@
 }
 
 /* Free-text notes editor on the rail. */
-.prep-notes-input {
+.prep-notes-input,
+.prep-direction-input {
   width: 100%;
   box-sizing: border-box;
   font-family: inherit;
@@ -235,8 +213,10 @@
   outline: none;
   resize: vertical;
 }
-.prep-notes-input::placeholder { color: var(--faint); }
-.prep-notes-input:focus { border-color: var(--accent); }
+.prep-notes-input::placeholder,
+.prep-direction-input::placeholder { color: var(--faint); }
+.prep-notes-input:focus,
+.prep-direction-input:focus { border-color: var(--accent); }
 
 /* Shared inline edit input (goal + checklist). */
 .prep-edit-input {

@@ -51,9 +51,9 @@ export interface InvokeChannels {
     response: AppSettings;
   };
   "call:start": {
-    // Optional call type (PrepMode). Lets a user start a call straight from the
-    // home screen by picking a type, with no prep required.
-    request: { mode?: string } | void;
+    // Optional skill. Lets a user start a call straight from the home screen
+    // with a chosen playbook (or none), with no prep required.
+    request: { skill?: string } | void;
     response: { ok: boolean; error?: string };
   };
   "call:end": {
@@ -170,12 +170,18 @@ export interface InvokeChannels {
     request: void;
     response: { ok: boolean };
   };
-  "prep:set-mode": {
-    request: { mode: string };
+  "prep:set-skill": {
+    request: { skill: string };
     response: { ok: boolean; error?: string };
   };
   // Direct (silent) rail edits — see PrepSessionHandle.set/add/edit/remove.
   "prep:set-goal": {
+    request: { text: string };
+    response: { ok: boolean; error?: string };
+  };
+  // The call's direction — the synthesized prose paragraph that primarily
+  // drives in-call nudges (silent rail edit).
+  "prep:set-direction": {
     request: { text: string };
     response: { ok: boolean; error?: string };
   };
@@ -184,10 +190,10 @@ export interface InvokeChannels {
     request: { text: string };
     response: { ok: boolean; error?: string };
   };
-  // Notes added on the idle/home screen with no prep session open. Writes
-  // straight to the pending-prep draft so a call can carry notes without prep.
-  "draft:set-notes": {
-    request: { notes: string };
+  // Direction set on the idle/home screen with no prep session open — the
+  // quick-start primary steer. Writes straight to the pending-prep draft.
+  "draft:set-direction": {
+    request: { direction: string };
     response: { ok: boolean };
   };
   "prep:add-checklist-item": {
@@ -223,9 +229,10 @@ export interface PrepMessagePayload {
 
 export interface PrepStatePayload {
   goal: string;
+  direction: string;
   checklist: ChecklistItem[];
   notes: string;
-  mode: string;
+  skill: string;
   messages: PrepMessagePayload[];
   event: ArmedEvent | null;
   assistantBusy: boolean;
@@ -233,9 +240,10 @@ export interface PrepStatePayload {
 
 export interface PendingPrepPayload {
   goal: string;
+  direction?: string;
   checklist: ChecklistItem[];
   notes?: string;
-  mode?: string;
+  skill?: string;
   eventId?: string;
   eventTitle?: string;
   savedAt: number;

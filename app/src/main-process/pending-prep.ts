@@ -18,13 +18,16 @@ export interface PendingPrepMessage {
 }
 
 export interface PendingPrep {
-  // goal/checklist are optional: a draft can be just a mode (+ notes) when the
+  // goal/checklist are optional: a draft can be just a skill (+ notes) when the
   // user skips prep. The in-call prompt omits whatever is absent.
   goal?: string;
+  /** Synthesized prose paragraph — the primary fuel for in-call nudges. */
+  direction?: string;
   checklist?: ChecklistItem[];
   /** Free-text framing the user wants the in-call agent to know. */
   notes?: string;
-  mode?: string;
+  /** Optional named playbook layered on top of base + direction. */
+  skill?: string;
   eventId?: string;
   eventTitle?: string;
   /** Full chat thread from the prep session, so resume can re-hydrate. */
@@ -41,11 +44,20 @@ function filePath(): string {
 export function getPendingPrep(): PendingPrep | null {
   try {
     const raw = fs.readFileSync(filePath(), "utf8");
-    const parsed = JSON.parse(raw) as PendingPrep;
+    const parsed = JSON.parse(raw) as PendingPrep & { mode?: string };
     if (!parsed || typeof parsed !== "object") return null;
-    // goal/checklist are optional (a notes-only or mode-only draft is valid);
+    // goal/checklist are optional (a notes-only or skill-only draft is valid);
     // normalize checklist to an array so callers can always `.length`.
     if (!Array.isArray(parsed.checklist)) parsed.checklist = [];
+    // Migration shim: legacy drafts persisted a `mode` field. Map it onto
+    // `skill` ("default" had no playbook, so it drops to none) and strip it.
+    if ("mode" in parsed) {
+      const legacy = parsed.mode;
+      if (parsed.skill == null && legacy && legacy !== "default") {
+        parsed.skill = legacy;
+      }
+      delete parsed.mode;
+    }
     return parsed;
   } catch {
     return null;

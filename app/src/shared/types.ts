@@ -78,21 +78,15 @@ export interface CallContext {
 
 export interface CallSetup {
   goal: string;
+  // The primary fuel for in-call nudges: a synthesized prose paragraph (~40-60
+  // words) describing what a good call looks like. Optional only because a draft
+  // may not have one yet.
+  direction?: string;
   checklist: ChecklistItem[];
   context: CallContext;
-  mode?: string;
-}
-
-export const PREP_MODES = [
-  "default",
-  "discovery",
-  "user-interview",
-  "hiring",
-] as const;
-export type PrepMode = (typeof PREP_MODES)[number];
-
-export function isPrepMode(s: string): s is PrepMode {
-  return (PREP_MODES as readonly string[]).includes(s);
+  // Optional named playbook layered on top of base + direction (e.g.
+  // "discovery", "hiring", "user-interview"). Empty/absent = no skill.
+  skill?: string;
 }
 
 export interface PanelState {

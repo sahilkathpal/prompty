@@ -5,8 +5,8 @@
 // Pass criteria:
 //   - setGoal / add / edit / removeChecklistItem mutate state correctly
 //   - each direct edit pushes a `You …` role:tool trace with the right toolName
-//   - buildPrepStatePreamble renders goal/mode/items, with (not set yet) /
-//     (none yet) placeholders, and is clearly fenced as [current-state]
+//   - buildPrepStatePreamble renders goal/skill/items, with (not set yet) /
+//     (none yet) / (none) placeholders, and is clearly fenced as [current-state]
 
 process.env.PROMPTY_MOCK_PREP = "1";
 
@@ -39,6 +39,28 @@ async function main() {
   let tr = lastTrace(session);
   assert.equal(tr?.toolName, "set_goal", "setGoal trace toolName");
   assert.ok(tr?.text.startsWith("You set goal:"), "setGoal trace says 'You …'");
+
+  // --- setDirection ----------------------------------------------------------
+  session.setDirection(
+    "Explore how Alex runs ingestion today; stay curious, gauge fit before pitching.",
+  );
+  s = session.getState();
+  assert.equal(
+    s.direction,
+    "Explore how Alex runs ingestion today; stay curious, gauge fit before pitching.",
+    "direction set",
+  );
+  assert.equal(
+    session.snapshot().direction,
+    "Explore how Alex runs ingestion today; stay curious, gauge fit before pitching.",
+    "snapshot carries direction",
+  );
+  tr = lastTrace(session);
+  assert.equal(tr?.toolName, "set_direction", "setDirection trace toolName");
+  assert.ok(
+    tr?.text.startsWith("You set direction:"),
+    "setDirection trace says 'You …'",
+  );
 
   // --- addChecklistItem (×3) -------------------------------------------------
   const a = session.addChecklistItem("Current Kafka spend");
@@ -91,8 +113,20 @@ async function main() {
   tr = lastTrace(session);
   assert.equal(tr?.toolName, "set_notes", "setNotes trace toolName");
 
+  // --- setSkill (and clearing it) -------------------------------------------
+  session.setSkill("discovery");
+  s = session.getState();
+  assert.equal(s.skill, "discovery", "skill set");
+  tr = lastTrace(session);
+  assert.equal(tr?.toolName, "set_skill", "setSkill trace toolName");
+  assert.ok(tr?.text.startsWith("Set skill: discovery"), "setSkill trace text");
+  session.setSkill(""); // empty clears it — the resting state
+  assert.equal(session.getState().skill, "", "skill cleared");
+  assert.throws(() => session.setSkill("not-a-real-skill"), "unknown skill rejected");
+
   // --- empty input is rejected ----------------------------------------------
   assert.throws(() => session.setGoal("   "), "empty goal rejected");
+  assert.throws(() => session.setDirection("   "), "empty direction rejected");
   assert.throws(() => session.addChecklistItem(""), "empty item rejected");
 
   await session.close();
@@ -100,6 +134,7 @@ async function main() {
   // --- preamble shape (pure helper) -----------------------------------------
   const full = buildPrepStatePreamble(
     "Get Alex to commit",
+    "Explore ingestion pain; stay curious, gauge fit before pitching.",
     [
       { id: "1", text: "Current Kafka spend", status: "open" },
       { id: "2", text: "Decision timeline", status: "open" },
@@ -110,14 +145,22 @@ async function main() {
   assert.ok(full.startsWith("[current-state]"), "preamble is fenced");
   assert.ok(full.includes("[/current-state]"), "preamble closes the fence");
   assert.ok(full.includes("goal: Get Alex to commit"), "preamble has goal");
-  assert.ok(full.includes("mode: discovery"), "preamble has mode");
+  assert.ok(
+    full.includes("direction: Explore ingestion pain"),
+    "preamble has direction",
+  );
+  assert.ok(full.includes("skill: discovery"), "preamble has skill");
   assert.ok(full.includes("- Current Kafka spend"), "preamble lists item 1");
   assert.ok(full.includes("- Decision timeline"), "preamble lists item 2");
   assert.ok(full.includes("notes: Skeptical CTO"), "preamble has notes");
 
-  const empty = buildPrepStatePreamble("", [], "");
+  const empty = buildPrepStatePreamble("", "", [], "");
   assert.ok(empty.includes("goal: (not set yet)"), "empty goal placeholder");
-  assert.ok(empty.includes("mode: (not set yet)"), "empty mode placeholder");
+  assert.ok(
+    empty.includes("direction: (not set yet)"),
+    "empty direction placeholder",
+  );
+  assert.ok(empty.includes("skill: (none)"), "empty skill placeholder");
   assert.ok(empty.includes("(none yet)"), "empty checklist placeholder");
   assert.ok(empty.includes("notes: (none)"), "empty notes placeholder");
 

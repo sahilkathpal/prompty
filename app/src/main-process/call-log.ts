@@ -11,6 +11,8 @@ import type { CallSummary } from "./summary";
 
 export interface CallLog {
   goal: string;
+  skill?: string;
+  /** Legacy field — only present on logs written before the mode→skill rename. */
   mode?: string;
   checklist: ChecklistItem[];
   transcript: TranscriptUtterance[];

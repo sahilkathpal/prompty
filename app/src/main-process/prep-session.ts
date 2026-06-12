@@ -11,7 +11,17 @@ import type { CalendarEvent } from "./calendar-arm";
 import { buildPrepSystemPrompt } from "./prompts/prep-system";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { EventEmitter } from "node:events";
-import { PREP_MODES, isPrepMode } from "../shared/types";
+import { listAvailableSkills } from "./prompts/loader";
+
+/**
+ * A valid skill is the empty string (no skill — the resting state) or the name
+ * of a folder under the bundled/user skills dir. Validated by registry, not a
+ * frozen enum, so a new skill folder works without a code change.
+ */
+function isValidSkill(s: string): boolean {
+  if (s === "") return true;
+  return listAvailableSkills().some((sk) => sk.name === s);
+}
 
 type ClaudeAgentSdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdkPromise: Promise<ClaudeAgentSdk> | null = null;
@@ -33,15 +43,17 @@ export type PrepMessageRole = "user" | "assistant" | "tool";
  */
 export function buildPrepStatePreamble(
   goal: string,
+  direction: string,
   checklist: ChecklistItem[],
-  mode: string,
+  skill: string,
   notes?: string,
 ): string {
   const items = checklist.map((c) => `- ${c.text}`);
   return [
     "[current-state] The user may have directly edited the rail since your last turn. This is the authoritative current state — treat it as ground truth and do not contradict, re-ask, or re-add anything below. Do not mention or quote this block.",
     `goal: ${goal || "(not set yet)"}`,
-    `mode: ${mode || "(not set yet)"}`,
+    `direction: ${direction || "(not set yet)"}`,
+    `skill: ${skill || "(none)"}`,
     "checklist:",
     items.length ? items.join("\n") : "(none yet)",
     `notes: ${notes?.trim() || "(none)"}`,
@@ -62,9 +74,10 @@ export interface PrepMessage {
 
 export interface PrepState {
   goal: string;
+  direction: string;
   checklist: ChecklistItem[];
   notes: string;
-  mode: string;
+  skill: string;
   messages: PrepMessage[];
   event: CalendarEvent | null;
   assistantBusy: boolean;
@@ -74,15 +87,16 @@ export interface PrepSessionHandle {
   sendMessage(text: string): Promise<void>;
   /** Hidden bootstrap turn so the assistant greets the user without a visible "from me" message. */
   kick(): Promise<void>;
-  /** UI-side override for the selected mode (chip-row clicks). */
-  setMode(mode: string): void;
+  /** UI-side override for the selected skill (chip-row clicks; "" clears it). */
+  setSkill(skill: string): void;
   /**
    * UI-side direct edits to the rail. These are SILENT — they mutate state and
    * push a `You …` trace message, but never trigger a model turn. The current
-   * goal/checklist/mode is re-injected into the model on the next sendMessage so
+   * goal/checklist/skill is re-injected into the model on the next sendMessage so
    * it stays in sync with manual edits.
    */
   setGoal(text: string): void;
+  setDirection(text: string): void;
   setNotes(text: string): void;
   addChecklistItem(text: string): ChecklistItem;
   editChecklistItem(id: string, text: string): void;
@@ -91,9 +105,10 @@ export interface PrepSessionHandle {
   /** Returns the snapshot used for pending-prep persistence. */
   snapshot(): {
     goal: string;
+    direction: string;
     checklist: ChecklistItem[];
     notes: string;
-    mode: string;
+    skill: string;
     event: CalendarEvent | null;
   };
   discard(): Promise<void>;
@@ -115,9 +130,10 @@ export interface PrepSessionFactory {
 
 export interface PrepSeed {
   goal?: string;
+  direction?: string;
   checklist?: ChecklistItem[];
   notes?: string;
-  mode?: string;
+  skill?: string;
   messages?: PrepMessage[];
 }
 
@@ -130,9 +146,10 @@ function createMockPrepSession(
   const emitter = new EventEmitter();
   const state: PrepState = {
     goal: seed?.goal ?? "",
+    direction: seed?.direction ?? "",
     checklist: seed?.checklist ? [...seed.checklist] : [],
     notes: seed?.notes ?? "",
-    mode: seed?.mode ?? "",
+    skill: seed?.skill ?? "",
     messages: seed?.messages ? [...seed.messages] : [],
     event,
     assistantBusy: false,
@@ -214,20 +231,13 @@ function createMockPrepSession(
         const goal = `Mock goal derived from: "${text.slice(0, 60)}"`;
         state.goal = goal;
         pushTool("set_goal", `Set goal: ${goal}`);
-        state.mode = "default";
-        pushTool("set_mode", "Set mode: default");
-        const items = [
-          "Ask about current scale and team size",
-          "Verify budget authority and timeline",
-          "Surface top three pain points",
-        ];
-        for (const t of items) {
-          const id = `c_${Date.now()}_${state.checklist.length + 1}`;
-          state.checklist.push({ id, text: t, status: "open" });
-          pushTool("add_checklist_item", `Added: ${t}`);
-        }
+        const direction = `Mock direction: explore ${text
+          .slice(0, 40)
+          .trim()} broadly, stay curious, and steer toward the goal without forcing topics.`;
+        state.direction = direction;
+        pushTool("set_direction", `Set direction: ${direction}`);
         await pushAssistant(
-          `Locking in: ${goal}. I drafted 3 checklist items in the right rail. You're prepped. Hit 'Save & run the call' when ready.`,
+          `Locking in: ${goal}. Here's the direction I'll coach to: ${direction} You're prepped. Hit 'Save & run the call' when ready.`,
         );
       } else {
         await pushAssistant(`Acknowledged. Anything else to add?`);
@@ -240,12 +250,12 @@ function createMockPrepSession(
           : `Hey — let's prep this call. What's the one outcome that would make it a win?`,
       );
     },
-    setMode(mode: string) {
-      if (!isPrepMode(mode)) {
-        throw new Error(`invalid mode: ${mode}`);
+    setSkill(skill: string) {
+      if (!isValidSkill(skill)) {
+        throw new Error(`invalid skill: ${skill}`);
       }
-      state.mode = mode;
-      pushTool("set_mode", `Set mode: ${mode}`);
+      state.skill = skill;
+      pushTool("set_skill", skill ? `Set skill: ${skill}` : `Cleared skill`);
       emitState();
     },
     setGoal(text: string) {
@@ -253,6 +263,13 @@ function createMockPrepSession(
       if (!v) throw new Error("goal cannot be empty");
       state.goal = v;
       pushTool("set_goal", `You set goal: ${v}`);
+      emitState();
+    },
+    setDirection(text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("direction cannot be empty");
+      state.direction = v;
+      pushTool("set_direction", `You set direction: ${v}`);
       emitState();
     },
     setNotes(text: string) {
@@ -267,8 +284,7 @@ function createMockPrepSession(
       const item: ChecklistItem = { id, text: v, status: "open" };
       state.checklist.push(item);
       pushTool("add_checklist_item", `You added: ${v}`);
-      emitState();
-      return item;
+      emitState();      return item;
     },
     editChecklistItem(id: string, text: string) {
       const v = text.trim();
@@ -292,17 +308,19 @@ function createMockPrepSession(
     snapshot() {
       return {
         goal: state.goal,
+        direction: state.direction,
         checklist: [...state.checklist],
         notes: state.notes,
-        mode: state.mode,
+        skill: state.skill,
         event,
       };
     },
     async discard() {
       state.goal = "";
+      state.direction = "";
       state.checklist = [];
       state.notes = "";
-      state.mode = "";
+      state.skill = "";
       state.messages = [];
       emitState();
     },
@@ -328,9 +346,10 @@ async function createRealPrepSession(
   const emitter = new EventEmitter();
   const state: PrepState = {
     goal: seed?.goal ?? "",
+    direction: seed?.direction ?? "",
     checklist: seed?.checklist ? [...seed.checklist] : [],
     notes: seed?.notes ?? "",
-    mode: seed?.mode ?? "",
+    skill: seed?.skill ?? "",
     messages: seed?.messages ? [...seed.messages] : [],
     event,
     assistantBusy: false,
@@ -351,8 +370,9 @@ async function createRealPrepSession(
   // for something already set or re-adds an item the user removed.
   let railDirty = Boolean(
     seed?.goal ||
+      seed?.direction ||
       (seed?.checklist?.length ?? 0) > 0 ||
-      seed?.mode ||
+      seed?.skill ||
       seed?.notes,
   );
 
@@ -367,7 +387,13 @@ async function createRealPrepSession(
   };
 
   const buildStatePreamble = (): string =>
-    buildPrepStatePreamble(state.goal, state.checklist, state.mode, state.notes);
+    buildPrepStatePreamble(
+      state.goal,
+      state.direction,
+      state.checklist,
+      state.skill,
+      state.notes,
+    );
 
   const checklistMcp = createSdkMcpServer({
     name: "prompty-prep",
@@ -386,8 +412,23 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "set_goal",
           });
-          emitState();
-          return { content: [{ type: "text", text: "goal_set" }] };
+          emitState();          return { content: [{ type: "text", text: "goal_set" }] };
+        },
+      ),
+      tool(
+        "set_direction",
+        "Set or replace the call's direction — a 40-60 word PROSE paragraph describing what a good call looks like (what to explore + the stance/approach to carry). This is the PRIMARY fuel for in-call nudges, so make it concrete and directional. Synthesize and commit it after a few interview turns.",
+        { text: z.string().min(1).max(800) },
+        async (args) => {
+          state.direction = args.text;
+          state.messages.push({
+            id: mkId(),
+            role: "tool",
+            text: `Set direction: ${args.text}`,
+            createdAt: Date.now(),
+            toolName: "set_direction",
+          });
+          emitState();          return { content: [{ type: "text", text: "direction_set" }] };
         },
       ),
       tool(
@@ -404,8 +445,7 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "add_checklist_item",
           });
-          emitState();
-          return { content: [{ type: "text", text: id }] };
+          emitState();          return { content: [{ type: "text", text: id }] };
         },
       ),
       tool(
@@ -427,8 +467,7 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "update_checklist_item",
           });
-          emitState();
-          return { content: [{ type: "text", text: "updated" }] };
+          emitState();          return { content: [{ type: "text", text: "updated" }] };
         },
       ),
       tool(
@@ -448,25 +487,27 @@ async function createRealPrepSession(
             createdAt: Date.now(),
             toolName: "remove_checklist_item",
           });
-          emitState();
-          return { content: [{ type: "text", text: "removed" }] };
+          emitState();          return { content: [{ type: "text", text: "removed" }] };
         },
       ),
       tool(
-        "set_mode",
-        "Set the coaching mode for this call. Must be one of: default, discovery, user-interview, hiring.",
-        { mode: z.enum(PREP_MODES) },
+        "set_skill",
+        "Add an OPTIONAL coaching skill (playbook) for this call, layered on top of the direction. Pass one of the available skill names (e.g. discovery, user-interview, hiring), or an empty string to clear it. Only call this when the call clearly fits a skill; no skill is the normal default.",
+        { skill: z.string().max(60) },
         async (args) => {
-          state.mode = args.mode;
+          const skill = args.skill.trim();
+          if (!isValidSkill(skill)) {
+            return { content: [{ type: "text", text: "invalid_skill" }] };
+          }
+          state.skill = skill;
           state.messages.push({
             id: mkId(),
             role: "tool",
-            text: `Set mode: ${args.mode}`,
+            text: skill ? `Set skill: ${skill}` : `Cleared skill`,
             createdAt: Date.now(),
-            toolName: "set_mode",
+            toolName: "set_skill",
           });
-          emitState();
-          return { content: [{ type: "text", text: "mode_set" }] };
+          emitState();          return { content: [{ type: "text", text: "skill_set" }] };
         },
       ),
     ],
@@ -511,20 +552,21 @@ async function createRealPrepSession(
   const q = query({
     prompt: inputStream,
     options: {
-      // Mode is fixed for the SDK session: seed it at open. A mid-session mode
+      // Skill is fixed for the SDK session: seed it at open. A mid-session skill
       // chip won't rebuild this prompt (same seed-rebuild tradeoff as resume),
-      // but the in-call prompt is where mode truly bakes in.
-      systemPrompt: buildPrepSystemPrompt(event, seed?.mode),
+      // but the in-call prompt is where the skill truly bakes in.
+      systemPrompt: buildPrepSystemPrompt(event, seed?.skill),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
       // Keep the CLI's workspace scan out of the user's protected folders.
       cwd: agentCwd(),
       mcpServers: { "prompty-prep": checklistMcp },
       allowedTools: [
         "mcp__prompty-prep__set_goal",
+        "mcp__prompty-prep__set_direction",
         "mcp__prompty-prep__add_checklist_item",
         "mcp__prompty-prep__update_checklist_item",
         "mcp__prompty-prep__remove_checklist_item",
-        "mcp__prompty-prep__set_mode",
+        "mcp__prompty-prep__set_skill",
       ],
       maxTurns: 50,
       permissionMode: "bypassPermissions",
@@ -614,9 +656,8 @@ async function createRealPrepSession(
       // Pump content MAY differ from the visible bubble: if the user edited the
       // rail since the last turn (or this is the first turn after a resume),
       // prepend the authoritative current-state block. Consumed once.
-      const pumpContent = railDirty
-        ? `${buildStatePreamble()}\n\n${text}`
-        : text;
+      const preamble = railDirty ? buildStatePreamble() : undefined;
+      const pumpContent = preamble ? `${preamble}\n\n${text}` : text;
       railDirty = false;
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
       pushUserMessage?.(pumpContent);
@@ -626,18 +667,18 @@ async function createRealPrepSession(
       // Feed a synthetic "begin" turn to the SDK without adding a user message
       // to the visible thread. The system prompt instructs the assistant to
       // open with the right question.
+      const kickMsg =
+        "[system] The prep session just opened. Open the conversation now per your opening-turn instructions. Do not reference this message.";
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
-      pushUserMessage?.(
-        "[system] The prep session just opened. Open the conversation now per your opening-turn instructions. Do not reference this message.",
-      );
+      pushUserMessage?.(kickMsg);
       await turnDone;
     },
-    setMode(mode: string) {
-      if (!isPrepMode(mode)) {
-        throw new Error(`invalid mode: ${mode}`);
+    setSkill(skill: string) {
+      if (!isValidSkill(skill)) {
+        throw new Error(`invalid skill: ${skill}`);
       }
-      state.mode = mode;
-      pushTrace("set_mode", `Set mode: ${mode}`);
+      state.skill = skill;
+      pushTrace("set_skill", skill ? `Set skill: ${skill}` : `Cleared skill`);
       railDirty = true;
       emitState();
     },
@@ -646,6 +687,14 @@ async function createRealPrepSession(
       if (!v) throw new Error("goal cannot be empty");
       state.goal = v;
       pushTrace("set_goal", `You set goal: ${v}`);
+      railDirty = true;
+      emitState();
+    },
+    setDirection(text: string) {
+      const v = text.trim();
+      if (!v) throw new Error("direction cannot be empty");
+      state.direction = v;
+      pushTrace("set_direction", `You set direction: ${v}`);
       railDirty = true;
       emitState();
     },
@@ -663,8 +712,7 @@ async function createRealPrepSession(
       state.checklist.push(item);
       pushTrace("add_checklist_item", `You added: ${v}`);
       railDirty = true;
-      emitState();
-      return item;
+      emitState();      return item;
     },
     editChecklistItem(id: string, text: string) {
       const v = text.trim();
@@ -694,17 +742,19 @@ async function createRealPrepSession(
     snapshot() {
       return {
         goal: state.goal,
+        direction: state.direction,
         checklist: [...state.checklist],
         notes: state.notes,
-        mode: state.mode,
+        skill: state.skill,
         event,
       };
     },
     async discard() {
       state.goal = "";
+      state.direction = "";
       state.checklist = [];
       state.notes = "";
-      state.mode = "";
+      state.skill = "";
       state.messages = [];
       emitState();
     },

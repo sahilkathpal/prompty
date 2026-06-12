@@ -208,33 +208,133 @@
   line-height: 1.45;
 }
 
-/* Call-type chips on the idle hero — pick a type, then start with no prep. */
-.mw-mode-row {
+/* Optional skill (playbook) picker — disclosure + removable tag. Shared by the
+   idle hero (centered, with top margin) and the prep rail (left-aligned). Both
+   renderers live in the main window, so these styles cover both. */
+.skill-picker {
+  position: relative;
+  font-size: 12px;
+}
+.skill-picker-center {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   justify-content: center;
   margin-top: 16px;
 }
-.mw-chip {
+.skill-picker-start {
+  margin-bottom: 14px;
+}
+
+/* Resting affordance — dashed to read as "add", not a committed selection. */
+.skill-add {
   font-family: inherit;
   font-size: 12px;
   padding: 4px 11px;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--border-strong);
+  border: 1px dashed var(--border-strong);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: color 120ms ease, border-color 120ms ease;
 }
-.mw-chip:hover {
+.skill-add:hover,
+.skill-add[data-active="true"] {
   color: var(--text);
   border-color: var(--accent);
 }
-.mw-chip.active {
+.skill-add-opt {
+  color: var(--faint);
+}
+
+/* Selected → removable tag + change link. */
+.skill-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.skill-tag-label {
+  color: var(--muted-dim);
+}
+.skill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 5px 4px 11px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
-  border-color: var(--accent);
   color: #fff;
+}
+.skill-tag-remove {
+  font-family: inherit;
+  font-size: 9px;
+  line-height: 1;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.skill-tag-remove:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+.skill-change {
+  font-family: inherit;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.skill-change:hover {
+  color: var(--text);
+}
+
+/* The disclosure popover. */
+.skill-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  min-width: 180px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-panel);
+}
+.skill-picker-center .skill-menu {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.skill-picker-start .skill-menu {
+  left: 0;
+}
+.skill-menu-item {
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.skill-menu-item:hover {
+  background: var(--surface-2);
+}
+.skill-menu-item.selected {
+  color: var(--accent-text);
 }
 
 /* Optional free-text notes on the idle hero — carried into the call as context. */

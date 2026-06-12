@@ -376,7 +376,7 @@ export async function startSession(
       try {
         logPath = await writeCallLog({
           goal: setup.goal,
-          mode: setup.mode,
+          skill: setup.skill,
           checklist: setup.checklist,
           transcript,
           nudges,

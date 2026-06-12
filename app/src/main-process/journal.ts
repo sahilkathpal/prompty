@@ -43,6 +43,8 @@ export interface JournalHandle {
 interface HeaderLine {
   t: "header";
   goal: string;
+  skill?: string;
+  /** Legacy field — read-only, accepted from journals written before the rename. */
   mode?: string;
   checklist: CallLog["checklist"];
   attendee?: CallLog["attendee"];
@@ -82,7 +84,7 @@ export function openJournal(
   const header: HeaderLine = {
     t: "header",
     goal: setup.goal,
-    mode: setup.mode,
+    skill: setup.skill,
     checklist: setup.checklist,
     attendee: setup.context.attendee,
     startedAt,
@@ -159,7 +161,8 @@ export async function recoverOrphanedJournals(): Promise<string[]> {
         const out = await writeCallLog(
           {
             goal: header.goal,
-            mode: header.mode,
+            // Accept either the new `skill` or a legacy journal's `mode`.
+            skill: header.skill ?? header.mode,
             checklist: header.checklist,
             transcript,
             nudges,

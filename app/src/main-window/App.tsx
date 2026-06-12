@@ -214,13 +214,14 @@ function Home({
   const [upcoming, setUpcoming] = useState<ArmedEvent[]>([]);
   const [completed, setCompleted] = useState<CompletedFile[]>([]);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
-  // Call type picked for a no-prep ad-hoc start (idle hero). Defaults to the
-  // general "default" coaching mode so a single click is enough to start.
-  const [adhocMode, setAdhocMode] = useState<string>("default");
-  // Free-text notes for a no-prep start. Persisted into the draft on blur so
-  // call:start carries them. Seeded from any light (notes-only) draft.
-  const [notes, setNotes] = useState<string>("");
-  const notesFocused = useRef(false);
+  // Optional skill (playbook) picked for a no-prep ad-hoc start (idle hero).
+  // Defaults to none ("") — a call runs fine on base + direction alone.
+  const [adhocSkill, setAdhocSkill] = useState<string>("");
+  // Free-text direction for a no-prep start — what the user wants from the call,
+  // the primary steer for in-call nudges. Persisted into the draft on blur so
+  // call:start carries it. Seeded from any light draft.
+  const [direction, setDirection] = useState<string>("");
+  const directionFocused = useRef(false);
 
   const refreshUpcoming = () => {
     window.prompty
@@ -236,11 +237,11 @@ function Home({
   };
 
   // Adopt a draft into local state: track it, and (unless the user is mid-edit)
-  // seed the idle notes + mode chip from it so a light draft is editable in place.
+  // seed the idle direction + skill chip from it so a light draft is editable in place.
   const adoptPending = (p: PendingPrepPayload | null) => {
     setPending(p);
-    if (!notesFocused.current) setNotes(p?.notes ?? "");
-    if (p?.mode) setAdhocMode(p.mode);
+    if (!directionFocused.current) setDirection(p?.direction ?? "");
+    if (p?.skill) setAdhocSkill(p.skill);
   };
 
   useEffect(() => {
@@ -272,19 +273,19 @@ function Home({
     };
   }, []);
 
-  const commitNotes = async () => {
-    notesFocused.current = false;
-    if (notes !== (pending?.notes ?? "")) {
-      await window.prompty.invoke("draft:set-notes", { notes });
+  const commitDirection = async () => {
+    directionFocused.current = false;
+    if (direction !== (pending?.direction ?? "")) {
+      await window.prompty.invoke("draft:set-direction", { direction });
     }
   };
-  const startNow = (mode?: string) =>
-    window.prompty.invoke("call:start", mode ? { mode } : {});
-  // Idle quick-start: persist any pending notes into the draft BEFORE starting,
-  // since call:start consumes the draft on the main side.
+  const startNow = (skill?: string) =>
+    window.prompty.invoke("call:start", skill ? { skill } : {});
+  // Idle quick-start: persist any pending direction into the draft BEFORE
+  // starting, since call:start consumes the draft on the main side.
   const startIdle = async () => {
-    await commitNotes();
-    await startNow(adhocMode);
+    await commitDirection();
+    await startNow(adhocSkill);
   };
   const startPrep = () => window.prompty.invoke("prep:open", { eventId: armed?.id });
   const resumePrep = () =>
@@ -300,7 +301,7 @@ function Home({
   // Hero precedence: a prep you actually built (has a goal or checklist) wins,
   // then an imminent calendar call, else a calm "start a call" prompt. A light
   // draft (notes-only, from the idle screen) is NOT "prepped" — it stays in the
-  // idle hero so the notes box and mode chips remain editable in place.
+  // idle hero so the notes box and skill chips remain editable in place.
   const prepped = !!pending && (!!pending.goal || pending.checklist.length > 0);
   let hero: JSX.Element;
   if (pending && prepped) {
@@ -311,10 +312,14 @@ function Home({
           {pending.eventTitle ?? "Ad-hoc call"}
         </div>
         <div className="mw-hero-meta">
-          {pending.goal}
-          {" · "}
-          {pending.checklist.length} checklist item
-          {pending.checklist.length === 1 ? "" : "s"}
+          {pending.goal || pending.direction || "Ad-hoc call"}
+          {pending.checklist.length > 0 && (
+            <>
+              {" · "}
+              {pending.checklist.length} checklist item
+              {pending.checklist.length === 1 ? "" : "s"}
+            </>
+          )}
         </div>
         {pending.notes && (
           <div className="mw-hero-notes" data-testid="pending-prep-notes">
@@ -382,34 +387,23 @@ function Home({
       <div className="mw-hero mw-hero-idle" data-testid="idle-hero">
         <div className="mw-hero-title">Start a call</div>
         <div className="mw-hero-sub">
-          Pick a call type and start — no prep needed. You'll get live nudges
-          right away.
+          Just start — no prep needed. Optionally add a playbook for the call
+          type. You'll get live nudges right away.
         </div>
-        <div className="mw-mode-row" data-testid="idle-mode-row">
-          {MODE_OPTIONS.map((opt) => {
-            const active = adhocMode === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                className={`mw-chip${active ? " active" : ""}`}
-                onClick={() => setAdhocMode(opt.value)}
-                data-testid={`idle-mode-chip-${opt.value}`}
-                data-active={active ? "true" : "false"}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        <SkillPicker
+          id="idle"
+          value={adhocSkill}
+          onChange={setAdhocSkill}
+          align="center"
+        />
         <textarea
           className="mw-notes-input"
-          value={notes}
-          onFocus={() => (notesFocused.current = true)}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={commitNotes}
-          placeholder="Optional notes for the coach — context, names, facts to mention…"
-          data-testid="idle-notes"
+          value={direction}
+          onFocus={() => (directionFocused.current = true)}
+          onChange={(e) => setDirection(e.target.value)}
+          onBlur={commitDirection}
+          placeholder="What you want from this call — what to explore, the stance to take, what a good call looks like…"
+          data-testid="idle-direction"
           rows={2}
         />
         <div className="mw-hero-actions">
@@ -550,12 +544,122 @@ function formatCompletedTitle(filename: string): string {
   return attendee === "unknown" ? "Untitled call" : attendee;
 }
 
-const MODE_OPTIONS: { value: string; label: string }[] = [
-  { value: "default", label: "Default" },
+// Optional skill playbooks the user can layer on a call. No "Default" entry —
+// the resting state is no skill (base + direction alone).
+const SKILL_OPTIONS: { value: string; label: string }[] = [
   { value: "discovery", label: "Discovery" },
   { value: "user-interview", label: "User interview" },
   { value: "hiring", label: "Hiring" },
 ];
+
+function skillLabel(value: string): string {
+  return SKILL_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+/**
+ * Optional skill (playbook) picker — disclosure + removable tag.
+ *
+ * Resting state is a quiet "+ Add a playbook (optional)" affordance: nothing
+ * looks pre-selected, matching the new meaning (a skill is opt-in enrichment,
+ * none is the default). Clicking reveals the options; a chosen skill collapses
+ * to a removable tag with a "change" link. Used by both the idle hero and the
+ * prep rail (passing `id` to namespace test ids + the popover).
+ */
+function SkillPicker({
+  value,
+  onChange,
+  id,
+  align = "center",
+}: {
+  value: string;
+  onChange: (skill: string) => void;
+  id: string;
+  align?: "center" | "start";
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close the popover on outside click or Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={ref}
+      className={`skill-picker skill-picker-${align}`}
+      data-testid={`${id}-skill-picker`}
+    >
+      {value ? (
+        <div className="skill-tag-row">
+          <span className="skill-tag-label">Playbook</span>
+          <span className="skill-tag" data-testid={`${id}-skill-tag`}>
+            {skillLabel(value)}
+            <button
+              type="button"
+              className="skill-tag-remove"
+              aria-label="Remove playbook"
+              onClick={() => onChange("")}
+              data-testid={`${id}-skill-remove`}
+            >
+              ✕
+            </button>
+          </span>
+          <button
+            type="button"
+            className="skill-change"
+            onClick={() => setOpen((o) => !o)}
+            data-testid={`${id}-skill-change`}
+          >
+            change
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="skill-add"
+          onClick={() => setOpen((o) => !o)}
+          data-testid={`${id}-skill-add`}
+          data-active={open ? "true" : "false"}
+        >
+          + Add a playbook <span className="skill-add-opt">(optional)</span>
+        </button>
+      )}
+
+      {open && (
+        <div className="skill-menu" role="menu" data-testid={`${id}-skill-menu`}>
+          {SKILL_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="menuitem"
+              className={`skill-menu-item${value === opt.value ? " selected" : ""}`}
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
+              data-testid={`${id}-skill-option-${opt.value}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PrepMessageRow({ m }: { m: PrepMessagePayload }): JSX.Element {
   if (m.role === "tool") {
@@ -632,6 +736,38 @@ function GoalEditor({ goal }: { goal: string }): JSX.Element {
     >
       Click to set a goal…
     </div>
+  );
+}
+
+// Direction editor for the prep rail — the synthesized prose paragraph that
+// primarily drives in-call nudges. Silent: writes via prep:set-direction and
+// never sends a chat message. Commits on blur when changed.
+function DirectionEditor({ direction }: { direction: string }): JSX.Element {
+  const [draft, setDraft] = useState(direction);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(direction);
+  }, [direction, focused]);
+
+  const commit = () => {
+    setFocused(false);
+    const v = draft.trim();
+    if (v && v !== direction) {
+      void window.prompty.invoke("prep:set-direction", { text: v });
+    }
+  };
+
+  return (
+    <textarea
+      className="prep-direction-input"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={commit}
+      placeholder="What a good call looks like — what to explore and the stance to carry…"
+      data-testid="prep-direction-input"
+      rows={4}
+    />
   );
 }
 
@@ -851,16 +987,18 @@ function RunningPrep({ state }: { state: PrepStatePayload }): JSX.Element {
     }
   };
 
-  const pickMode = async (m: string) => {
+  const pickSkill = async (s: string) => {
     try {
-      await window.prompty.invoke("prep:set-mode", { mode: m });
+      await window.prompty.invoke("prep:set-skill", { skill: s });
     } catch {
       // ignore — handler returns error in payload
     }
   };
 
-  const { event, goal, checklist, notes, messages, mode } = state;
-  const canSaveAndStart = !!goal && checklist.length >= 1;
+  const { event, goal, direction, checklist, notes, messages, skill } = state;
+  // Direction is the required artifact now — it drives in-call coaching. Goal
+  // and checklist are optional, so the save gate hangs on direction alone.
+  const canSaveAndStart = !!direction?.trim();
 
   return (
     <div className="prep-root" data-testid="prep-root">
@@ -929,26 +1067,19 @@ function RunningPrep({ state }: { state: PrepStatePayload }): JSX.Element {
         </div>
 
         <aside className="prep-rail">
-          <div className="prep-mode-row" data-testid="prep-mode-row">
-            {MODE_OPTIONS.map((opt) => {
-              const active = mode === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`prep-chip${active ? " active" : ""}`}
-                  onClick={() => void pickMode(opt.value)}
-                  data-testid={`prep-mode-chip-${opt.value}`}
-                  data-active={active ? "true" : "false"}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
+          <SkillPicker
+            id="prep"
+            value={skill}
+            onChange={(s) => void pickSkill(s)}
+            align="start"
+          />
           <div className="prep-card" data-testid="prep-goal-card">
             <div className="prep-card-title">Goal</div>
             <GoalEditor goal={goal} />
+          </div>
+          <div className="prep-card" data-testid="prep-direction-card">
+            <div className="prep-card-title">Direction</div>
+            <DirectionEditor direction={direction ?? ""} />
           </div>
           <div className="prep-card" data-testid="prep-checklist-card">
             <div className="prep-card-title">Checklist</div>
@@ -993,6 +1124,8 @@ function RunningPrep({ state }: { state: PrepStatePayload }): JSX.Element {
 
 interface CompletedCallLog {
   goal: string;
+  skill?: string;
+  /** Legacy field — only on logs written before the mode→skill rename. */
   mode?: string;
   checklist: ChecklistItem[];
   transcript: TranscriptUtterance[];
@@ -1054,7 +1187,7 @@ function CompletedCallDetail({
           <div className="mw-detail-title">{formatCompletedTitle(name)}</div>
           <div className="mw-detail-meta">
             {new Date(log.endedAt).toLocaleString()}
-            {log.mode && <> · {log.mode}</>}
+            {(log.skill ?? log.mode) && <> · {log.skill ?? log.mode}</>}
           </div>
 
           <div className="mw-card">
