@@ -70,7 +70,8 @@
 
 /* Hero placeholder. */
 .ob-hero {
-  background: linear-gradient(135deg, #2a2f6b, #3a2150);
+  background: linear-gradient(135deg, #fdeef1, #fbf0d8);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   height: 160px;
   display: flex;

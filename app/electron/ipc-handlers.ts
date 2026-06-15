@@ -13,7 +13,12 @@ import type {
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
 import { openMainWindow } from "./main-window";
-import { showOverlay, hideOverlay, setOverlayHeight } from "./overlay-window";
+import {
+  showOverlay,
+  hideOverlay,
+  setOverlayHeight,
+  getOverlayWindow,
+} from "./overlay-window";
 import { rebuildMenu } from "./tray";
 import { startSession, type SessionHandle, type SessionState } from "../src/main-process/coach-session";
 import { debugDir } from "../src/main-process/debug-logger";
@@ -269,6 +274,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle("overlay:set-height", (payload) => {
     setOverlayHeight(payload.height);
+    return { ok: true };
+  });
+
+  handle("overlay:move-by", (payload) => {
+    const win = getOverlayWindow();
+    if (!win || win.isDestroyed()) return { ok: false };
+    const [x, y] = win.getPosition();
+    win.setPosition(Math.round(x + payload.dx), Math.round(y + payload.dy));
     return { ok: true };
   });
 

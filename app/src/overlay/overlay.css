@@ -1,6 +1,7 @@
-/* The gem: a small ruby anchor pinned top-right, with an ephemeral note bloom
+/* The gem: a small ruby "pill" pinned top-right, with an ephemeral note bloom
    beneath it and an expandable scrollback history. The window itself is mostly
-   transparent — only the gem and any open surface (bloom / history) paint. */
+   transparent — only the pill and any open surface (note / history) paint. The
+   pill chrome + face live in shared/gem.css (pulled in by the Gem component). */
 
 html, body, #root {
   margin: 0;
@@ -8,7 +9,7 @@ html, body, #root {
   height: 100%;
   width: 100%;
   background: transparent;
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   color: #f4f6f8;
   overflow: hidden;
   user-select: none;
@@ -33,9 +34,8 @@ html, body, #root {
   padding: 12px 14px 14px;
 }
 
-/* The old DragHandle's visible bar is hidden for the gem — the gem surface is
-   itself the drag region. Kept in the tree (it still marks a drag area) but
-   collapsed to nothing so the resting state is just the gem. */
+/* The old DragHandle's visible bar is hidden — the surface is itself the drag
+   region. Kept in the tree (it still marks a drag area) but collapsed. */
 .prompty-drag,
 .prompty-drag-handle {
   display: none;
@@ -46,102 +46,110 @@ html, body, #root {
   justify-content: flex-end;
 }
 
-/* ---- The gem ---- */
+/* ---- The gem button (wraps the dark-glass pill) ---- */
 .gem {
   -webkit-app-region: no-drag;
   appearance: none;
   border: none;
-  cursor: pointer;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
+  cursor: grab;
+  display: inline-flex;
   background: transparent;
   padding: 0;
-  transition: filter 200ms ease, transform 160ms ease;
+  transition: transform 160ms ease;
 }
-.gem:hover { transform: scale(1.08); }
-.gem-expanded { transform: scale(1.05); }
+.gem:active { cursor: grabbing; }
+.gem:hover { transform: scale(1.05); }
+.gem-expanded { transform: scale(1.03); }
 
-.gem-glyph {
-  font-size: 20px;
-  line-height: 1;
-  /* Default (idle) — dim slate ruby, no glow. */
-  color: #7e85a0;
-  transition: color 240ms ease, text-shadow 240ms ease;
-}
-
-/* Status-coded glow. The gem's color + halo encode the SessionStatus. */
-.gem[data-tone="green"] .gem-glyph {
-  color: #ff5a6e; /* ruby red, lit */
-  text-shadow: 0 0 8px rgba(255, 90, 110, 0.55), 0 0 16px rgba(255, 90, 110, 0.3);
-}
-.gem[data-tone="amber"] .gem-glyph {
-  color: #e2c14c;
-  text-shadow: 0 0 8px rgba(226, 193, 76, 0.5);
-}
-.gem[data-tone="red"] .gem-glyph {
-  color: #ff6b6b;
-  text-shadow: 0 0 9px rgba(255, 107, 107, 0.65), 0 0 18px rgba(255, 107, 107, 0.35);
-}
-
-/* Calm breathing pulse while listening. */
-.gem-pulsing .gem-glyph {
-  animation: gem-pulse 2.4s ease-in-out infinite;
-}
-@keyframes gem-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
-}
-
-/* ---- The bloomed note: one ephemeral line beneath the gem ---- */
+/* ---- The bloomed note: one ephemeral card beneath the gem ---- */
 .gem-bloom {
   -webkit-app-region: no-drag;
-  margin-top: 8px;
-  padding: 11px 13px 12px;
-  border-radius: 10px;
-  background: rgba(18, 20, 26, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  font-size: 13.5px;
-  line-height: 1.45;
-  font-weight: 500;
-  color: #f1f3f8;
-  animation: gem-bloom-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1.1);
+  position: relative;
+  overflow: hidden;
+  margin-top: 10px;
+  padding: 13px 15px 13px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(46, 18, 26, 0.96), rgba(28, 12, 18, 0.96));
+  border: 1px solid rgba(255, 45, 85, 0.5);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(255, 45, 85, 0.18);
+  animation: gem-bloom-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 .gem-bloom-high {
-  border-color: rgba(255, 90, 110, 0.5);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 18px 1px rgba(255, 70, 60, 0.45);
+  border-color: rgba(255, 45, 85, 0.7);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 30px rgba(255, 45, 85, 0.34);
 }
 @keyframes gem-bloom-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(-10px) scale(0.92); }
+  to   { opacity: 1; transform: none; }
 }
 
-/* ---- Expanded history: quiet scrollback ---- */
+.gem-note-tag {
+  display: inline-block;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #ff2d55;
+  background: rgba(255, 45, 85, 0.13);
+  border: 1px solid rgba(255, 45, 85, 0.3);
+  padding: 2.5px 7px;
+  border-radius: 5px;
+  margin-bottom: 8px;
+}
+.gem-note-q {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #ffe9ee;
+}
+
+/* The draining countdown bar pinned to the note's bottom edge. */
+.gem-note-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.5px;
+  overflow: hidden;
+  border-radius: 0 0 14px 14px;
+}
+.gem-note-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff2d55, #ff7a96);
+  box-shadow: 0 0 8px rgba(255, 45, 85, 0.45);
+  transform-origin: left center;
+  animation-name: gem-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes gem-drain {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+/* ---- Expanded history: quiet dark-glass scrollback ---- */
 .gem-history {
   -webkit-app-region: no-drag;
-  margin-top: 8px;
+  margin-top: 10px;
   max-height: 420px;
   overflow-y: auto;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(18, 20, 26, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(34, 16, 22, 0.96), rgba(22, 11, 15, 0.96));
+  border: 1px solid rgba(255, 45, 85, 0.25);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: rgba(255, 45, 85, 0.3) transparent;
 }
 .gem-history::-webkit-scrollbar { width: 6px; }
 .gem-history::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 45, 85, 0.3);
   border-radius: 3px;
 }
 .gem-history-empty {
   font-size: 12px;
-  color: #6e7590;
+  color: #a08a90;
   text-align: center;
   padding: 10px 4px;
 }
@@ -151,24 +159,25 @@ html, body, #root {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 .gem-history-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 3px;
+  padding: 7px 2px;
+  border-bottom: 1px solid rgba(255, 45, 85, 0.12);
 }
 .gem-history-item:last-child { border-bottom: none; }
 .gem-history-time {
-  font-size: 10px;
-  font-weight: 500;
-  color: #7e85a0;
-  letter-spacing: 0.02em;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d98a98;
 }
 .gem-history-text {
   font-size: 13px;
-  line-height: 1.4;
-  color: #e7eaf2;
+  line-height: 1.45;
+  color: #ffe9ee;
 }

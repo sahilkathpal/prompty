@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { DragHandle } from "./components/DragHandle";
+import Gem, { type GemState } from "@shared/Gem";
 import type { Nudge, SessionStatus } from "@shared/types";
 
 type SessionState = "idle" | "starting" | "live" | "ending" | "ended" | "error";
@@ -196,6 +197,42 @@ export default function App(): JSX.Element {
     setExpanded((cur) => !cur);
   }, []);
 
+  // Drag-to-move vs click-to-expand on the pill. A native app-region drag region
+  // can't also receive the expand click, so we drive movement ourselves: press
+  // and move the pill past a small threshold to drag the window (overlay:move-by
+  // with the screen-space delta); a press with no movement is a plain click.
+  const drag = useRef({ active: false, lastX: 0, lastY: 0, moved: false });
+  const onGemMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    drag.current = { active: true, lastX: e.screenX, lastY: e.screenY, moved: false };
+    const onMove = (ev: MouseEvent) => {
+      const d = drag.current;
+      if (!d.active) return;
+      const dx = ev.screenX - d.lastX;
+      const dy = ev.screenY - d.lastY;
+      if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+      d.moved = true;
+      d.lastX = ev.screenX;
+      d.lastY = ev.screenY;
+      void window.prompty.invoke("overlay:move-by", { dx, dy });
+    };
+    const onUp = () => {
+      drag.current.active = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
+  const onGemClick = useCallback(() => {
+    // Swallow the click that ends a drag so moving never toggles the history.
+    if (drag.current.moved) {
+      drag.current.moved = false;
+      return;
+    }
+    toggleExpanded();
+  }, [toggleExpanded]);
+
   // Click-away: a click that lands on the transparent root (i.e. outside the
   // gem and the history surface) collapses the expanded history back to the
   // calm single-gem state.
@@ -207,7 +244,20 @@ export default function App(): JSX.Element {
 
   const meta = status ? STATUS_META[status] : null;
   const tone = meta?.tone ?? "idle";
-  const listening = status === "listening";
+
+  // The gem's expressive state, derived entirely from data already in hand —
+  // no new IPC. A bloomed note means "worth asking"; trouble means concern;
+  // otherwise it tracks the live listening status, or sleeps when idle.
+  const liveish = sessionState === "live" || sessionState === "starting";
+  const gemState: GemState = bloom
+    ? "worth-asking"
+    : status === "error" || status === "no-audio" || status === "mic-silent"
+      ? "attention"
+      : status === "reconnecting" || status === "starting"
+        ? "thinking"
+        : status === "listening" || liveish
+          ? "listening"
+          : "idle";
 
   return (
     <div
@@ -224,30 +274,37 @@ export default function App(): JSX.Element {
         <div className="gem-anchor-row">
           <button
             type="button"
-            className={`gem${listening ? " gem-pulsing" : ""}${
-              expanded ? " gem-expanded" : ""
-            }`}
+            className={`gem${expanded ? " gem-expanded" : ""}`}
             data-testid="gem"
             data-tone={tone}
             data-status={status ?? "idle"}
             aria-label={meta ? meta.label : "Idle"}
             title={statusReason ?? meta?.label ?? "Idle"}
-            onClick={toggleExpanded}
+            onMouseDown={onGemMouseDown}
+            onClick={onGemClick}
           >
-            <span className="gem-glyph" aria-hidden>
-              ◆
-            </span>
+            <Gem variant="pill" state={gemState} />
           </button>
         </div>
 
-        {/* Bloom: one ephemeral note line directly beneath the gem. */}
+        {/* Bloom: one ephemeral note directly beneath the gem. The draining
+            bar visualizes the auto-fade countdown (re-keyed per note so it
+            restarts on every swap / high-urgency preempt). */}
         {bloom && !expanded && (
           <div
             className={`gem-bloom${bloom.urgency === "high" ? " gem-bloom-high" : ""}`}
             data-testid="gem-bloom"
             data-nudge-id={bloom.id}
           >
-            {bloom.text}
+            <div className="gem-note-tag">Worth asking</div>
+            <div className="gem-note-q">{bloom.text}</div>
+            <div className="gem-note-bar">
+              <div
+                key={bloom.id}
+                className="gem-note-fill"
+                style={{ animationDuration: `${hideMs}ms` }}
+              />
+            </div>
           </div>
         )}
 

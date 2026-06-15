@@ -1,0 +1,182 @@
+/* The gem — Ruby's character. A faceted ruby with an expressive face that lives
+ * in the gem itself (never in extra interruptions). Self-contained: dark-glass
+ * colors are hardcoded so this works in the overlay (which doesn't import the
+ * shared tokens) and in the light windows alike.
+ *
+ * Markup is produced by Gem.tsx. Variants:
+ *   .gem-mini  — small faceless ruby for titlebars/headers
+ *   .gem-bare  — a faced gem with no chrome
+ *   .gem-pill  — the dark vertical glass capsule (gem + waveform + dot grille) */
+
+/* ---- The faced gem svg ---- */
+.pgem {
+  display: block;
+  transform-box: fill-box;
+}
+.pgem .eyes,
+.pgem .pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pgem.alive .eyes {
+  animation: gem-blink 4.4s ease-in-out infinite;
+}
+@keyframes gem-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  93% { transform: scaleY(0.12); }
+  96% { transform: scaleY(1); }
+}
+.pgem.alive .pupil {
+  animation: gem-look 7s ease-in-out infinite;
+}
+@keyframes gem-look {
+  0%, 38% { transform: translate(0, 0); }
+  46%, 64% { transform: translate(2.5px, 0.5px); }
+  72%, 100% { transform: translate(0, 0); }
+}
+.pgem.excited .eyes {
+  animation: gem-sparkle 1.6s ease-in-out infinite;
+}
+@keyframes gem-sparkle {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+.pgem.bounce {
+  animation: gem-bounce 2.4s ease-in-out infinite;
+}
+@keyframes gem-bounce {
+  0%, 100% { transform: translateY(0); }
+  12% { transform: translateY(-3px); }
+  24% { transform: translateY(0); }
+}
+
+/* ---- Bare faced gem ---- */
+.gem-bare {
+  filter: drop-shadow(0 3px 8px rgba(214, 31, 71, 0.3));
+}
+
+/* ---- Mini gem (titlebars / headers) ---- */
+.gem-mini {
+  filter: drop-shadow(0 0 4px rgba(255, 45, 85, 0.3));
+  vertical-align: middle;
+}
+
+/* ---- The pill: dark vertical glass capsule ---- */
+.gem-pill {
+  width: 44px;
+  padding: 12px 0 10px;
+  border-radius: 24px;
+  background: rgba(16, 13, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3);
+  position: relative;
+}
+.gem-pill .pgem {
+  width: 18px;
+  height: 18px;
+  filter: drop-shadow(0 0 4px rgba(255, 45, 85, 0.5));
+}
+.gem-pill.is-idle .pgem {
+  filter: grayscale(1) opacity(0.45);
+}
+.gem-pill.is-worth-asking {
+  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3), 0 0 24px rgba(255, 45, 85, 0.5);
+}
+.gem-pill.is-saved {
+  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3), 0 0 22px rgba(255, 184, 77, 0.45);
+}
+.gem-pill.is-attention {
+  border-color: rgba(255, 170, 60, 0.6);
+  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3), 0 0 18px rgba(255, 170, 60, 0.35);
+}
+
+/* ---- The waveform ---- */
+.gem-wave {
+  display: flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 16px;
+}
+.gem-wave span {
+  width: 3px;
+  height: 5px;
+  border-radius: 2px;
+  background: #ff2d55;
+  box-shadow: 0 0 5px rgba(255, 45, 85, 0.5);
+  animation: gem-wv 1.15s ease-in-out infinite;
+}
+.gem-wave span:nth-child(2) { animation-delay: 0.14s; }
+.gem-wave span:nth-child(3) { animation-delay: 0.28s; }
+.gem-wave span:nth-child(4) { animation-delay: 0.42s; }
+@keyframes gem-wv {
+  0%, 100% { height: 4px; opacity: 0.65; }
+  50% { height: 14px; opacity: 1; }
+}
+.gem-wave.flat span {
+  animation: none;
+  height: 4px;
+  opacity: 0.3;
+}
+
+/* ---- Thinking dots ---- */
+.gem-think {
+  display: flex;
+  gap: 3.5px;
+  height: 16px;
+  align-items: center;
+}
+.gem-think i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #c9a0ab;
+  animation: gem-th 1.3s ease-in-out infinite;
+}
+.gem-think i:nth-child(2) { animation-delay: 0.18s; }
+.gem-think i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes gem-th {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ---- The dot grille ---- */
+.gem-dots6 {
+  display: grid;
+  grid-template-columns: repeat(2, 3.5px);
+  gap: 3px;
+}
+.gem-dots6 i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ---- Pill badges ---- */
+.gem-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+.gem-badge.saved {
+  background: #ffb84d;
+  color: #5c3c08;
+  font-size: 10px;
+  box-shadow: 0 2px 8px rgba(201, 142, 46, 0.4);
+}
+.gem-badge.attention {
+  background: #ffaa3c;
+  color: #4a2e05;
+}

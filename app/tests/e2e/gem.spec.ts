@@ -133,7 +133,9 @@ test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async
     // 2) A nudge blooms ONE note beneath the gem.
     await emitNudge(app, "What did you try before this?");
     const bloom = overlay.locator('[data-testid="gem-bloom"]');
-    await expect(bloom).toHaveText("What did you try before this?", {
+    // The note carries a "Worth asking" tag now; assert on the question text.
+    const bloomQ = overlay.locator('[data-testid="gem-bloom"] .gem-note-q');
+    await expect(bloomQ).toHaveText("What did you try before this?", {
       timeout: 4000,
     });
     await overlay.screenshot({ path: path.join(SCREENS, "gem-bloom.png") });
@@ -146,17 +148,17 @@ test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async
     await emitNudge(app, "FIRST queued note");
     await emitNudge(app, "SECOND queued note");
     // Only one bloom on screen at any instant.
-    await expect(bloom).toHaveText("FIRST queued note", { timeout: 4000 });
+    await expect(bloomQ).toHaveText("FIRST queued note", { timeout: 4000 });
     await expect(bloom).toHaveCount(1);
     // The queued second one is not dropped — it surfaces after the dwell.
-    await expect(bloom).toHaveText("SECOND queued note", { timeout: 4000 });
+    await expect(bloomQ).toHaveText("SECOND queued note", { timeout: 4000 });
     await expect(bloom).toHaveCount(1);
 
     // 5) A high-urgency note preempts whatever is showing immediately.
     await emitNudge(app, "LOW priority, will wait");
-    await expect(bloom).toHaveText("LOW priority, will wait", { timeout: 4000 });
+    await expect(bloomQ).toHaveText("LOW priority, will wait", { timeout: 4000 });
     await emitNudge(app, "URGENT preempting note", "high");
-    await expect(bloom).toHaveText("URGENT preempting note", { timeout: 2000 });
+    await expect(bloomQ).toHaveText("URGENT preempting note", { timeout: 2000 });
 
     // Let the bloom settle/fade before exercising the history.
     await expect(bloom).toHaveCount(0, { timeout: 4000 });

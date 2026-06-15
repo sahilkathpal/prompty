@@ -506,7 +506,7 @@
   flex-shrink: 0;
 }
 .mw-switch.on .mw-switch-track {
-  background: #6a71e2;
+  background: var(--ruby);
 }
 .mw-switch-thumb {
   position: absolute;

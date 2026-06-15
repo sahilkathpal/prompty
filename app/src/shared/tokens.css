@@ -1,52 +1,80 @@
-/* Shared design tokens — Prompty's visual identity, extracted from the overlay.
+/* Shared design tokens — Ruby's visual identity (the warm "cream/ruby/serif"
+ * system from the design north-star).
  *
- * Imported by each renderer entry (main.tsx) before that renderer's own CSS.
- * The overlay floats over live video so it uses a translucent surface; full
- * windows (prep) use the solid `--bg`/`--surface` variants below. */
+ * Imported by each full-window renderer entry (main.tsx) before that renderer's
+ * own CSS. These windows are LIGHT (cream canvas, white cards, ruby accent,
+ * serif headings). The in-call overlay is the exception: it floats over live
+ * video as dark glass and keeps its own self-contained palette in overlay.css —
+ * it does NOT import this file.
+ *
+ * The block below the named tokens re-maps the legacy variable names that
+ * main-window.css / onboarding.css / the main-window inline `S` styles already
+ * read, so the whole light theme flips by editing this one file. */
 
 :root {
-  /* Indigo accent — the brand color. */
-  --accent: #6a71e2;
-  --accent-hover: #7b82ef;
-  --accent-text: #cdd1ff;
+  /* ---- The warm palette ---- */
+  --cream: #faf7e9;
+  --ink: #211d15;
+  --ink-soft: #6e6757;
+  --ink-faint: #a39a82;
+  --card: #ffffff;
+  --line: #ece4cd;
+  --ruby: #d61f47;
+  --ruby-bright: #ff2d55;
+  --ruby-deep: #b01238;
+  --gold: #c98e2e;
+  --gold-bright: #ffb84d;
+  --ok: #2e9e63;
 
-  /* Solid dark surfaces (full windows). */
-  --bg: #14161c;
-  --surface: #1b1e26;
-  --surface-2: #22262f;
-  --surface-raised: #272b35;
+  /* ---- Type ---- */
+  --serif: "New York", ui-serif, Georgia, "Times New Roman", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 
-  /* Translucent variants (overlay, floating over video). */
-  --bg-translucent: rgba(20, 22, 28, 0.78);
-  --surface-translucent: rgba(255, 255, 255, 0.04);
+  /* ---- Warm shadows ---- */
+  --shadow: 0 14px 36px rgba(92, 62, 28, 0.14), 0 3px 8px rgba(92, 62, 28, 0.07);
+  --shadow-card: 0 4px 14px rgba(92, 62, 28, 0.06);
+
+  /* ---- Legacy aliases (keep existing var() usages resolving to warm) ---- */
+  /* Accent → ruby. accent-text is button text on a ruby fill (white). */
+  --accent: var(--ruby);
+  --accent-hover: var(--ruby-deep);
+  --accent-text: #ffffff;
+
+  /* Surfaces: cream canvas, white cards, cream-inset fields. */
+  --bg: var(--cream);
+  --surface: var(--card);
+  --surface-2: #faf6e6;
+  --surface-raised: var(--card);
+  --surface-subtle: rgba(201, 142, 46, 0.08);
+  --bg-translucent: rgba(250, 247, 233, 0.86);
+  --surface-translucent: rgba(33, 29, 21, 0.04);
 
   /* Text. */
-  --text: #e5e5e5;
-  --text-strong: #f4f5fb;
-  --muted: #9aa0b4;
-  --muted-dim: #7e85a0;
-  --faint: #6e7590;
+  --text: var(--ink);
+  --text-strong: var(--ink);
+  --muted: var(--ink-soft);
+  --muted-dim: #8c8470;
+  --faint: var(--ink-faint);
 
   /* Lines + structure. */
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.12);
+  --border: var(--line);
+  --border-strong: #e0d6ba;
 
   /* Status. */
-  --green: #6ad196;
-  --amber: #e2c14c;
-  --red: #ff6b6b;
-  --danger-text: #d98a86;
+  --green: var(--ok);
+  --amber: var(--gold);
+  --red: var(--ruby);
+  --danger-text: var(--ruby-deep);
 
   /* Radii. */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
   --radius-pill: 999px;
 
-  /* Shadows. */
-  --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25);
+  /* Shadow aliases. */
+  --shadow-panel: var(--shadow);
 
-  /* Type. */
-  --font: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+  /* Type alias. */
+  --font: var(--sans);
 }

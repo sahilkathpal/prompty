@@ -90,6 +90,13 @@ export interface InvokeChannels {
     request: { height: number };
     response: { ok: boolean };
   };
+  // Nudge the gem window by a screen-space delta. The renderer drives this from
+  // a press-drag on the pill (drag to move, click to expand) since a native
+  // `-webkit-app-region: drag` region can't also receive the expand click.
+  "overlay:move-by": {
+    request: { dx: number; dy: number };
+    response: { ok: boolean };
+  };
   // Last recent pre-flight failure — queried by the main window on mount so a
   // just-opened window (e.g. via the T-0 notification path) doesn't miss the
   // one-shot preflight:failed broadcast.

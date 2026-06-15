@@ -7,6 +7,7 @@
 // direction-only session (no prep).
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Gem from "../shared/Gem";
 import "../shared/tokens.css";
 
 type SessionState = "idle" | "starting" | "live" | "ending" | "ended" | "error";
@@ -204,7 +205,10 @@ export default function App(): JSX.Element {
     <div style={S.page}>
       <header style={S.header}>
         <div>
-          <div style={S.title}>Prompty · Playground</div>
+          <div style={S.title}>
+            <Gem variant="mini" size={20} />
+            <span>Ruby</span>
+          </div>
           <div style={S.subtitle}>minimal base + your direction — that's the whole prompt</div>
         </div>
         <nav style={S.nav}>
@@ -389,7 +393,7 @@ function Setting(props: {
 // Ruby-assisted ones) / Questions you didn't ask, plus one quiet stat line. Falls
 // back to the raw JSON for older logs (or a call that never produced a summary).
 function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { summary, raw } = props.call;
+  const { summary, raw, attendee, startedAt, endedAt } = props.call;
   if (!summary) {
     return (
       <div style={S.card2}>
@@ -398,8 +402,21 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       </div>
     );
   }
+  const name = attendee?.name?.trim() || "Call";
+  const mins =
+    startedAt && endedAt && endedAt > startedAt
+      ? Math.max(1, Math.round((endedAt - startedAt) / 60000))
+      : null;
   return (
     <div style={S.card2} data-testid="call-card">
+      <div style={S.receiptHead}>
+        {name}
+        {mins != null && <span style={S.receiptMeta}> · {mins} min</span>}
+      </div>
+      <div style={S.receiptSub}>
+        Ruby surfaced {summary.stat.surfaced} · you used {summary.stat.used}
+      </div>
+
       <section style={S.sec}>
         <div style={S.secHead}>Recap</div>
         <p style={S.recap}>{summary.recap}</p>
@@ -413,7 +430,9 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
           <ul style={S.insightList}>
             {summary.insights.map((ins, i) => (
               <li key={i} style={S.insight}>
-                {ins.assisted && <span style={S.star} title="Surfaced with Ruby's help">✦</span>}
+                <span style={ins.assisted ? S.checkOn : S.checkOff} aria-hidden>
+                  {ins.assisted ? "✓" : "·"}
+                </span>
                 <span>
                   {ins.text}
                   {ins.assisted && ins.via && <span style={S.via}> — {ins.via}</span>}
@@ -456,8 +475,17 @@ const S: Record<string, React.CSSProperties> = {
     margin: "0 auto",
   },
   header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16 },
-  title: { fontSize: 20, fontWeight: 700, color: v("--text-strong", "#fff") },
-  subtitle: { fontSize: 13, color: v("--muted", "#9a9aa2"), marginTop: 4 },
+  title: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    fontFamily: v("--serif", "Georgia, serif"),
+    fontSize: 26,
+    fontWeight: 500,
+    letterSpacing: "-0.015em",
+    color: v("--ink", "#211d15"),
+  },
+  subtitle: { fontSize: 13, color: v("--muted", "#6e6757"), marginTop: 6 },
   nav: { display: "flex", gap: 4, flexShrink: 0 },
   navBtn: {
     padding: "6px 12px",
@@ -558,26 +586,35 @@ const S: Record<string, React.CSSProperties> = {
     border: `1px solid ${v("--border", "#2c2c34")}`,
     borderRadius: 10,
   },
+  receiptHead: {
+    fontFamily: v("--serif", "Georgia, serif"),
+    fontSize: 19,
+    fontWeight: 600,
+    color: v("--ink", "#211d15"),
+  },
+  receiptMeta: { color: v("--ink-faint", "#a39a82"), fontWeight: 400 },
+  receiptSub: { fontSize: 12, color: v("--ink-faint", "#a39a82"), margin: "5px 0 16px" },
   sec: { marginBottom: 16 },
   secHead: {
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: 0.6,
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0.13em",
     textTransform: "uppercase",
-    color: v("--muted", "#9a9aa2"),
+    color: v("--ruby", "#d61f47"),
     marginBottom: 8,
   },
-  recap: { margin: 0, fontSize: 13, lineHeight: 1.55, color: v("--text", "#e8e8ea") },
+  recap: { margin: 0, fontSize: 13, lineHeight: 1.55, color: v("--text", "#211d15") },
   insightList: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 },
   insight: {
     display: "flex",
-    gap: 8,
+    gap: 9,
     fontSize: 13,
     lineHeight: 1.5,
-    color: v("--text", "#e8e8ea"),
+    color: v("--text", "#211d15"),
   },
-  star: { color: v("--accent", "#5b7cfa"), flexShrink: 0, fontWeight: 700 },
-  via: { color: v("--muted", "#9a9aa2"), fontStyle: "italic" },
+  checkOn: { color: v("--ok", "#2e9e63"), flexShrink: 0, fontWeight: 800 },
+  checkOff: { color: v("--ink-faint", "#a39a82"), flexShrink: 0, fontWeight: 700 },
+  via: { color: v("--gold", "#c98e2e"), fontStyle: "italic" },
   qList: { listStyle: "disc", margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 },
   qItem: { fontSize: 13, lineHeight: 1.5, color: v("--text", "#e8e8ea") },
   cardNote: { fontSize: 13, color: v("--muted-dim", "#6a6a72") },
@@ -600,14 +637,15 @@ const S: Record<string, React.CSSProperties> = {
   settingValue: { fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 },
   settingControl: { flexShrink: 0 },
   btnAccent: {
-    padding: "8px 16px",
+    padding: "9px 18px",
     fontSize: 13,
-    fontWeight: 600,
-    color: v("--accent-text", "#fff"),
-    background: v("--accent", "#5b7cfa"),
+    fontWeight: 700,
+    color: "#fff",
+    background: `linear-gradient(140deg, ${v("--ruby", "#d61f47")}, ${v("--ruby-deep", "#b01238")})`,
     border: "none",
-    borderRadius: 8,
+    borderRadius: 10,
     cursor: "pointer",
+    boxShadow: "0 4px 14px rgba(214,31,71,0.28)",
   },
   btnDanger: {
     padding: "8px 16px",
