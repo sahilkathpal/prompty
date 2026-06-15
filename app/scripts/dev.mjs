@@ -40,13 +40,20 @@ const build = spawn(tscBin, ["-p", "tsconfig.electron.json"], {
 });
 await new Promise((res) => build.on("exit", res));
 
-// Copy non-TS assets (skill markdown templates) into dist so __dirname-relative
-// lookups in compiled main-process code can find them.
-const skillsSrc = resolve(root, "src/main-process/prompts/skills");
-const skillsDst = resolve(root, "dist/electron/src/main-process/prompts/skills");
+// Copy non-TS assets (the prompt markdown) into dist so __dirname-relative
+// lookups in compiled main-process code can find them. Mirrors the copy step in
+// `build:main` — without base.md, loadBase() throws "no base.md prompt found".
+const promptsSrc = resolve(root, "src/main-process/prompts");
+const promptsDst = resolve(root, "dist/electron/src/main-process/prompts");
+const skillsSrc = resolve(promptsSrc, "skills");
 if (existsSync(skillsSrc)) {
-  cpSync(skillsSrc, skillsDst, { recursive: true });
+  cpSync(skillsSrc, resolve(promptsDst, "skills"), { recursive: true });
   console.log("[dev] copied skills/ -> dist");
+}
+const baseSrc = resolve(promptsSrc, "base.md");
+if (existsSync(baseSrc)) {
+  cpSync(baseSrc, resolve(promptsDst, "base.md"));
+  console.log("[dev] copied base.md -> dist");
 }
 
 console.log("[dev] waiting for vite…");
