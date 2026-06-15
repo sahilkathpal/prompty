@@ -6,6 +6,55 @@
  * the top bar is a draggable region with the macOS traffic lights inset on the
  * left. */
 
+/* Fill the whole window with the warm canvas — the App's content column is
+   centered and capped (maxWidth 760), so without this the window's backdrop
+   shows as bars on the sides / below the content. */
+html, body, #root {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+/* Window drag regions. The window is frameless (titleBarStyle:"hidden"), so
+   nothing is draggable unless we say so. A full-width strip across the top
+   (clearing the inset traffic lights) plus the header band are draggable;
+   interactive controls within opt back out with .app-no-drag. */
+.app-dragbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  -webkit-app-region: drag;
+  z-index: 50;
+}
+.app-drag { -webkit-app-region: drag; }
+.app-no-drag { -webkit-app-region: no-drag; }
+
+/* Past-calls rows: hover/open background (inline styles can't do :hover). The
+   main button stays transparent so the wrapper's background shows through. */
+.pc-rowwrap {
+  transition: background 120ms ease;
+}
+.pc-rowwrap:hover,
+.pc-rowwrap.open {
+  background: var(--surface-2);
+}
+
+/* Small inline spinner for the "Ending…" wrap-up state (inline styles can't
+   express @keyframes). Gold arc on a faint track, matching the status copy. */
+@keyframes mw-spin { to { transform: rotate(360deg); } }
+.mw-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: mw-spin 0.7s linear infinite;
+}
+
 .mw-root {
   display: flex;
   flex-direction: column;

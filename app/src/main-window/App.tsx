@@ -11,25 +11,67 @@ import Gem from "../shared/Gem";
 import "../shared/tokens.css";
 
 type SessionState = "idle" | "starting" | "live" | "ending" | "ended" | "error";
-type CallFile = { name: string; mtimeMs: number };
+type CallMeta = {
+  name: string;
+  mtimeMs: number;
+  title: string;
+  startedAt?: number;
+  endedAt?: number;
+};
 type Tab = "direction" | "settings";
 
 // The post-call card (RUBY_MVP decision #9), as written onto the call log JSON
 // by summary.ts. Optional fields are defensive — older logs predate this shape.
 type CallInsight = { text: string; assisted?: boolean; via?: string };
 type CallSummary = {
+  title?: string;
   recap: string;
   insights: CallInsight[];
   questionsNotAsked: { text: string }[];
   stat: { surfaced: number; used: number };
 };
 type ParsedCall = {
+  title?: string;
   summary?: CallSummary;
   startedAt?: number;
   endedAt?: number;
   attendee?: { name?: string; company?: string };
   raw: string;
 };
+
+// ---- Past-calls list formatting -------------------------------------------
+function sameDay(a: Date, b: Date): boolean {
+  return a.toDateString() === b.toDateString();
+}
+function dayLabel(ms: number): string {
+  const d = new Date(ms);
+  const now = new Date();
+  if (sameDay(d, now)) return "Today";
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (sameDay(d, y)) return "Yesterday";
+  const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString([], opts);
+}
+function fmtClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+function fmtDur(start?: number, end?: number): string | null {
+  if (!start || !end || end <= start) return null;
+  return `${Math.max(1, Math.round((end - start) / 60000))} min`;
+}
+// Calls arrive newest-first; collapse consecutive same-day runs into groups.
+function groupByDay(calls: CallMeta[]): { label: string; items: CallMeta[] }[] {
+  const groups: { label: string; items: CallMeta[] }[] = [];
+  for (const c of calls) {
+    const label = dayLabel(c.startedAt ?? c.mtimeMs);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(c);
+    else groups.push({ label, items: [c] });
+  }
+  return groups;
+}
 
 const v = (name: string, fallback: string) => `var(${name}, ${fallback})`;
 const MIC_SETTINGS_URL =
@@ -42,8 +84,9 @@ export default function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState(false);
   const [hotkey, setHotkey] = useState("Alt+Shift+Space");
-  const [calls, setCalls] = useState<CallFile[]>([]);
+  const [calls, setCalls] = useState<CallMeta[]>([]);
   const [openCall, setOpenCall] = useState<{ name: string; call: ParsedCall } | null>(null);
+  const [editing, setEditing] = useState<{ name: string; draft: string } | null>(null);
   const [micStatus, setMicStatus] = useState<string | null>(null);
   const [claude, setClaude] = useState<{ found: boolean; path: string | null } | null>(null);
   const seeded = useRef(false);
@@ -51,7 +94,7 @@ export default function App(): JSX.Element {
   const refreshCalls = useCallback(() => {
     window.prompty
       .invoke("calls:list", undefined as never)
-      .then((r) => setCalls(r.files.sort((a, b) => b.mtimeMs - a.mtimeMs)))
+      .then((r) => setCalls(r.files))
       .catch(() => {});
   }, []);
   const refreshMic = useCallback(() => {
@@ -122,6 +165,10 @@ export default function App(): JSX.Element {
 
   const isLive =
     sessionState === "starting" || sessionState === "live" || sessionState === "ending";
+  // The end teardown — closing the agent and generating the post-call summary —
+  // can take several seconds. Surface it: the button locks into "Ending…" and a
+  // status line explains the wait, so a re-click can't fire end() again.
+  const isEnding = sessionState === "ending";
 
   const saveDir = useCallback((text: string) => {
     void window.prompty.invoke("direction:save-current", { content: text });
@@ -130,7 +177,7 @@ export default function App(): JSX.Element {
   const start = useCallback(async () => {
     setError(null);
     if (!direction.trim()) {
-      setError("Set a direction first — it's the whole coaching prompt now.");
+      setError("Add a direction first — it's the brief your coach follows on the call.");
       return;
     }
     saveDir(direction);
@@ -183,8 +230,10 @@ export default function App(): JSX.Element {
           let parsed: ParsedCall = { raw: r.content };
           try {
             const obj = JSON.parse(r.content) as Record<string, unknown>;
+            const summary = obj.summary as CallSummary | undefined;
             parsed = {
-              summary: obj.summary as CallSummary | undefined,
+              title: (obj.title as string | undefined) ?? summary?.title,
+              summary,
               startedAt: obj.startedAt as number | undefined,
               endedAt: obj.endedAt as number | undefined,
               attendee: obj.attendee as ParsedCall["attendee"],
@@ -198,20 +247,34 @@ export default function App(): JSX.Element {
     [openCall],
   );
 
+  const saveRename = useCallback(() => {
+    if (!editing) return;
+    const { name, draft } = editing;
+    const title = draft.trim();
+    setEditing(null);
+    void window.prompty.invoke("calls:rename", { name, title }).then(() => {
+      setCalls((list) => list.map((c) => (c.name === name ? { ...c, title } : c)));
+      setOpenCall((oc) =>
+        oc && oc.name === name ? { ...oc, call: { ...oc.call, title } } : oc,
+      );
+    });
+  }, [editing]);
+
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
 
   return (
     <div style={S.page}>
-      <header style={S.header}>
+      <div className="app-dragbar" />
+      <header className="app-drag" style={S.header}>
         <div>
           <div style={S.title}>
             <Gem variant="mini" size={20} />
             <span>Ruby</span>
           </div>
-          <div style={S.subtitle}>minimal base + your direction — that's the whole prompt</div>
+          <div style={S.subtitle}>Your coaching brief — what a good call looks like, on every call.</div>
         </div>
-        <nav style={S.nav}>
+        <nav className="app-no-drag" style={S.nav}>
           {(["direction", "settings"] as Tab[]).map((t) => (
             <button
               key={t}
@@ -253,20 +316,15 @@ export default function App(): JSX.Element {
               <button style={S.btnGhost} onClick={loadFile}>
                 Load from file…
               </button>
-              <label style={S.checkRow} title="Write ~/.prompty/debug/call-*.{jsonl,md}">
-                <input type="checkbox" checked={debug} onChange={toggleDebug} />
-                Debug logging
-              </label>
-              <button
-                style={S.linkBtn}
-                onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}
-              >
-                Reveal logs
-              </button>
               <span style={{ flex: 1 }} />
               {isLive ? (
-                <button style={S.btnDanger} data-testid="playground-end" onClick={end}>
-                  End call
+                <button
+                  style={{ ...S.btnDanger, ...(isEnding ? S.btnBusy : null) }}
+                  data-testid="playground-end"
+                  onClick={end}
+                  disabled={isEnding}
+                >
+                  {isEnding ? "Ending…" : "End call"}
                 </button>
               ) : (
                 <button style={S.btnAccent} data-testid="playground-start" onClick={start}>
@@ -274,11 +332,16 @@ export default function App(): JSX.Element {
                 </button>
               )}
             </div>
-            {isLive && (
-              <div style={S.live}>
-                <span style={S.dot} /> Call {sessionState} — coaching in the floating overlay
+            {isEnding ? (
+              <div style={S.ending} data-testid="playground-ending">
+                <span className="mw-spinner" aria-hidden /> Wrapping up — saving your call
+                summary. This can take a few seconds.
               </div>
-            )}
+            ) : isLive ? (
+              <div style={S.live}>
+                <span style={S.dot} /> Coaching live in the floating overlay.
+              </div>
+            ) : null}
             {error && (
               <div style={S.error} data-testid="playground-error">
                 {error}
@@ -294,19 +357,64 @@ export default function App(): JSX.Element {
               </button>
             </div>
             {calls.length === 0 ? (
-              <div style={S.empty}>No calls yet.</div>
+              <div style={S.empty}>No calls yet — start one above.</div>
             ) : (
-              <ul style={S.list}>
-                {calls.map((c) => (
-                  <li key={c.name}>
-                    <button style={S.callRow} onClick={() => viewCall(c.name)}>
-                      <span style={S.callName}>{c.name.replace(/\.json$/, "")}</span>
-                      <span style={S.callDate}>{new Date(c.mtimeMs).toLocaleString()}</span>
-                    </button>
-                    {openCall?.name === c.name && <CallCard call={openCall.call} />}
-                  </li>
-                ))}
-              </ul>
+              groupByDay(calls).map((group) => (
+                <div key={group.label} style={S.callGroup}>
+                  <div style={S.callDay}>{group.label}</div>
+                  <ul style={S.list}>
+                    {group.items.map((c) => {
+                      const when = c.startedAt ?? c.mtimeMs;
+                      const open = openCall?.name === c.name;
+                      const isEditing = editing?.name === c.name;
+                      const dur = fmtDur(c.startedAt, c.endedAt);
+                      return (
+                        <li key={c.name}>
+                          <div className={`pc-rowwrap${open ? " open" : ""}`} style={S.callRowWrap}>
+                            {isEditing ? (
+                              <input
+                                autoFocus
+                                style={S.renameInput}
+                                value={editing.draft}
+                                onChange={(e) => setEditing({ name: c.name, draft: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveRename();
+                                  if (e.key === "Escape") setEditing(null);
+                                }}
+                                onBlur={saveRename}
+                              />
+                            ) : (
+                              <>
+                                <button
+                                  className="pc-row"
+                                  style={S.callMain}
+                                  onClick={() => viewCall(c.name)}
+                                >
+                                  <span style={S.callChevron}>{open ? "▾" : "▸"}</span>
+                                  <span style={S.callTitle}>{c.title || "Untitled call"}</span>
+                                  <span style={S.callMeta}>
+                                    {fmtClock(when)}
+                                    {dur ? ` · ${dur}` : ""}
+                                  </span>
+                                </button>
+                                <button
+                                  style={S.renameBtn}
+                                  title="Rename"
+                                  aria-label="Rename call"
+                                  onClick={() => setEditing({ name: c.name, draft: c.title || "" })}
+                                >
+                                  ✎
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          {open && <CallCard call={openCall.call} />}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))
             )}
           </section>
         </>
@@ -393,7 +501,7 @@ function Setting(props: {
 // Ruby-assisted ones) / Questions you didn't ask, plus one quiet stat line. Falls
 // back to the raw JSON for older logs (or a call that never produced a summary).
 function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { summary, raw, attendee, startedAt, endedAt } = props.call;
+  const { title, summary, raw, attendee, startedAt, endedAt } = props.call;
   if (!summary) {
     return (
       <div style={S.card2}>
@@ -402,7 +510,7 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       </div>
     );
   }
-  const name = attendee?.name?.trim() || "Call";
+  const name = title?.trim() || attendee?.name?.trim() || "Call";
   const mins =
     startedAt && endedAt && endedAt > startedAt
       ? Math.max(1, Math.round((endedAt - startedAt) / 60000))
@@ -413,10 +521,6 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
         {name}
         {mins != null && <span style={S.receiptMeta}> · {mins} min</span>}
       </div>
-      <div style={S.receiptSub}>
-        Ruby surfaced {summary.stat.surfaced} · you used {summary.stat.used}
-      </div>
-
       <section style={S.sec}>
         <div style={S.secHead}>Recap</div>
         <p style={S.recap}>{summary.recap}</p>
@@ -466,10 +570,10 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
 const S: Record<string, React.CSSProperties> = {
   page: {
     font: v("--font", "14px system-ui, sans-serif"),
-    color: v("--text", "#e8e8ea"),
-    background: v("--bg", "#16161a"),
+    color: v("--text", "#211d15"),
+    background: v("--bg", "#faf7e9"),
     minHeight: "100vh",
-    padding: "28px 32px",
+    padding: "44px 32px 40px",
     boxSizing: "border-box",
     maxWidth: 760,
     margin: "0 auto",
@@ -534,8 +638,8 @@ const S: Record<string, React.CSSProperties> = {
     boxSizing: "border-box",
   },
   row: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
-  checkRow: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: v("--muted", "#9a9aa2") },
   live: { marginTop: 12, fontSize: 13, color: v("--green", "#46c46a"), display: "flex", alignItems: "center", gap: 8 },
+  ending: { marginTop: 12, fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },
   dot: { width: 8, height: 8, borderRadius: "50%", background: v("--green", "#46c46a"), display: "inline-block" },
   error: {
     marginTop: 12,
@@ -565,6 +669,71 @@ const S: Record<string, React.CSSProperties> = {
   },
   callName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   callDate: { color: v("--muted-dim", "#6a6a72"), flexShrink: 0 },
+  callGroup: { marginTop: 6 },
+  callDay: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    color: v("--ink-faint", "#a39a82"),
+    margin: "14px 0 4px",
+    paddingLeft: 4,
+  },
+  callRowWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 10,
+  },
+  callMain: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 10px",
+    background: "transparent",
+    border: "none",
+    borderRadius: 10,
+    cursor: "pointer",
+    textAlign: "left",
+    color: v("--ink", "#211d15"),
+    font: "inherit",
+  },
+  callChevron: { flexShrink: 0, width: 10, fontSize: 11, color: v("--ink-faint", "#a39a82") },
+  callTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: 600,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  callMeta: { flexShrink: 0, fontSize: 12, color: v("--ink-faint", "#a39a82") },
+  renameBtn: {
+    flexShrink: 0,
+    width: 32,
+    height: 32,
+    border: "none",
+    background: "transparent",
+    color: v("--ink-faint", "#a39a82"),
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 13,
+  },
+  renameInput: {
+    flex: 1,
+    padding: "9px 10px",
+    fontSize: 14,
+    fontWeight: 600,
+    color: v("--ink", "#211d15"),
+    background: v("--card", "#fff"),
+    border: `1px solid ${v("--ruby", "#d61f47")}`,
+    borderRadius: 10,
+    outline: "none",
+    fontFamily: "inherit",
+  },
   pre: {
     margin: "4px 0 8px",
     padding: 12,
@@ -591,9 +760,9 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 19,
     fontWeight: 600,
     color: v("--ink", "#211d15"),
+    marginBottom: 16,
   },
   receiptMeta: { color: v("--ink-faint", "#a39a82"), fontWeight: 400 },
-  receiptSub: { fontSize: 12, color: v("--ink-faint", "#a39a82"), margin: "5px 0 16px" },
   sec: { marginBottom: 16 },
   secHead: {
     fontSize: 10,
@@ -657,6 +826,7 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     cursor: "pointer",
   },
+  btnBusy: { opacity: 0.6, cursor: "default" },
   btnGhost: {
     padding: "8px 14px",
     fontSize: 13,

@@ -106,10 +106,10 @@ function maybePromptLoginItem(): void {
       buttons: ["Yes", "No"],
       defaultId: 0,
       cancelId: 1,
-      title: "Launch Prompty at login?",
-      message: "Launch Prompty at login?",
+      title: "Launch Ruby at login?",
+      message: "Launch Ruby at login?",
       detail:
-        "Prompty can start automatically and stay in your menu bar so it's ready when calls begin.",
+        "Ruby can start automatically and stay in your menu bar so it's ready when calls begin.",
     });
     if (result === 0) {
       try {
@@ -199,6 +199,10 @@ app.on("ready", () => {
       emitNudge: (n: unknown) => {
         const { e2eEmitNudge } = require("./ipc-handlers");
         return e2eEmitNudge(n);
+      },
+      broadcastSessionState: (state: string) => {
+        const { e2eBroadcastSessionState } = require("./ipc-handlers");
+        return e2eBroadcastSessionState(state);
       },
     };
   } else if (!settings.onboardingCompleted) {

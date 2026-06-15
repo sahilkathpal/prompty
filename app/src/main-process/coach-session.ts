@@ -15,7 +15,7 @@ import { openAgent, type Agent } from "./agent";
 import { CONSIDER_WINDOW } from "./windowing";
 import { answerNow } from "./answer";
 import { createSummaryKeeper, type SummaryKeeper } from "./running-summary";
-import { writeCallLog } from "./call-log";
+import { writeCallLog, deriveCallTitle } from "./call-log";
 import { openJournal, type JournalHandle } from "./journal";
 import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
@@ -453,6 +453,7 @@ export async function startSession(
         logPath = await writeCallLog({
           direction: setup.direction,
           skill: setup.skill,
+          title: deriveCallTitle(undefined, summary?.title, setup.direction),
           transcript,
           nudges,
           attendee: setup.context.attendee,

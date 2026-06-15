@@ -35,11 +35,27 @@ export interface InvokeChannels {
   };
   "calls:list": {
     request: void;
-    response: { files: { name: string; mtimeMs: number }[] };
+    // Each entry carries enough to render the Past Calls list without opening
+    // every file: the effective title and the call's clock.
+    response: {
+      files: {
+        name: string;
+        mtimeMs: number;
+        title: string;
+        startedAt?: number;
+        endedAt?: number;
+      }[];
+    };
   };
   "calls:read": {
     request: { name: string };
     response: { content: string };
+  };
+  // Rename a saved call — rewrites the `title` field in its JSON (the file name
+  // itself stays put as the stable id).
+  "calls:rename": {
+    request: { name: string; title: string };
+    response: { ok: boolean };
   };
   // Playground: pick a file and return its contents, to load a direction/prompt
   // from disk instead of typing it. Returns null if the user cancels.

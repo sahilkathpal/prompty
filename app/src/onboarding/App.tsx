@@ -132,9 +132,9 @@ export default function App(): JSX.Element {
       <div className="ob-body">
         {step === "welcome" && (
           <>
-            <h1 className="ob-h1">Welcome to Prompty</h1>
+            <h1 className="ob-h1">Welcome to Ruby</h1>
             <p className="ob-p">
-              Prompty is a real-time call coach for macOS. It listens to your
+              Ruby is a real-time call coach for macOS. It listens to your
               meetings and surfaces quiet nudges in a floating panel — across
               Zoom, Meet, FaceTime, Slack, and more.
             </p>
@@ -149,7 +149,7 @@ export default function App(): JSX.Element {
           <>
             <h1 className="ob-h1">Claude Code</h1>
             <p className="ob-p">
-              Prompty runs its reasoning through your local Claude Code
+              Ruby runs its reasoning through your local Claude Code
               installation. We never send your transcripts to a third-party
               model server.
             </p>
@@ -197,7 +197,7 @@ export default function App(): JSX.Element {
           <>
             <h1 className="ob-h1">Microphone access</h1>
             <p className="ob-p">
-              Prompty captures your microphone to transcribe your side of the
+              Ruby captures your microphone to transcribe your side of the
               call. Audio stays on your machine; only the transcript is sent
               upstream.
             </p>
@@ -241,7 +241,7 @@ export default function App(): JSX.Element {
           <>
             <h1 className="ob-h1">Notifications</h1>
             <p className="ob-p">
-              Prompty uses notifications for call-ready toasts ("Ready for X")
+              Ruby uses notifications for call-ready toasts ("Ready for X")
               and post-call summaries. The first notification will ask macOS
               for permission.
             </p>
@@ -271,7 +271,7 @@ export default function App(): JSX.Element {
           <>
             <h1 className="ob-h1">You're all set</h1>
             <p className="ob-p">
-              Prompty lives in your menu bar. The floating panel will appear
+              Ruby lives in your menu bar. The floating panel will appear
               when a call starts — or you can open it from the tray icon any
               time.
             </p>
@@ -301,7 +301,7 @@ export default function App(): JSX.Element {
         </div>
         {step === "done" ? (
           <button className="ob-btn ob-btn-primary" onClick={finish}>
-            Open Prompty
+            Open Ruby
           </button>
         ) : (
           <button

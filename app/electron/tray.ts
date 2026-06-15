@@ -18,7 +18,7 @@ export function createTray(): Tray {
   }
   image.setTemplateImage(true);
   tray = new Tray(image);
-  tray.setToolTip("Prompty");
+  tray.setToolTip("Ruby");
   rebuildMenu();
   return tray;
 }
@@ -48,7 +48,7 @@ export function rebuildMenu(): void {
     },
     { type: "separator" },
     {
-      label: "Quit Prompty",
+      label: "Quit Ruby",
       click: () => app.quit(),
     },
   ]);

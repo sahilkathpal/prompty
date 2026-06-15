@@ -30,10 +30,11 @@ export function openMainWindow(tab?: MainTab): BrowserWindow {
   mainWin = new BrowserWindow({
     width: 900,
     height: 600,
-    title: "Prompty",
+    title: "Ruby",
     show: false,
-    // Dark surface painted before the renderer mounts — no white flash on open.
-    backgroundColor: "#14161c",
+    // Cream surface painted before the renderer mounts — matches the warm
+    // theme so there's no dark flash / side bars before/around the content.
+    backgroundColor: "#faf7e9",
     // Merge the traffic lights into our own dark top bar (see .mw-topbar).
     // Pin their position so it's deterministic across macOS versions; the
     // .mw-topbar left padding is sized to clear this group. y centers them in

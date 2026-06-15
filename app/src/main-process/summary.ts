@@ -50,6 +50,9 @@ export interface UnaskedQuestion {
 }
 
 export interface CallSummary {
+  /** A short label for the call: the other party's name (if introduced) + the
+   *  topic, e.g. "Arjun — agent code review". Used as the call's title. */
+  title: string;
   /** A few lines on what was discussed. */
   recap: string;
   insights: CallInsight[];
@@ -103,6 +106,7 @@ Reply with ONLY a single fenced JSON block. No prose before or after.
 
 \`\`\`json
 {
+  "title": "<a short 3-6 word title for this call: the other party's name if they introduce themselves, plus the topic — e.g. 'Arjun — agent code review' or 'Discovery: memory layer for designers'. No surrounding quotes.>",
   "recap": "<a few lines (2-4 sentences) on what was discussed and where it landed>",
   "insights": [
     {
@@ -169,7 +173,8 @@ function sanitize(parsed: unknown, surfacedCount: number): CallSummary | null {
   const surfaced = surfacedCount;
   let used = Number.isFinite(rawStat.used) ? Math.round(Number(rawStat.used)) : 0;
   used = Math.max(0, Math.min(surfaced, used));
-  return { recap: p.recap.trim(), insights, questionsNotAsked, stat: { surfaced, used } };
+  const title = typeof p.title === "string" ? p.title.trim().replace(/^["']|["']$/g, "") : "";
+  return { title, recap: p.recap.trim(), insights, questionsNotAsked, stat: { surfaced, used } };
 }
 
 export async function summarizeCall(

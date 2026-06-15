@@ -21,6 +21,7 @@ import {
 } from "./overlay-window";
 import { rebuildMenu } from "./tray";
 import { startSession, type SessionHandle, type SessionState } from "../src/main-process/coach-session";
+import { deriveCallTitle } from "../src/main-process/call-log";
 import { debugDir } from "../src/main-process/debug-logger";
 import type {
   CallSetup,
@@ -140,7 +141,7 @@ type PreflightResult =
   | { ok: false; code: "mic" | "claude"; message: string };
 
 const PREFLIGHT_MESSAGES = {
-  mic: "Prompty needs microphone access to hear the call.",
+  mic: "Ruby needs microphone access to hear the call.",
   claude: "Install Claude Code to enable AI coaching.",
 } as const;
 
@@ -293,14 +294,47 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         entries
           .filter((e) => e.isFile() && e.name.endsWith(".json"))
           .map(async (e) => {
-            const stat = await fs.stat(path.join(dir, e.name));
-            return { name: e.name, mtimeMs: stat.mtimeMs };
+            const full = path.join(dir, e.name);
+            const stat = await fs.stat(full);
+            let title = "";
+            let startedAt: number | undefined;
+            let endedAt: number | undefined;
+            try {
+              const obj = JSON.parse(await fs.readFile(full, "utf8")) as {
+                title?: string;
+                summary?: { title?: string };
+                direction?: string;
+                startedAt?: number;
+                endedAt?: number;
+              };
+              title = deriveCallTitle(obj.title, obj.summary?.title, obj.direction);
+              startedAt = obj.startedAt;
+              endedAt = obj.endedAt;
+            } catch {
+              // Unreadable/corrupt log — list it with an empty title.
+            }
+            return { name: e.name, mtimeMs: stat.mtimeMs, title, startedAt, endedAt };
           }),
       );
-      files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      // Newest first, by when the call happened (fall back to file mtime).
+      files.sort((a, b) => (b.startedAt ?? b.mtimeMs) - (a.startedAt ?? a.mtimeMs));
       return { files };
     } catch {
       return { files: [] };
+    }
+  });
+
+  handle("calls:rename", async (payload) => {
+    const dir = process.env.PROMPTY_CALL_LOG_DIR ?? path.join(os.homedir(), ".prompty", "calls");
+    const full = path.join(dir, path.basename(payload.name));
+    try {
+      const obj = JSON.parse(await fs.readFile(full, "utf8")) as Record<string, unknown>;
+      obj.title = payload.title.trim();
+      await fs.writeFile(full, JSON.stringify(obj, null, 2));
+      return { ok: true };
+    } catch (e) {
+      console.error("[ipc] calls:rename failed:", (e as Error).message);
+      return { ok: false };
     }
   });
 
@@ -457,7 +491,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         return { ok: false, error: "notifications not supported" };
       }
       const n = new Notification({
-        title: "Prompty notifications enabled",
+        title: "Ruby notifications enabled",
         body: "You'll see nudges and call summaries here.",
       });
       n.show();
@@ -542,5 +576,13 @@ export function e2eEmitNudge(n: unknown): boolean {
 export function e2eForceTransportError(reason?: string): boolean {
   if (!activeSession) return false;
   activeSession.simulateTransportError(reason);
+  return true;
+}
+
+// Push a synthetic session state to the renderers via the real broadcast path.
+// Used by e2e to hold a window in a transient state (e.g. "ending") long enough
+// to assert its UI — the mock end() flow flips through "ending" too fast to catch.
+export function e2eBroadcastSessionState(state: SessionState | "idle"): boolean {
+  broadcastSessionState(state);
   return true;
 }

@@ -268,7 +268,7 @@ export function renderDebugMarkdown(jsonlPath: string): string {
   const tN = events.length ? events[events.length - 1]!.ts ?? t0 : 0;
 
   const lines: string[] = [];
-  lines.push(`# Prompty debug — ${isPrep ? "prep" : "call"} session`);
+  lines.push(`# Ruby debug — ${isPrep ? "prep" : "call"} session`);
   lines.push("");
   lines.push(`<!-- source: ${base} -->`);
   lines.push("");
