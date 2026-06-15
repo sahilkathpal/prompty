@@ -17,6 +17,7 @@ type CallMeta = {
   title: string;
   startedAt?: number;
   endedAt?: number;
+  summaryPending?: boolean;
 };
 type Tab = "direction" | "settings";
 
@@ -36,6 +37,7 @@ type ParsedCall = {
   startedAt?: number;
   endedAt?: number;
   attendee?: { name?: string; company?: string };
+  summaryPending?: boolean;
   raw: string;
 };
 
@@ -109,6 +111,28 @@ export default function App(): JSX.Element {
       .then((r) => setClaude(r))
       .catch(() => {});
   }, []);
+  const readCall = useCallback(async (name: string): Promise<ParsedCall | null> => {
+    try {
+      const r = await window.prompty.invoke("calls:read", { name });
+      let parsed: ParsedCall = { raw: r.content };
+      try {
+        const obj = JSON.parse(r.content) as Record<string, unknown>;
+        const summary = obj.summary as CallSummary | undefined;
+        parsed = {
+          title: (obj.title as string | undefined) ?? summary?.title,
+          summary,
+          startedAt: obj.startedAt as number | undefined,
+          endedAt: obj.endedAt as number | undefined,
+          attendee: obj.attendee as ParsedCall["attendee"],
+          summaryPending: obj.summaryPending as boolean | undefined,
+          raw: JSON.stringify(obj, null, 2),
+        };
+      } catch {}
+      return parsed;
+    } catch {
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     // Restore the persisted direction — box ⇄ ~/.prompty/playground/direction.md.
@@ -157,11 +181,26 @@ export default function App(): JSX.Element {
       setError(p.message);
       if (p.code === "mic") refreshMic();
     });
+    // The background summary pass landed: refresh the list, and if the affected
+    // call is open, re-read it so the "Summarizing…" placeholder fills in.
+    const offCallsUpdated = window.prompty.on("calls:updated", (p) => {
+      refreshCalls();
+      setOpenCall((oc) => {
+        if (oc?.name === p.name) {
+          void readCall(p.name).then((call) => {
+            if (call)
+              setOpenCall((cur) => (cur?.name === p.name ? { name: p.name, call } : cur));
+          });
+        }
+        return oc;
+      });
+    });
     return () => {
       offState();
       offPf();
+      offCallsUpdated();
     };
-  }, [refreshCalls, refreshMic, refreshClaude]);
+  }, [refreshCalls, refreshMic, refreshClaude, readCall]);
 
   const isLive =
     sessionState === "starting" || sessionState === "live" || sessionState === "ending";
@@ -224,27 +263,11 @@ export default function App(): JSX.Element {
         setOpenCall(null);
         return;
       }
-      window.prompty
-        .invoke("calls:read", { name })
-        .then((r) => {
-          let parsed: ParsedCall = { raw: r.content };
-          try {
-            const obj = JSON.parse(r.content) as Record<string, unknown>;
-            const summary = obj.summary as CallSummary | undefined;
-            parsed = {
-              title: (obj.title as string | undefined) ?? summary?.title,
-              summary,
-              startedAt: obj.startedAt as number | undefined,
-              endedAt: obj.endedAt as number | undefined,
-              attendee: obj.attendee as ParsedCall["attendee"],
-              raw: JSON.stringify(obj, null, 2),
-            };
-          } catch {}
-          setOpenCall({ name, call: parsed });
-        })
-        .catch(() => {});
+      void readCall(name).then((call) => {
+        if (call) setOpenCall({ name, call });
+      });
     },
-    [openCall],
+    [openCall, readCall],
   );
 
   const saveRename = useCallback(() => {
@@ -395,6 +418,7 @@ export default function App(): JSX.Element {
                                   <span style={S.callMeta}>
                                     {fmtClock(when)}
                                     {dur ? ` · ${dur}` : ""}
+                                    {c.summaryPending ? " · Summarizing…" : ""}
                                   </span>
                                 </button>
                                 <button
@@ -501,8 +525,17 @@ function Setting(props: {
 // Ruby-assisted ones) / Questions you didn't ask, plus one quiet stat line. Falls
 // back to the raw JSON for older logs (or a call that never produced a summary).
 function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { title, summary, raw, attendee, startedAt, endedAt } = props.call;
+  const { title, summary, raw, attendee, startedAt, endedAt, summaryPending } = props.call;
   if (!summary) {
+    if (summaryPending) {
+      return (
+        <div style={S.card2} data-testid="call-summarizing">
+          <div style={S.summarizing}>
+            <span className="mw-spinner" aria-hidden /> Summarizing this call…
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={S.card2}>
         <div style={S.cardNote}>No summary card for this call — showing the raw log.</div>
@@ -640,6 +673,7 @@ const S: Record<string, React.CSSProperties> = {
   row: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
   live: { marginTop: 12, fontSize: 13, color: v("--green", "#46c46a"), display: "flex", alignItems: "center", gap: 8 },
   ending: { marginTop: 12, fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },
+  summarizing: { fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },
   dot: { width: 8, height: 8, borderRadius: "50%", background: v("--green", "#46c46a"), display: "inline-block" },
   error: {
     marginTop: 12,

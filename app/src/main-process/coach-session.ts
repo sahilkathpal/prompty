@@ -15,7 +15,7 @@ import { openAgent, type Agent } from "./agent";
 import { CONSIDER_WINDOW } from "./windowing";
 import { answerNow } from "./answer";
 import { createSummaryKeeper, type SummaryKeeper } from "./running-summary";
-import { writeCallLog, deriveCallTitle } from "./call-log";
+import { writeCallLog, deriveCallTitle, updateCallLogSummary } from "./call-log";
 import { openJournal, type JournalHandle } from "./journal";
 import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
@@ -60,6 +60,16 @@ export interface SessionOpts {
   onStateChange?: (state: SessionState) => void;
   /** Live audio/transcription health for the overlay status dot. */
   onStatus?: (s: SessionStatusEvent) => void;
+  /**
+   * Fired after the background summary pass has patched the saved log (or right
+   * after the fast end when there's nothing to summarize). `logPath` is null if
+   * the write failed. Lets the IPC layer tell renderers to refresh the Past
+   * Calls card once the summary has landed.
+   */
+  onSummaryReady?: (
+    logPath: string | null,
+    summary?: import("./summary").CallSummary,
+  ) => void;
   onError?: (e: Error) => void;
   /** Override mock-flag detection (mostly for tests). */
   mockAudio?: boolean;
@@ -71,7 +81,14 @@ export interface SessionOpts {
 }
 
 export interface SessionHandle {
-  end(reason?: EndReason): Promise<void>;
+  /**
+   * End the call. By default the post-call summary is generated in the
+   * background — `end()` resolves as soon as the call is torn down and the log
+   * is persisted, so the UI returns to rest immediately. Pass
+   * `{ background: false }` (the quit path) to await the summary inline so the
+   * process doesn't exit before it lands.
+   */
+  end(reason?: EndReason, opts?: { background?: boolean }): Promise<void>;
   injectUtterance(u: TranscriptUtterance): void;
   /** Manually request a nudge from the agent — used by the hotkey. */
   requestNudge(): void;
@@ -416,11 +433,16 @@ export async function startSession(
   setState("live");
 
   const handle: SessionHandle = {
-    async end(_reason = "user") {
+    async end(_reason: EndReason = "user", endOpts: { background?: boolean } = {}) {
       if (ended) return;
       ended = true;
       if (noAudioTimer) clearInterval(noAudioTimer);
       setState("ending");
+
+      // ---- Phase A: fast teardown + persist ----
+      // Stop audio/transcription/agent and write the call log *without* the
+      // summary, then flip to "ended" so the overlay hides and the UI returns to
+      // rest at once. The summary (a multi-second model pass) happens in Phase B.
       try {
         if (transcription) await transcription.close();
       } catch (e) {
@@ -439,27 +461,21 @@ export async function startSession(
       } catch (e) {
         console.error("[coach-session] agent close error:", (e as Error).message);
       }
-      let summary: import("./summary").CallSummary | undefined;
-      if (process.env.PROMPTY_E2E !== "1" && transcript.length > 0) {
-        try {
-          const { summarizeCall } = await import("./summary");
-          const s = await summarizeCall(setup, transcript, nudges, startedAt);
-          if (s) summary = s;
-        } catch (e) {
-          console.error("[coach-session] summarize failed:", (e as Error).message);
-        }
-      }
+
+      const willSummarize =
+        process.env.PROMPTY_E2E !== "1" && transcript.length > 0;
       try {
         logPath = await writeCallLog({
           direction: setup.direction,
           skill: setup.skill,
-          title: deriveCallTitle(undefined, summary?.title, setup.direction),
+          title: deriveCallTitle(undefined, undefined, setup.direction),
           transcript,
           nudges,
           attendee: setup.context.attendee,
           startedAt,
           endedAt: Date.now(),
-          summary,
+          summary: undefined,
+          summaryPending: willSummarize,
         });
         console.log("[coach-session] log written to", logPath);
         // Consolidated log is safe — drop the crash journal. Kept on failure
@@ -468,23 +484,50 @@ export async function startSession(
       } catch (e) {
         console.error("[coach-session] write log failed:", (e as Error).message);
       }
-      debugLog?.write("session-end", { endedAt: Date.now(), summary });
-      closeDebug();
-      if (logPath && process.env.PROMPTY_E2E !== "1") {
-        try {
-          const n = new Notification({
-            title: "Call saved",
-            body: `Click to open ${path.basename(logPath)}`,
-          });
-          n.on("click", () => {
-            try {
-              shell.showItemInFolder(logPath!);
-            } catch {}
-          });
-          n.show();
-        } catch {}
-      }
       setState("ended");
+
+      // ---- Phase B: summarize, patch the saved log, then notify ----
+      // Backgrounded by default (ending feels instant); awaited on the quit path
+      // so the process doesn't exit mid-summary.
+      const finalize = async () => {
+        let summary: import("./summary").CallSummary | undefined;
+        if (willSummarize) {
+          try {
+            const { summarizeCall } = await import("./summary");
+            const s = await summarizeCall(setup, transcript, nudges, startedAt);
+            if (s) summary = s;
+          } catch (e) {
+            console.error("[coach-session] summarize failed:", (e as Error).message);
+          }
+          if (logPath) {
+            try {
+              updateCallLogSummary(logPath, summary);
+            } catch (e) {
+              console.error("[coach-session] patch log failed:", (e as Error).message);
+            }
+          }
+        }
+        debugLog?.write("session-end", { endedAt: Date.now(), summary });
+        closeDebug();
+        if (logPath && process.env.PROMPTY_E2E !== "1") {
+          try {
+            const n = new Notification({
+              title: "Call saved",
+              body: `Click to open ${path.basename(logPath)}`,
+            });
+            n.on("click", () => {
+              try {
+                shell.showItemInFolder(logPath!);
+              } catch {}
+            });
+            n.show();
+          } catch {}
+        }
+        opts.onSummaryReady?.(logPath, summary);
+      };
+
+      if (endOpts.background === false) await finalize();
+      else void finalize();
     },
     injectUtterance(u) {
       handleUtterance(u);

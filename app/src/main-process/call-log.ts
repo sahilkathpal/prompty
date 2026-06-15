@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -25,6 +25,9 @@ export interface CallLog {
   startedAt: number;
   endedAt: number;
   summary?: CallSummary;
+  /** True between the fast end (log persisted) and the background summary pass
+   *  landing. The Past Calls UI shows a "Summarizing…" placeholder while set. */
+  summaryPending?: boolean;
 }
 
 /** The effective title for a call: an explicit title wins, then the summary's,
@@ -73,4 +76,31 @@ export async function writeCallLog(
   const path = join(dir, `${stamp}-${slugify(label)}${suffix}.json`);
   writeFileSync(path, JSON.stringify(log, null, 2));
   return path;
+}
+
+/**
+ * Patch an already-written log in place once the background summary pass lands.
+ * Keeps the filename (the stable id) and any user-applied rename: the title is
+ * upgraded to the summary's only when the stored title is still the auto-derived
+ * default. `summaryPending` is cleared either way (success or empty summary), so
+ * the UI can stop showing the "Summarizing…" placeholder.
+ */
+export function updateCallLogSummary(
+  filePath: string,
+  summary: CallSummary | undefined,
+): void {
+  let log: CallLog;
+  try {
+    log = JSON.parse(readFileSync(filePath, "utf8")) as CallLog;
+  } catch {
+    return; // log vanished or is corrupt — nothing to patch.
+  }
+  if (summary) log.summary = summary;
+  const autoDefault = deriveCallTitle(undefined, undefined, log.direction);
+  const userRenamed = !!log.title?.trim() && log.title.trim() !== autoDefault;
+  if (!userRenamed) {
+    log.title = deriveCallTitle(undefined, summary?.title, log.direction);
+  }
+  log.summaryPending = false;
+  writeFileSync(filePath, JSON.stringify(log, null, 2));
 }

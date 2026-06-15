@@ -214,6 +214,11 @@ async function doStartSession(
         statusLog.push(s);
         broadcast("session:status", s);
       },
+      onSummaryReady: (logPath) => {
+        // The background summary pass patched the saved log — tell any open
+        // Past Calls view to re-read it.
+        if (logPath) broadcast("calls:updated", { name: path.basename(logPath) });
+      },
       onStateChange: (s) => {
         broadcastSessionState(s);
         if (s === "ended" || s === "error") {
@@ -299,6 +304,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
             let title = "";
             let startedAt: number | undefined;
             let endedAt: number | undefined;
+            let summaryPending = false;
             try {
               const obj = JSON.parse(await fs.readFile(full, "utf8")) as {
                 title?: string;
@@ -306,14 +312,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
                 direction?: string;
                 startedAt?: number;
                 endedAt?: number;
+                summaryPending?: boolean;
               };
               title = deriveCallTitle(obj.title, obj.summary?.title, obj.direction);
               startedAt = obj.startedAt;
               endedAt = obj.endedAt;
+              summaryPending = obj.summaryPending === true;
             } catch {
               // Unreadable/corrupt log — list it with an empty title.
             }
-            return { name: e.name, mtimeMs: stat.mtimeMs, title, startedAt, endedAt };
+            return { name: e.name, mtimeMs: stat.mtimeMs, title, startedAt, endedAt, summaryPending };
           }),
       );
       // Newest first, by when the call happened (fall back to file mtime).

@@ -44,6 +44,8 @@ export interface InvokeChannels {
         title: string;
         startedAt?: number;
         endedAt?: number;
+        // True while the background summary pass is still running for this call.
+        summaryPending?: boolean;
       }[];
     };
   };
@@ -194,6 +196,9 @@ export interface EventChannels {
   // A start attempt was blocked by a failed pre-flight check.
   "preflight:failed": { code: "mic" | "claude"; message: string };
   "session:setup": { setup: CallSetup };
+  // A saved call changed on disk (e.g. the background summary pass landed) —
+  // renderers showing the Past Calls list re-read it. `name` is the log filename.
+  "calls:updated": { name: string };
 }
 
 export type EventChannel = keyof EventChannels;

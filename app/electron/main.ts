@@ -225,8 +225,10 @@ app.on("before-quit", (e) => {
   if (session && !endingSessionForQuit) {
     e.preventDefault();
     endingSessionForQuit = true;
+    // background:false — wait for the summary pass inline so quitting doesn't
+    // exit before the consolidated log (with summary) is written.
     void session
-      .end("user")
+      .end("user", { background: false })
       .catch((err) =>
         console.error("[main] end session on quit failed:", (err as Error).message),
       )

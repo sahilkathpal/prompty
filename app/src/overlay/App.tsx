@@ -197,6 +197,15 @@ export default function App(): JSX.Element {
     setExpanded((cur) => !cur);
   }, []);
 
+  const isEnding = sessionState === "ending";
+  // End the call straight from the gem — the same teardown the main window and
+  // tray drive. Re-clicks are guarded: once "ending", the button disables and
+  // end() would early-return anyway.
+  const endCall = useCallback(() => {
+    if (sessionState === "ending") return;
+    void window.prompty.invoke("call:end", undefined as never);
+  }, [sessionState]);
+
   // Drag-to-move vs click-to-expand on the pill. A native app-region drag region
   // can't also receive the expand click, so we drive movement ourselves: press
   // and move the pill past a small threshold to drag the window (overlay:move-by
@@ -249,15 +258,17 @@ export default function App(): JSX.Element {
   // no new IPC. A bloomed note means "worth asking"; trouble means concern;
   // otherwise it tracks the live listening status, or sleeps when idle.
   const liveish = sessionState === "live" || sessionState === "starting";
-  const gemState: GemState = bloom
-    ? "worth-asking"
-    : status === "error" || status === "no-audio" || status === "mic-silent"
-      ? "attention"
-      : status === "reconnecting" || status === "starting"
-        ? "thinking"
-        : status === "listening" || liveish
-          ? "listening"
-          : "idle";
+  const gemState: GemState = isEnding
+    ? "thinking"
+    : bloom
+      ? "worth-asking"
+      : status === "error" || status === "no-audio" || status === "mic-silent"
+        ? "attention"
+        : status === "reconnecting" || status === "starting"
+          ? "thinking"
+          : status === "listening" || liveish
+            ? "listening"
+            : "idle";
 
   return (
     <div
@@ -287,6 +298,15 @@ export default function App(): JSX.Element {
           </button>
         </div>
 
+        {/* Discoverability: a faint caret signals the gem expands (into the
+            note history + End-call control) when notes are waiting and nothing
+            is currently bloomed. */}
+        {!expanded && !bloom && (history.length > 0 || liveish) && (
+          <div className="gem-expand-hint" data-testid="gem-expand-hint" aria-hidden>
+            ⌄
+          </div>
+        )}
+
         {/* Bloom: one ephemeral note directly beneath the gem. The draining
             bar visualizes the auto-fade countdown (re-keyed per note so it
             restarts on every swap / high-urgency preempt). */}
@@ -308,30 +328,45 @@ export default function App(): JSX.Element {
           </div>
         )}
 
-        {/* Expanded history: a quiet scrollback of every note this call. */}
+        {/* Expanded panel: a quiet scrollback of every note this call, plus an
+            End-call control so the call can be ended without hunting for the
+            tray or main window. */}
         {expanded && (
-          <div className="gem-history" data-testid="gem-history">
-            {history.length === 0 ? (
-              <div className="gem-history-empty">No notes yet this call.</div>
-            ) : (
-              <ul className="gem-history-list">
-                {history.map((n) => (
-                  <li
-                    key={n.id}
-                    className="gem-history-item"
-                    data-testid={`gem-history-item-${n.id}`}
-                  >
-                    <span className="gem-history-time">
-                      {new Date(n.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                    <span className="gem-history-text">{n.text}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <div className="gem-panel" data-testid="gem-panel">
+            <div className="gem-history" data-testid="gem-history">
+              {history.length === 0 ? (
+                <div className="gem-history-empty">No notes yet this call.</div>
+              ) : (
+                <ul className="gem-history-list">
+                  {history.map((n) => (
+                    <li
+                      key={n.id}
+                      className="gem-history-item"
+                      data-testid={`gem-history-item-${n.id}`}
+                    >
+                      <span className="gem-history-time">
+                        {new Date(n.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <span className="gem-history-text">{n.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="gem-actions">
+              <button
+                type="button"
+                className="gem-end-btn"
+                data-testid="gem-end"
+                disabled={isEnding}
+                onClick={endCall}
+              >
+                {isEnding ? "Ending…" : "End call"}
+              </button>
+            </div>
           </div>
         )}
       </div>
