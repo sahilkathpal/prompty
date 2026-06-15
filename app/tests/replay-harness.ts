@@ -32,7 +32,6 @@
 // Flags:
 //   --limit N            replay only the first N utterances (sample big calls cheaply)
 //   --skill <name>       impose a skill playbook the transcript didn't store
-//   --goal <text>        impose a goal
 //   --direction <text>   impose a direction steer
 //   --direction-file <p> like --direction, but read the whole prompt from a file
 //                        (the dev loop: edit a scratch prompt.md, re-run, repeat)
@@ -58,7 +57,7 @@ process.env.PROMPTY_CALL_LOG_DIR ??= path.join(os.tmpdir(), "prompty-replay");
 
 // Quiet production's internal console.log chatter so the timeline reads clean.
 // We only drop known-noisy prefixes; the harness surfaces nudges, quiet reasons
-// and checklist moves through its own callbacks. console.error is untouched, so
+// through its own callbacks. console.error is untouched, so
 // real failures still show.
 {
   const NOISE = ["[coach-session", "[timing]", "[sidecar"];
@@ -75,7 +74,6 @@ import { listAvailableSkills } from "../src/main-process/prompts/system";
 import { CONSIDER_WINDOW } from "../src/main-process/windowing";
 import type {
   CallSetup,
-  ChecklistItem,
   Nudge,
   Speaker,
   TranscriptUtterance,
@@ -105,9 +103,8 @@ interface Opts {
   parseOnly: boolean;
   /** Replay only the first N utterances of each transcript (Infinity = all). */
   limit: number;
-  /** Setup overrides — impose a skill/goal/direction the transcript didn't store. */
+  /** Setup overrides — impose a skill/direction the transcript didn't store. */
   skill?: string;
-  goal?: string;
   direction?: string;
   paths: string[];
 }
@@ -127,10 +124,6 @@ function parseArgs(argv: string[]): Opts {
     } else if (a === "--skill" || a.startsWith("--skill=")) {
       const [v, ni] = val(a, i);
       opts.skill = v;
-      i = ni;
-    } else if (a === "--goal" || a.startsWith("--goal=")) {
-      const [v, ni] = val(a, i);
-      opts.goal = v;
       i = ni;
     } else if (a === "--direction-file" || a.startsWith("--direction-file=")) {
       const [v, ni] = val(a, i);
@@ -157,7 +150,6 @@ function parseArgs(argv: string[]): Opts {
 function applyOpts(l: Loaded, o: Opts): Loaded {
   const setup: CallSetup = { ...l.setup };
   if (o.skill !== undefined) setup.skill = o.skill;
-  if (o.goal !== undefined) setup.goal = o.goal;
   if (o.direction !== undefined) setup.direction = o.direction;
 
   let steps = l.steps;
@@ -190,11 +182,8 @@ function loadJsonl(file: string): Loaded {
   }
 
   const start = events.find((e) => e.kind === "session-start");
-  const checklist: ChecklistItem[] = Array.isArray(start?.checklist) ? start!.checklist : [];
   const setup: CallSetup = {
-    goal: start?.goal ?? "",
     direction: start?.direction,
-    checklist,
     context: { attendee: start?.attendee },
     skill: start?.skill,
   };
@@ -234,14 +223,11 @@ function loadJsonl(file: string): Loaded {
 // markers (didn't exist) and direction (call logs never persisted it).
 function loadCallLog(file: string): Loaded {
   const log = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
-  const checklist: ChecklistItem[] = Array.isArray(log.checklist) ? log.checklist : [];
   // Legacy: pre-rename logs stored `mode`; "default" mode meant "no skill".
   const skill =
     log.skill ?? (log.mode && log.mode !== "default" ? String(log.mode) : undefined);
   const setup: CallSetup = {
-    goal: log.goal ?? "",
-    direction: undefined,
-    checklist,
+    direction: log.direction ?? undefined,
     context: { attendee: log.attendee },
     skill,
   };
@@ -299,16 +285,11 @@ function printSetup(l: Loaded): void {
   const hotkeys = l.steps.filter((e) => e.kind === "hotkey").length;
   const utterances = l.steps.length - hotkeys;
   console.log(`\n=== fixture: ${l.label} ===`);
-  if (s.goal) console.log(`goal:      ${s.goal}`);
   if (s.direction) console.log(`direction: ${s.direction}`);
   if (s.skill) console.log(`skill:     ${s.skill}`);
   if (s.context.attendee?.name) {
     const a = s.context.attendee;
     console.log(`attendee:  ${a.name}${a.company ? ` (${a.company})` : ""}`);
-  }
-  if (s.checklist.length) {
-    console.log("checklist:");
-    for (const c of s.checklist) console.log(`  - [${c.id}] (${c.status}) ${c.text}`);
   }
   console.log(
     `steps: ${utterances} utterance(s), ${hotkeys} hotkey press(es), window: ${CONSIDER_WINDOW}`,
@@ -330,7 +311,7 @@ async function replayOne(
   const outDir = path.join(REPLAY_DEBUG_ROOT, stem);
   process.env.PROMPTY_DEBUG_LOG_DIR = outDir;
 
-  // Per-step output buffer. onNudge / onChecklistUpdate / onError fire during
+  // Per-step output buffer. onNudge / onStayQuiet / onError fire during
   // the await; we collect them, then print under the step that triggered them.
   let buffer: string[] = [];
   let errorCount = 0;
@@ -339,7 +320,6 @@ async function replayOne(
     mockAudio: true,
     debug: true,
     onNudge: (n: Nudge) => buffer.push(`      💡 ${n.urgency}: ${n.text}`),
-    onChecklistUpdate: (id, status) => buffer.push(`      ☑ ${id} → ${status}`),
     onStayQuiet: (reason) => buffer.push(`      · quiet: ${reason}`),
     onError: (e) => {
       errorCount++;

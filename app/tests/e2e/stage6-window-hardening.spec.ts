@@ -3,9 +3,9 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
 
-// S2 verification: both in-call windows have content protection on (set-only;
-// the meaningful regression guard is that they remain *locally* visible) and
-// the tray "End session" path ends the session + writes a log.
+// S2 verification: the in-call overlay (the gem) has content protection on
+// (set-only; the meaningful regression guard is that it remains *locally*
+// visible) and the tray "End session" path ends the session + writes a log.
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
@@ -114,7 +114,7 @@ async function startSession(app: ElectronApplication): Promise<void> {
   });
 }
 
-test("Stage 2: content protection keeps overlay + teleprompter locally visible", async () => {
+test("Stage 2: content protection keeps the gem overlay locally visible", async () => {
   const userDataDir = await freshUserDataDir();
   const callLogDir = await freshCallLogDir();
   await seedSettings(userDataDir);
@@ -124,23 +124,18 @@ test("Stage 2: content protection keeps overlay + teleprompter locally visible",
   try {
     await waitForReady(app);
     await startSession(app);
-    // Both windows must still be visible locally despite setContentProtection(true).
+    // The gem must still be visible locally despite setContentProtection(true).
     expect(await waitVisible(app, "overlay")).toBe(true);
-    // headsUpBar defaults true → the teleprompter is shown.
-    expect(await waitVisible(app, "teleprompter")).toBe(true);
 
-    // Sanity: both windows actually have content protection enabled. There is no
-    // public getter, so assert the windows exist and visibility (the regression
-    // we care about) holds; the set call is exercised at creation time.
+    // Sanity: the overlay window actually exists. There is no public getter for
+    // content protection, so assert the window exists and visibility (the
+    // regression we care about) holds; the set call is exercised at creation.
     const windowCount = await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows().filter(
-        (w) =>
-          !w.isDestroyed() &&
-          (w.webContents.getURL().includes("overlay") ||
-            w.webContents.getURL().includes("teleprompter")),
+        (w) => !w.isDestroyed() && w.webContents.getURL().includes("overlay"),
       ).length,
     );
-    expect(windowCount).toBeGreaterThanOrEqual(2);
+    expect(windowCount).toBeGreaterThanOrEqual(1);
   } finally {
     await app.close();
   }
@@ -167,7 +162,6 @@ test("Stage 2: tray End session ends the session, hides overlay, writes log", as
     });
 
     expect(await waitHidden(app, "overlay")).toBe(true);
-    expect(await waitHidden(app, "teleprompter")).toBe(true);
     const files = await fs.readdir(callLogDir);
     expect(files.some((f) => f.endsWith(".json"))).toBe(true);
   } finally {

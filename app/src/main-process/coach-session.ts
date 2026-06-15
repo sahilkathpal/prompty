@@ -21,10 +21,8 @@ import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
 import { spawnSidecar, type SidecarHandle } from "./sidecar";
 import { startTranscription, type TranscriptionHandle } from "./deepgram";
-import { getDeepgramToken } from "./relay-client";
 import type {
   CallSetup,
-  ChecklistItem,
   Nudge,
   TranscriptUtterance,
   SessionStatus,
@@ -34,13 +32,29 @@ import type {
 export type SessionState = "starting" | "live" | "ending" | "ended" | "error";
 export type EndReason = "user" | "error";
 
+/**
+ * Resolve the Deepgram API key from the environment. Replaces the old relay
+ * token-minting path: a design partner puts `DEEPGRAM_API_KEY=...` in the
+ * gitignored `.env` (loaded at startup) or the process environment. Throws a
+ * clear, user-facing message when it's missing so the session start fails
+ * loudly instead of opening a dead, silent overlay.
+ */
+function resolveDeepgramKey(): string {
+  const key = process.env.DEEPGRAM_API_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      "Set DEEPGRAM_API_KEY in the app's .env to enable transcription.",
+    );
+  }
+  return key;
+}
+
 /** Default ms of audio silence before the status flips to "no-audio". */
 const DEFAULT_NO_AUDIO_MS = 10_000;
 
 export interface SessionOpts {
   onUtterance?: (u: TranscriptUtterance) => void;
   onNudge?: (n: Nudge) => void;
-  onChecklistUpdate?: (id: string, status: ChecklistItem["status"]) => void;
   /** The agent decided not to nudge this turn, with its reason. */
   onStayQuiet?: (reason: string) => void;
   onStateChange?: (state: SessionState) => void;
@@ -58,7 +72,6 @@ export interface SessionOpts {
 
 export interface SessionHandle {
   end(reason?: EndReason): Promise<void>;
-  setChecklist(id: string, status: ChecklistItem["status"]): void;
   injectUtterance(u: TranscriptUtterance): void;
   /** Manually request a nudge from the agent — used by the hotkey. */
   requestNudge(): void;
@@ -99,9 +112,6 @@ export function createMockAgent(
         createdAt: Date.now(),
       });
     },
-    noteChecklistChange(itemId, status, _itemText) {
-      events.onChecklistUpdate(itemId, status);
-    },
     async close() {
       /* no-op */
     },
@@ -130,10 +140,8 @@ export async function startSession(
     if (debugLog) return;
     debugLog = openDebugLog("call", startedAt);
     debugLog?.write("session-start", {
-      goal: setup.goal,
       direction: setup.direction,
       skill: setup.skill,
-      checklist: setup.checklist,
       attendee: setup.context.attendee,
       startedAt,
       // Resolved static prompt, logged once (fidelity "B").
@@ -304,6 +312,12 @@ export async function startSession(
     }
   };
 
+  // ---- Deepgram key ----
+  // Resolve up-front, before spawning the sidecar, so a missing key fails the
+  // session start cleanly (throws out of startSession → surfaced by the IPC
+  // layer) instead of leaving an orphaned sidecar and a silent overlay.
+  const deepgramKey = usingMockDeepgram ? "mock" : resolveDeepgramKey();
+
   // ---- Sidecar ----
   if (!usingMockAudio) {
     try {
@@ -320,7 +334,6 @@ export async function startSession(
   // ---- Deepgram (only if sidecar) ----
   if (sidecar) {
     try {
-      const deepgramKey = usingMockDeepgram ? "mock" : await getDeepgramToken();
       transcription = startTranscription({
         micStream: sidecar.micStream,
         tapStream: sidecar.tapStream,
@@ -361,12 +374,6 @@ export async function startSession(
         debugLog?.write("nudge", { nudge: n });
         console.log(`[coach-session nudge ${n.urgency}] ${n.text}`);
         opts.onNudge?.(n);
-      },
-      onChecklistUpdate: (id, status) => {
-        const item = setup.checklist.find((c) => c.id === id);
-        if (item) item.status = status;
-        console.log(`[coach-session checklist] ${id} → ${status}`);
-        opts.onChecklistUpdate?.(id, status);
       },
       onStayQuiet: (reason) => {
         console.log(`[coach-session quiet] ${reason}`);
@@ -436,7 +443,7 @@ export async function startSession(
       if (process.env.PROMPTY_E2E !== "1" && transcript.length > 0) {
         try {
           const { summarizeCall } = await import("./summary");
-          const s = await summarizeCall(setup, transcript);
+          const s = await summarizeCall(setup, transcript, nudges, startedAt);
           if (s) summary = s;
         } catch (e) {
           console.error("[coach-session] summarize failed:", (e as Error).message);
@@ -444,9 +451,8 @@ export async function startSession(
       }
       try {
         logPath = await writeCallLog({
-          goal: setup.goal,
+          direction: setup.direction,
           skill: setup.skill,
-          checklist: setup.checklist,
           transcript,
           nudges,
           attendee: setup.context.attendee,
@@ -478,12 +484,6 @@ export async function startSession(
         } catch {}
       }
       setState("ended");
-    },
-    setChecklist(id, status) {
-      const item = setup.checklist.find((c) => c.id === id);
-      if (!item) return;
-      item.status = status;
-      agent?.noteChecklistChange(id, status, item.text);
     },
     injectUtterance(u) {
       handleUtterance(u);

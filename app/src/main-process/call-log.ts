@@ -3,18 +3,18 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
   CallContextAttendee,
-  ChecklistItem,
   Nudge,
   TranscriptUtterance,
 } from "./types";
 import type { CallSummary } from "./summary";
 
 export interface CallLog {
-  goal: string;
+  // Playground branch: calls are direction-only. The direction (the whole
+  // coaching prompt) is what's worth recording; goal/checklist were dropped.
+  direction?: string;
   skill?: string;
   /** Legacy field — only present on logs written before the mode→skill rename. */
   mode?: string;
-  checklist: ChecklistItem[];
   transcript: TranscriptUtterance[];
   nudges: Nudge[];
   attendee?: CallContextAttendee;

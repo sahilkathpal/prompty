@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell, systemPreferences } from "electron";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,41 +10,13 @@ import type {
   InvokeChannels,
   EventChannel,
   EventPayload,
-  ArmedEvent,
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
 import { openMainWindow } from "./main-window";
 import { showOverlay, hideOverlay, setOverlayHeight } from "./overlay-window";
-import { showTeleprompter, hideTeleprompter } from "./teleprompter-window";
-import {
-  openPrepSession,
-  type PrepSessionHandle,
-  type PrepSeed,
-} from "../src/main-process/prep-session";
-import {
-  getPendingPrep,
-  setPendingPrep,
-  clearPendingPrep,
-  type PendingPrep,
-  type PendingPrepMessage,
-} from "../src/main-process/pending-prep";
 import { rebuildMenu } from "./tray";
 import { startSession, type SessionHandle, type SessionState } from "../src/main-process/coach-session";
 import { debugDir } from "../src/main-process/debug-logger";
-import {
-  getDeepgramToken,
-  getSessionToken,
-  getUserId,
-  signInWithGoogleAndRelay,
-  clearSessionCache,
-} from "../src/main-process/relay-client";
-import { getSession as getGoogleSession, signOut as googleSignOut } from "../src/main-process/google-auth";
-import {
-  startCalendarArm,
-  listUpcomingQualifyingEvents,
-  type CalendarArmHandle,
-  type CalendarEvent,
-} from "../src/main-process/calendar-arm";
 import type {
   CallSetup,
   TranscriptUtterance,
@@ -107,122 +79,35 @@ let activeSessionSetup: CallSetup | null = null;
 let statusLog: SessionStatusEvent[] = [];
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
 let lastPreflightFailure:
-  | { code: "mic" | "auth" | "claude"; message: string; at: number }
+  | { code: "mic" | "claude"; message: string; at: number }
   | null = null;
-let calendarArm: CalendarArmHandle | null = null;
 let lastBroadcastState: SessionState | "idle" = "idle";
-let activePrep: PrepSessionHandle | null = null;
-let activePrepEvent: CalendarEvent | null = null;
 
-function pendingPrepToPayload(p: PendingPrep | null) {
-  if (!p) return null;
-  return {
-    goal: p.goal ?? "",
-    direction: p.direction ?? "",
-    checklist: p.checklist ?? [],
-    notes: p.notes,
-    skill: p.skill,
-    eventId: p.eventId,
-    eventTitle: p.eventTitle,
-    savedAt: p.savedAt,
-  };
-}
+// The single persisted playground direction. UI box ⇄ this file. It is the
+// surviving free-text context input (RUBY_MVP §7.2): a call starts straight
+// from this direction with no prep.
+const playgroundDirectionFile = path.join(
+  os.homedir(),
+  ".prompty",
+  "playground",
+  "direction.md",
+);
 
-function seedFromPending(p: PendingPrep): PrepSeed {
-  return {
-    goal: p.goal,
-    direction: p.direction,
-    checklist: p.checklist,
-    notes: p.notes,
-    skill: p.skill,
-    messages: (p.messages ?? []).map((m) => ({
-      id: m.id,
-      role: m.role,
-      text: m.text,
-      createdAt: m.createdAt,
-      toolName: m.toolName,
-    })),
-  };
-}
-
-function prepStateToPayload(handle: PrepSessionHandle) {
-  const s = handle.getState();
-  return {
-    goal: s.goal,
-    direction: s.direction,
-    checklist: s.checklist,
-    notes: s.notes,
-    skill: s.skill,
-    messages: s.messages,
-    assistantBusy: s.assistantBusy,
-    event: s.event ? toArmedEvent(s.event) : null,
-  };
-}
-
-async function ensurePrepSession(
-  event: CalendarEvent | null,
-  seed?: PrepSeed,
-): Promise<PrepSessionHandle> {
-  if (activePrep) {
-    // If event differs, discard and start anew.
-    if ((activePrepEvent?.id ?? null) === (event?.id ?? null) && !seed) {
-      return activePrep;
-    }
-    try { await activePrep.close(); } catch {}
-    activePrep = null;
-  }
-  activePrepEvent = event;
-  const handle = await openPrepSession(event, seed, { debug: getSettings().debugMode });
-  handle.on("state-changed", () => {
-    broadcast("prep:state-changed", prepStateToPayload(handle));
-  });
-  handle.on("assistant-chunk", (chunk) => {
-    broadcast("prep:assistant-chunk", chunk);
-  });
-  handle.on("error", (e) => {
-    console.error("[prep] error:", e.message);
-  });
-  activePrep = handle;
-  // Broadcast initial state.
-  broadcast("prep:state-changed", prepStateToPayload(handle));
-  return handle;
-}
-
-async function lookupEventById(id?: string): Promise<CalendarEvent | null> {
-  if (!id) return null;
-  const cur = calendarArm?.getCurrentArmed();
-  if (cur && cur.id === id) return cur;
-  // Fall back to fetching the upcoming list and finding a match.
+async function readPlaygroundDirection(): Promise<string> {
   try {
-    const list = await listUpcomingQualifyingEvents(20, 24 * 60);
-    return list.find((e) => e.id === id) ?? null;
+    return await fs.readFile(playgroundDirectionFile, "utf8");
   } catch {
-    return null;
+    return "";
   }
 }
 
-// The single bridge from the persisted draft to a CallSetup. A null/empty draft
-// yields a skill-only setup (the in-call prompt omits absent goal/checklist/notes).
-// `fallbackSkill` applies only when the draft carries no skill (e.g. a pure idle
-// quick-start where the chip's skill is the only signal).
-function draftToSetup(draft: PendingPrep | null, fallbackSkill?: string): CallSetup {
-  const notes = draft?.notes?.trim() || undefined;
+// Build a CallSetup from the free-text direction (+ optional skill). No prep,
+// no goal, no checklist — the direction is the whole brief (RUBY_MVP §3, §7.2).
+function directionToSetup(direction: string, skill?: string): CallSetup {
   return {
-    goal: draft?.goal ?? "",
-    direction: draft?.direction?.trim() || undefined,
-    checklist: draft?.checklist ?? [],
-    context: notes ? { manualNotes: notes } : {},
-    skill: draft?.skill ?? fallbackSkill,
-  };
-}
-
-function toArmedEvent(ev: CalendarEvent | null): ArmedEvent | null {
-  if (!ev) return null;
-  return {
-    id: ev.id,
-    title: ev.title,
-    startsAt: ev.startsAt,
-    attendees: ev.attendees,
+    direction: direction.trim() || undefined,
+    context: {},
+    skill: skill || undefined,
   };
 }
 
@@ -247,28 +132,27 @@ function broadcastSessionState(state: SessionState | "idle"): void {
 
 type PreflightResult =
   | { ok: true }
-  | { ok: false; code: "mic" | "auth" | "claude"; message: string };
+  | { ok: false; code: "mic" | "claude"; message: string };
 
 const PREFLIGHT_MESSAGES = {
   mic: "Prompty needs microphone access to hear the call.",
-  auth: "Sign in with Google to enable transcription.",
   claude: "Install Claude Code to enable AI coaching.",
 } as const;
 
 /**
  * Verify the hard requirements before opening an in-call overlay: mic
- * permission, signed-in (for the Deepgram token), and the `claude` binary.
- * On failure the caller surfaces an actionable message instead of opening a
- * dead overlay. Bypassed under E2E/mock so existing start tests still run; a
- * specific failure can be forced for tests via PROMPTY_E2E_FORCE_PREFLIGHT.
+ * permission and the `claude` binary. (The Deepgram key is checked at session
+ * start — a missing key fails loudly there.) On failure the caller surfaces an
+ * actionable message instead of opening a dead overlay. Bypassed under E2E/mock
+ * so existing start tests still run; a specific failure can be forced for tests
+ * via PROMPTY_E2E_FORCE_PREFLIGHT.
  */
 async function preflight(): Promise<PreflightResult> {
   const forced = process.env.PROMPTY_E2E_FORCE_PREFLIGHT as
     | "mic"
-    | "auth"
     | "claude"
     | undefined;
-  if (forced === "mic" || forced === "auth" || forced === "claude") {
+  if (forced === "mic" || forced === "claude") {
     return { ok: false, code: forced, message: PREFLIGHT_MESSAGES[forced] };
   }
   if (
@@ -281,10 +165,6 @@ async function preflight(): Promise<PreflightResult> {
   }
   if (micStatus() !== "granted") {
     return { ok: false, code: "mic", message: PREFLIGHT_MESSAGES.mic };
-  }
-  const signedIn = !!getGoogleSession() || !!(await getSessionToken());
-  if (!signedIn) {
-    return { ok: false, code: "auth", message: PREFLIGHT_MESSAGES.auth };
   }
   if (!findClaudeBinary()) {
     return { ok: false, code: "claude", message: PREFLIGHT_MESSAGES.claude };
@@ -303,7 +183,7 @@ async function doStartSession(
     console.warn(`[ipc] preflight blocked start: ${pf.code}`);
     // Surface an actionable message in the main window instead of opening a
     // dead overlay. Record it first so a just-opened window can fetch it on
-    // mount (covers the T-0 notification path where no window is open yet).
+    // mount.
     lastPreflightFailure = { code: pf.code, message: pf.message, at: Date.now() };
     try {
       openMainWindow();
@@ -312,17 +192,10 @@ async function doStartSession(
     return { ok: false, error: pf.code };
   }
   lastPreflightFailure = null;
-  // Single source of truth: the persisted draft. It may carry any subset of
-  // skill/goal/checklist/notes (or be absent entirely for a bare quick-start).
-  // Note: when a draft exists, its skill wins over the idle chip's `skill` — but
-  // the chip is only shown when there's no draft hero, so they don't collide.
-  const draft = getPendingPrep();
-  const setup = draftToSetup(draft, skill);
-  if (draft) {
-    // Consume the draft on session start.
-    clearPendingPrep();
-    broadcast("pending-prep:changed", { prep: null });
-  }
+  // The free-text direction (persisted to ~/.prompty/playground/direction.md by
+  // the direction:save-current handler) is the whole brief. No prep dependency.
+  const direction = await readPlaygroundDirection();
+  const setup = directionToSetup(direction, skill);
   activeSessionSetup = setup;
   statusLog = [];
 
@@ -335,11 +208,6 @@ async function doStartSession(
         statusLog.push(s);
         broadcast("session:status", s);
       },
-      onChecklistUpdate: (id, status) => {
-        // Setup checklist is mutated by coach-session; rebroadcast setup so renderers refresh.
-        broadcast("session:setup", { setup });
-        void id; void status;
-      },
       onStateChange: (s) => {
         broadcastSessionState(s);
         if (s === "ended" || s === "error") {
@@ -347,7 +215,6 @@ async function doStartSession(
           activeSessionSetup = null;
           try {
             hideOverlay();
-            hideTeleprompter();
           } catch {}
           broadcastSessionState("idle");
         }
@@ -357,17 +224,13 @@ async function doStartSession(
       },
     });
     activeSession = session;
-    // Show overlay + broadcast setup.
+    // Show the gem overlay + broadcast setup.
     try {
       showOverlay();
-      if (getSettings().headsUpBar) showTeleprompter();
     } catch (e) {
       console.error("[ipc] showOverlay failed:", (e as Error).message);
     }
     broadcast("session:setup", { setup });
-    // Cancel any pending T-0 timer for the armed event since we just started.
-    const armed = calendarArm?.getCurrentArmed();
-    if (armed) calendarArm?.cancelStartTimer(armed.id);
     return { ok: true };
   } catch (e) {
     activeSession = null;
@@ -405,7 +268,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   });
 
   handle("overlay:set-height", (payload) => {
-    setOverlayHeight(payload.height, payload.mode);
+    setOverlayHeight(payload.height);
     return { ok: true };
   });
 
@@ -445,21 +308,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("settings:set", (payload) => {
     const next = updateSettings(payload);
     broadcast("settings:changed", next);
-    // If a session is active, react to focus-mode toggle by showing/hiding teleprompter.
-    if (activeSession && payload.headsUpBar !== undefined) {
-      try {
-        if (next.headsUpBar) showTeleprompter();
-        else hideTeleprompter();
-      } catch (e) {
-        console.error("[ipc] teleprompter toggle failed:", (e as Error).message);
-      }
-    }
     // Debug mode takes effect immediately mid-session: open/close the capture
-    // file on the active coach session and/or prep session right away.
+    // file on the active coach session right away.
     if (payload.debugMode !== undefined) {
       try {
         activeSession?.setDebug(next.debugMode);
-        activePrep?.setDebug(next.debugMode);
       } catch (e) {
         console.error("[ipc] debug toggle failed:", (e as Error).message);
       }
@@ -489,11 +342,37 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return doEndSession();
   });
 
-  handle("checklist:toggle", (payload) => {
-    if (!activeSession) return;
-    activeSession.setChecklist(payload.id, payload.status);
-    if (activeSessionSetup) {
-      broadcast("session:setup", { setup: activeSessionSetup });
+  handle("direction:load-file", async () => {
+    const res = await dialog.showOpenDialog({
+      title: "Load direction from file",
+      properties: ["openFile"],
+      filters: [
+        { name: "Markdown / text", extensions: ["md", "txt"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    const file = res.canceled ? undefined : res.filePaths[0];
+    if (!file) return null;
+    try {
+      const content = await fs.readFile(file, "utf8");
+      return { content, path: file };
+    } catch (e) {
+      console.error("[ipc] direction:load-file failed:", (e as Error).message);
+      return null;
+    }
+  });
+
+  handle("direction:load-current", async () => {
+    return { content: await readPlaygroundDirection() };
+  });
+  handle("direction:save-current", async (payload) => {
+    try {
+      await fs.mkdir(path.dirname(playgroundDirectionFile), { recursive: true });
+      await fs.writeFile(playgroundDirectionFile, payload?.content ?? "", "utf8");
+      return { ok: true };
+    } catch (e) {
+      console.error("[ipc] direction:save-current failed:", (e as Error).message);
+      return { ok: false };
     }
   });
 
@@ -520,77 +399,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       isFinal: payload.isFinal ?? true,
     });
     return { ok: true };
-  });
-
-  handle("auth:google-sign-in", async () => {
-    try {
-      const session = await signInWithGoogleAndRelay();
-      const next = updateSettings({
-        signedIn: true,
-        signedInUserId: session.userId,
-        signedInEmail: session.email,
-      });
-      broadcast("settings:changed", next);
-      broadcast("auth:state-changed", {
-        signedIn: true,
-        userId: session.userId,
-        email: session.email,
-      });
-      return { ok: true, userId: session.userId, email: session.email };
-    } catch (e) {
-      const msg = (e as Error).message;
-      console.error("[ipc] auth:google-sign-in failed:", msg);
-      return { ok: false, error: msg };
-    }
-  });
-
-  handle("auth:sign-out", async () => {
-    try {
-      googleSignOut();
-      clearSessionCache();
-      const next = updateSettings({
-        signedIn: false,
-        signedInUserId: null,
-        signedInEmail: null,
-      });
-      broadcast("settings:changed", next);
-      broadcast("auth:state-changed", { signedIn: false });
-      return { ok: true };
-    } catch (e) {
-      console.error("[ipc] auth:sign-out failed:", (e as Error).message);
-      return { ok: false };
-    }
-  });
-
-  handle("auth:status", async () => {
-    const g = getGoogleSession();
-    if (g) {
-      return { signedIn: true, userId: g.sub, email: g.email };
-    }
-    const tok = await getSessionToken();
-    if (!tok) return { signedIn: false };
-    const uid = (await getUserId()) ?? undefined;
-    return { signedIn: true, userId: uid };
-  });
-
-  handle("calendar:current-arm", () => {
-    return { event: toArmedEvent(calendarArm?.getCurrentArmed() ?? null) };
-  });
-
-  handle("calendar:list-upcoming", async (req) => {
-    const limit = req?.limit ?? 5;
-    const windowMinutes = req?.windowMinutes ?? 24 * 60;
-    try {
-      const events = await listUpcomingQualifyingEvents(limit, windowMinutes);
-      return {
-        events: events
-          .map((e) => toArmedEvent(e))
-          .filter((e): e is ArmedEvent => e !== null),
-      };
-    } catch (e) {
-      console.error("[ipc] calendar:list-upcoming failed:", (e as Error).message);
-      return { events: [] };
-    }
   });
 
   handle("session:state", () => {
@@ -657,280 +465,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { ok: true };
   });
 
-  // ---- Prep (Stage 4) ----
-  handle("prep:open", async (payload) => {
-    try {
-      const event = await lookupEventById(payload?.eventId);
-      // Hydrate from pending prep if it matches this event (resume case).
-      const pp = getPendingPrep();
-      let seed: PrepSeed | undefined;
-      if (pp) {
-        const sameEvent = (pp.eventId ?? null) === (event?.id ?? null);
-        if (sameEvent) {
-          seed = seedFromPending(pp);
-        }
-      }
-      // Open the prep tab in the main window (no separate prep window now).
-      openMainWindow("prep");
-      await ensurePrepSession(event, seed);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:send-message", async (payload) => {
-    try {
-      let prep = activePrep;
-      if (!prep) {
-        prep = await ensurePrepSession(activePrepEvent ?? null);
-      }
-      await prep.sendMessage(payload.text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:kick", async () => {
-    try {
-      let prep = activePrep;
-      if (!prep) {
-        prep = await ensurePrepSession(activePrepEvent ?? null);
-      }
-      await prep.kick();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:get-state", () => {
-    if (!activePrep) return null;
-    return prepStateToPayload(activePrep);
-  });
-
-  handle("prep:save", async (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    const snap = activePrep.snapshot();
-    // A draft is worth saving if it carries any of direction / goal / checklist /
-    // notes. Direction is the primary artifact, so a direction-only draft saves.
-    if (
-      !snap.direction.trim() &&
-      !snap.goal &&
-      snap.checklist.length === 0 &&
-      !snap.notes.trim()
-    ) {
-      return {
-        ok: false,
-        error: "nothing to save (set a direction, goal, item, or note)",
-      };
-    }
-    const fullState = activePrep.getState();
-    const messages: PendingPrepMessage[] = fullState.messages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      text: m.text,
-      createdAt: m.createdAt,
-      toolName: m.toolName,
-    }));
-    const pp: PendingPrep = {
-      goal: snap.goal || undefined,
-      direction: snap.direction.trim() || undefined,
-      checklist: snap.checklist,
-      notes: snap.notes.trim() || undefined,
-      skill: snap.skill || undefined,
-      eventId: snap.event?.id,
-      eventTitle: snap.event?.title,
-      messages,
-      savedAt: Date.now(),
-    };
-    try {
-      setPendingPrep(pp);
-      broadcast("pending-prep:changed", { prep: pendingPrepToPayload(pp) });
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    // Record the save in the debug log (before teardown) — captures the saved
-    // snapshot and whether it chained straight into a coaching call.
-    try { activePrep.noteSave(Boolean(payload.andStartCoaching)); } catch {}
-    // Tear down the prep session. No separate prep window to close.
-    try { await activePrep.close(); } catch {}
-    activePrep = null;
-    activePrepEvent = null;
-    // Broadcast a null prep state so the main window's PrepTab returns to
-    // the no-active-prep view.
-    broadcast("prep:state-changed", null);
-    if (payload.andStartCoaching) {
-      const r = await doStartSession();
-      return r;
-    }
-    return { ok: true };
-  });
-
-  handle("prep:set-skill", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.setSkill(payload.skill);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:set-goal", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.setGoal(payload.text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:set-direction", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.setDirection(payload.text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:set-notes", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.setNotes(payload.text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:add-checklist-item", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.addChecklistItem(payload.text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:edit-checklist-item", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.editChecklistItem(payload.id, payload.text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:remove-checklist-item", (payload) => {
-    if (!activePrep) {
-      return { ok: false, error: "no prep session" };
-    }
-    try {
-      activePrep.removeChecklistItem(payload.id);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
-
-  handle("prep:discard", async () => {
-    try {
-      if (activePrep) {
-        await activePrep.discard();
-        await activePrep.close();
-      }
-    } catch {}
-    activePrep = null;
-    activePrepEvent = null;
-    broadcast("prep:state-changed", null);
-    return { ok: true };
-  });
-
-  handle("draft:set-direction", (payload) => {
-    // Direction set from the idle/home screen with no prep session open — the
-    // quick-start primary steer. Merge into the existing draft (or create a
-    // direction-only one) so call:start can carry it without ever running prep.
-    const cur = getPendingPrep();
-    const direction = payload.direction.trim() || undefined;
-    const next: PendingPrep = {
-      ...(cur ?? {}),
-      direction,
-      savedAt: Date.now(),
-    };
-    setPendingPrep(next);
-    broadcast("pending-prep:changed", { prep: pendingPrepToPayload(next) });
-    return { ok: true };
-  });
-
-  handle("pending-prep:get", () => {
-    return pendingPrepToPayload(getPendingPrep());
-  });
-
-  handle("pending-prep:clear", () => {
-    clearPendingPrep();
-    broadcast("pending-prep:changed", { prep: null });
-    return { ok: true };
-  });
-
-  // ---- Calendar-arm scheduler ----
-  if (!calendarArm) {
-    calendarArm = startCalendarArm({
-      onArmed: (event) => {
-        console.log(`[calendar-arm] armed: ${event.title}`);
-        broadcast("call:status", { status: "armed", reason: event.title });
-        broadcast("calendar:arm-changed", { event: toArmedEvent(event) });
-      },
-      onUnarmed: () => {
-        broadcast("calendar:arm-changed", { event: null });
-      },
-      onNotificationClick: (event) => {
-        console.log(`[calendar-arm] notification click for: ${event.title}`);
-        // Open prep tab in main window and seed from any matching pending prep.
-        try { openMainWindow("prep"); } catch {}
-        const pp = getPendingPrep();
-        const seed =
-          pp && (pp.eventId ?? null) === (event.id ?? null)
-            ? seedFromPending(pp)
-            : undefined;
-        void ensurePrepSession(event, seed).catch((e) => {
-          console.error("[calendar-arm] ensurePrepSession failed:", (e as Error).message);
-        });
-      },
-      onStartTime: (event) => {
-        console.log(`[calendar-arm] T-0 click — starting session for ${event.title}`);
-        void doStartSession();
-      },
-    });
-  }
-
   // Reference deps to satisfy noUnusedParameters
   void deps;
 }
 
 export function shutdownIpc(): void {
-  calendarArm?.stop();
-  calendarArm = null;
+  // Nothing to tear down now that the calendar-arm scheduler is gone.
 }
 
 /**
@@ -952,10 +492,6 @@ export function triggerNudge(source: "hotkey" | "tray" | "panel"): boolean {
 
 export function requestNudgeFromHotkey(): void {
   triggerNudge("hotkey");
-}
-
-export function getCalendarArm(): CalendarArmHandle | null {
-  return calendarArm;
 }
 
 export function getActiveSession(): SessionHandle | null {
@@ -994,40 +530,4 @@ export function e2eForceTransportError(reason?: string): boolean {
   if (!activeSession) return false;
   activeSession.simulateTransportError(reason);
   return true;
-}
-
-export async function e2eEnsurePrepSession(event: CalendarEvent | null): Promise<unknown> {
-  const handle = await ensurePrepSession(event);
-  return prepStateToPayload(handle);
-}
-
-export async function e2eSendPrepMessage(text: string): Promise<{ ok: boolean; error?: string }> {
-  if (!activePrep) {
-    return { ok: false, error: "no prep session" };
-  }
-  await activePrep.sendMessage(text);
-  return { ok: true };
-}
-
-export function e2eGetPrepState(): unknown {
-  if (!activePrep) return null;
-  return prepStateToPayload(activePrep);
-}
-
-export async function e2eFireNotificationClick(eventId?: string): Promise<{ ok: boolean }> {
-  const cur = calendarArm?.getCurrentArmed();
-  const event = (eventId && cur && cur.id === eventId) ? cur : cur;
-  if (!event) return { ok: false };
-  try { openMainWindow("prep"); } catch {}
-  const pp = getPendingPrep();
-  const seed =
-    pp && (pp.eventId ?? null) === (event.id ?? null)
-      ? seedFromPending(pp)
-      : undefined;
-  await ensurePrepSession(event, seed);
-  return { ok: true };
-}
-
-export function e2eGetPendingPrep(): unknown {
-  return pendingPrepToPayload(getPendingPrep());
 }

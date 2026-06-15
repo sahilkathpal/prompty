@@ -14,12 +14,8 @@ import { createSummaryKeeper } from "../src/main-process/running-summary";
 import type { CallSetup, TranscriptUtterance } from "../src/main-process/types";
 
 const setup: CallSetup = {
-  goal: "Learn whether the prospect needs managed Kafka and close a follow-up.",
-  checklist: [
-    { id: "team", text: "Ask about team size", status: "covered" },
-    { id: "scale", text: "Ask about current Kafka scale", status: "open" },
-    { id: "pain", text: "Ask what's painful about self-managing", status: "open" },
-  ],
+  direction:
+    "Learn whether the prospect needs managed Kafka — probe team size, current scale, and operational pain — and steer toward a follow-up.",
   context: { attendee: { name: "Dana", company: "Acme" } },
 };
 

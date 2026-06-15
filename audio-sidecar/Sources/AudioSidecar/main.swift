@@ -90,7 +90,6 @@ do {
 // LSMinimumSystemVersion). The audio-only tap replaced the old ScreenCaptureKit
 // fallback, which required Screen Recording.
 var coreAudio: CoreAudioTap?
-let shareWatcher = ScreenShareWatcher()
 
 if #available(macOS 14.4, *) {
     let tap = CoreAudioTap()
@@ -107,8 +106,6 @@ if #available(macOS 14.4, *) {
     FrameWriter.writeControl(["type": "error", "msg": "unsupported_os: macOS 14.4+ required"])
 }
 
-shareWatcher.start()
-
 FrameWriter.writeControl(["type": "ready"])
 
 // MARK: - Signal handling
@@ -122,7 +119,6 @@ func shutdown() {
     Log.info("shutting down")
     mic.stop()
     coreAudio?.stop()
-    shareWatcher.stop()
     exit(0)
 }
 

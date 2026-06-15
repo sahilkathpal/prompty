@@ -1,20 +1,21 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { DragHandle } from "./components/DragHandle";
-import { Brief } from "./components/Brief";
-import { Checklist } from "./components/Checklist";
-import { NudgeFeed } from "./components/NudgeFeed";
-import type {
-  AppSettings,
-  ChecklistItem,
-  ChecklistStatus,
-  CallSetup,
-  Nudge,
-  SessionStatus,
-} from "@shared/types";
+import type { Nudge, SessionStatus } from "@shared/types";
 
 type SessionState = "idle" | "starting" | "live" | "ending" | "ended" | "error";
 
-const STATUS_META: Record<SessionStatus, { label: string; tone: "amber" | "green" | "red" }> = {
+// The gem's glow encodes the live session status. tone drives the CSS color of
+// the gem's halo; "calm" green = listening, amber = transient, red = trouble.
+const STATUS_META: Record<
+  SessionStatus,
+  { label: string; tone: "amber" | "green" | "red" }
+> = {
   starting: { label: "Starting…", tone: "amber" },
   listening: { label: "Listening", tone: "green" },
   "no-audio": { label: "No audio", tone: "amber" },
@@ -23,215 +24,260 @@ const STATUS_META: Record<SessionStatus, { label: string; tone: "amber" | "green
   error: { label: "Error", tone: "red" },
 };
 
+// --- Bloom pacing (ported from the deleted teleprompter App.tsx) -----------
+// A note must stay readable: it holds the bloom for at least DWELL_MS before a
+// queued newer note may replace it, lingers HIDE_MS when nothing is queued
+// before fading, and a queued note older than STALE_MS is dropped unshown. A
+// high-urgency nudge preempts whatever is showing immediately. Test runs can
+// shrink these via query params (PROMPTY_OVERLAY_{DWELL,HIDE,STALE}_MS, passed
+// through the same ?dwellMs/&hideMs/&staleMs the teleprompter used).
+const DEFAULT_DWELL_MS = 2500;
+const DEFAULT_HIDE_MS = 8000;
+const DEFAULT_STALE_MS = 12_000;
+const MAX_QUEUE = 3;
+
+function readParam(name: string, fallback: number): number {
+  try {
+    const raw = new URLSearchParams(window.location.search).get(name);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+interface Queued {
+  nudge: Nudge;
+  at: number;
+}
+
 export default function App(): JSX.Element {
-  const [direction, setDirection] = useState<string | null>(null);
-  const [goal, setGoal] = useState<string | null>(null);
-  const [skill, setSkill] = useState<string | null>(null);
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [status, setStatus] = useState<SessionStatus | null>(null);
   const [statusReason, setStatusReason] = useState<string | null>(null);
-  const [headsUpBar, setHeadsUpBar] = useState(true);
-  const [nudges, setNudges] = useState<Nudge[]>([]);
+
+  // The single note currently bloomed beneath the gem (or null = nothing
+  // showing). Ephemeral: it fades on its own and nothing accumulates on screen.
+  const [bloom, setBloom] = useState<Nudge | null>(null);
+  // Every note surfaced this call, newest first. Retained in renderer state for
+  // the session and shown only when the gem is expanded (decision #5).
+  const [history, setHistory] = useState<Nudge[]>([]);
+  // Whether the gem is expanded into the scrollback history list.
+  const [expanded, setExpanded] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const prevHeadsUp = useRef(headsUpBar);
+
+  // --- bloom pacing state (refs, not React state, mirrors teleprompter) ----
+  const queue = useRef<Queued[]>([]);
+  const shownAt = useRef(0);
+  const hasCurrent = useRef(false);
+  const dwellMs = useRef(readParam("dwellMs", DEFAULT_DWELL_MS)).current;
+  const hideMs = useRef(readParam("hideMs", DEFAULT_HIDE_MS)).current;
+  const staleMs = useRef(readParam("staleMs", DEFAULT_STALE_MS)).current;
+
+  const show = useCallback((n: Nudge) => {
+    setBloom(n);
+    shownAt.current = Date.now();
+    hasCurrent.current = true;
+  }, []);
 
   useEffect(() => {
-    // Mirror the agent's brief hierarchy: direction is the primary steer, goal
-    // and skill are optional. A null setup clears everything back to idle.
-    const applySetup = (s: CallSetup | null | undefined) => {
-      setDirection(s?.direction || null);
-      setGoal(s?.goal || null);
-      setSkill(s?.skill || null);
-      setChecklist(s?.checklist ?? []);
-    };
-
     window.prompty
       .invoke("session:state", undefined as never)
       .then((r) => {
         setSessionState(r.state);
-        if (r.setup) applySetup(r.setup);
       })
       .catch(() => {});
 
-    window.prompty
-      .invoke("settings:get", undefined as never)
-      .then((s: AppSettings) => setHeadsUpBar(s.headsUpBar !== false))
-      .catch(() => {});
-
-    const offSetup = window.prompty.on("session:setup", (p) => {
-      applySetup(p.setup);
-    });
     const offState = window.prompty.on("session:state-changed", (p) => {
       setSessionState(p.state);
       if (p.state === "starting") {
-        setNudges([]);
         setStatus("starting");
+        // New call: clear any lingering note + history + queue so nothing from
+        // a previous call bleeds into this one.
+        queue.current = [];
+        hasCurrent.current = false;
+        setBloom(null);
+        setHistory([]);
+        setExpanded(false);
       }
       if (p.state === "ended" || p.state === "idle") {
         setStatus(null);
-      }
-      if (p.setup !== undefined) {
-        applySetup(p.setup);
+        queue.current = [];
+        hasCurrent.current = false;
+        setBloom(null);
       }
     });
+
     const offStatus = window.prompty.on("session:status", (p) => {
       setStatus(p.state);
       setStatusReason(p.reason ?? null);
     });
-    const offSettings = window.prompty.on("settings:changed", (s: AppSettings) => {
-      setHeadsUpBar(s.headsUpBar !== false);
-    });
+
     const offNudge = window.prompty.on("nudge:received", (n: Nudge) => {
-      setNudges((cur) => [n, ...cur].slice(0, 50));
+      if (!n?.text) return;
+      // Retain in history regardless of how/whether it blooms.
+      setHistory((cur) => [n, ...cur].slice(0, 200));
+      if (n.urgency === "high") {
+        // Preempt whatever is showing — urgent notes can't wait out the dwell.
+        show(n);
+        return;
+      }
+      queue.current.push({ nudge: n, at: Date.now() });
+      // Cap the backlog: drop from the middle so both the oldest still-queued
+      // and the newest survive.
+      while (queue.current.length > MAX_QUEUE) {
+        queue.current.splice(Math.floor(queue.current.length / 2), 1);
+      }
+      if (!hasCurrent.current) {
+        const next = queue.current.shift();
+        if (next) show(next.nudge);
+      }
     });
+
+    const prune = () => {
+      const now = Date.now();
+      queue.current = queue.current.filter((e) => now - e.at <= staleMs);
+    };
+    const advance = () => {
+      prune();
+      const next = queue.current.shift();
+      if (next) {
+        show(next.nudge);
+      } else {
+        setBloom(null);
+        hasCurrent.current = false;
+      }
+    };
+
+    const tick = setInterval(() => {
+      prune();
+      const elapsed = Date.now() - shownAt.current;
+      if (hasCurrent.current) {
+        if (queue.current.length > 0) {
+          // A newer note is waiting: replace once the minimum dwell has passed.
+          if (elapsed >= dwellMs) advance();
+        } else if (elapsed >= hideMs) {
+          // Nothing queued: let the lone note linger, then fade.
+          setBloom(null);
+          hasCurrent.current = false;
+        }
+      } else if (queue.current.length > 0) {
+        advance();
+      }
+    }, 200);
 
     return () => {
-      offSetup();
       offState();
       offStatus();
-      offSettings();
       offNudge();
+      clearInterval(tick);
     };
-  }, []);
+  }, [show, dwellMs, hideMs, staleMs]);
 
-  const onToggleCheck = useCallback((id: string, status: ChecklistStatus) => {
-    setChecklist((cur) => cur.map((it) => (it.id === id ? { ...it, status } : it)));
-    window.prompty.invoke("checklist:toggle", { id, status });
-  }, []);
-
-  const endSession = useCallback(async () => {
-    await window.prompty.invoke("call:end", undefined as never);
-  }, []);
-
-  const askPrompty = useCallback(() => {
-    void window.prompty.invoke("nudge:request", { source: "panel" });
-  }, []);
-
-  // Ask the main process to fit the window height to the overlay's content.
-  // The scroll body is flex:1, so its own scrollHeight just mirrors the window
-  // height (it can't tell us the content's natural size). Instead we measure
-  // the inner content wrapper (a flow-root, so child margins are contained) and
-  // add the fixed chrome above/below it: chrome = rootHeight - bodyViewport, and
-  // the body needs contentHeight + its own vertical padding.
-  const fitHeight = useCallback((mode: "grow" | "exact") => {
+  // Resize the window to fit the current state (gem-only / gem+bloom /
+  // gem+history). We measure the content wrapper's natural height and ask the
+  // main process to snap the window to it. Runs whenever the visible state
+  // changes.
+  const fitHeight = useCallback(() => {
     const root = rootRef.current;
-    const body = bodyRef.current;
     const content = contentRef.current;
-    if (!root || !body || !content) return;
-    const cs = window.getComputedStyle(body);
-    const bodyPad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    const chrome = root.clientHeight - body.clientHeight;
-    const target = Math.ceil(chrome + content.offsetHeight + bodyPad);
-    void window.prompty.invoke("overlay:set-height", { height: target, mode });
+    if (!root || !content) return;
+    const target = Math.ceil(content.offsetHeight);
+    void window.prompty.invoke("overlay:set-height", { height: target });
   }, []);
 
-  // Resize on the heads-up-bar toggle (and as content grows). Toggling the bar
-  // ON hides the feed → snap the height down ("exact"). Every other case only
-  // grows, so a height the user dragged taller is never fought.
   useLayoutEffect(() => {
-    const toggledFeedHidden = headsUpBar && !prevHeadsUp.current;
-    prevHeadsUp.current = headsUpBar;
-    fitHeight(toggledFeedHidden ? "exact" : "grow");
-  }, [headsUpBar, direction, goal, skill, checklist, nudges, fitHeight]);
+    fitHeight();
+  }, [bloom, expanded, history, status, fitHeight]);
 
-  const toggleHeadsUpBar = useCallback(() => {
-    setHeadsUpBar((cur) => {
-      const next = !cur;
-      window.prompty.invoke("settings:set", { headsUpBar: next });
-      return next;
-    });
+  const toggleExpanded = useCallback(() => {
+    setExpanded((cur) => !cur);
   }, []);
 
-  const isLive = sessionState === "live" || sessionState === "starting";
+  // Click-away: a click that lands on the transparent root (i.e. outside the
+  // gem and the history surface) collapses the expanded history back to the
+  // calm single-gem state.
+  const onRootClick = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget || e.target === contentRef.current) {
+      setExpanded(false);
+    }
+  }, []);
+
   const meta = status ? STATUS_META[status] : null;
+  const tone = meta?.tone ?? "idle";
+  const listening = status === "listening";
 
   return (
-    <div className="prompty-root" data-testid="overlay-root" ref={rootRef}>
-      <DragHandle />
+    <div
+      className="gem-root"
+      data-testid="overlay-root"
+      ref={rootRef}
+      onClick={onRootClick}
+    >
+      {/* The whole gem surface is draggable except the interactive gem button
+          and the history list. */}
+      <div className="gem-content" ref={contentRef}>
+        <DragHandle />
 
-      <div className="prompty-overlay-header">
-        <div
-          className="prompty-status"
-          data-testid="overlay-status"
-          title={statusReason ?? undefined}
-        >
-          {meta ? (
-            <>
-              <span
-                data-testid="overlay-status-dot"
-                data-tone={meta.tone}
-                className={`prompty-status-dot prompty-status-${meta.tone}${
-                  status === "listening" ? " pulsing" : ""
-                }`}
-              />
-              <span data-testid="overlay-status-label" className="prompty-status-label">
-                {meta.label}
-              </span>
-              {status === "mic-silent" && statusReason ? (
-                <span
-                  data-testid="overlay-status-reason"
-                  className="prompty-status-reason"
-                >
-                  {statusReason}
-                </span>
-              ) : null}
-            </>
-          ) : (
-            <span className="prompty-status-label prompty-status-idle">Idle</span>
-          )}
-        </div>
-
-        <button
-          onClick={toggleHeadsUpBar}
-          data-testid="overlay-headsup-toggle"
-          role="switch"
-          aria-checked={headsUpBar}
-          aria-label="Heads-up bar"
-          title="Heads-up bar — flash nudges in the floating bar"
-          className={`prompty-headsup-switch${headsUpBar ? " on" : ""}`}
-        >
-          <span className="prompty-switch-label">Heads-up bar</span>
-          <span className="prompty-switch-track" aria-hidden>
-            <span className="prompty-switch-thumb" />
-          </span>
-        </button>
-      </div>
-
-      <div className="prompty-body-scroll" ref={bodyRef}>
-        <div className="prompty-body-content" ref={contentRef}>
-          <Brief direction={direction} goal={goal} skill={skill} />
-          <Checklist items={checklist} onToggle={onToggleCheck} />
-          {/* When the heads-up bar is OFF, nudges collect here as a feed. When ON,
-              they flash in the floating teleprompter bar instead. */}
-          {!headsUpBar && <NudgeFeed nudges={nudges} />}
-        </div>
-      </div>
-
-      {isLive && (
-        <div className="prompty-overlay-actions">
-          {/* Quiet suggestion, not a call-to-action: the hotkey is the primary
-              way to ask; clicking the hint just mirrors it. */}
+        <div className="gem-anchor-row">
           <button
-            data-testid="overlay-ask"
-            onClick={askPrompty}
-            className="prompty-ask-hint-btn"
-            title="Ask Prompty what to say next"
+            type="button"
+            className={`gem${listening ? " gem-pulsing" : ""}${
+              expanded ? " gem-expanded" : ""
+            }`}
+            data-testid="gem"
+            data-tone={tone}
+            data-status={status ?? "idle"}
+            aria-label={meta ? meta.label : "Idle"}
+            title={statusReason ?? meta?.label ?? "Idle"}
+            onClick={toggleExpanded}
           >
-            Stuck? <kbd className="prompty-kbd">⌥⇧Space</kbd> to ask
-          </button>
-          <button
-            data-testid="overlay-end-session"
-            onClick={endSession}
-            className="prompty-end-btn"
-          >
-            End
+            <span className="gem-glyph" aria-hidden>
+              ◆
+            </span>
           </button>
         </div>
-      )}
+
+        {/* Bloom: one ephemeral note line directly beneath the gem. */}
+        {bloom && !expanded && (
+          <div
+            className={`gem-bloom${bloom.urgency === "high" ? " gem-bloom-high" : ""}`}
+            data-testid="gem-bloom"
+            data-nudge-id={bloom.id}
+          >
+            {bloom.text}
+          </div>
+        )}
+
+        {/* Expanded history: a quiet scrollback of every note this call. */}
+        {expanded && (
+          <div className="gem-history" data-testid="gem-history">
+            {history.length === 0 ? (
+              <div className="gem-history-empty">No notes yet this call.</div>
+            ) : (
+              <ul className="gem-history-list">
+                {history.map((n) => (
+                  <li
+                    key={n.id}
+                    className="gem-history-item"
+                    data-testid={`gem-history-item-${n.id}`}
+                  >
+                    <span className="gem-history-time">
+                      {new Date(n.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span className="gem-history-text">{n.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

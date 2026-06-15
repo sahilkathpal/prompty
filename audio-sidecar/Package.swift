@@ -16,10 +16,17 @@ let package = Package(
             name: "AudioSidecarCore",
             path: "Sources/AudioSidecarCore"
         ),
+        // Tiny Objective-C shim: catches NSExceptions (which Swift's do/catch
+        // cannot) so a mid-session audio-format flip becomes a retryable error
+        // instead of an uncatchable SIGABRT. See ObjCException.h.
+        .target(
+            name: "ObjCException",
+            path: "Sources/ObjCException"
+        ),
         // Executable — pulls Core in plus the platform capture stacks.
         .executableTarget(
             name: "AudioSidecar",
-            dependencies: ["AudioSidecarCore"],
+            dependencies: ["AudioSidecarCore", "ObjCException"],
             path: "Sources/AudioSidecar"
         ),
         .testTarget(

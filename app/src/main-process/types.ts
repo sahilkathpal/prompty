@@ -3,8 +3,6 @@
 export type {
   Speaker,
   TranscriptUtterance,
-  ChecklistItem,
-  ChecklistStatus,
   CallContext,
   CallContextAttendee,
   CallSetup,

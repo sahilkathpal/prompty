@@ -12,7 +12,6 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 import { z } from "zod";
 import type {
   CallSetup,
-  ChecklistItem,
   Nudge,
   TranscriptUtterance,
 } from "./types";
@@ -36,7 +35,7 @@ export interface AgentTurnDebug {
   /** Raw assistant text for the turn (decisions ride on tool calls). */
   assistantText: string;
   toolCalls: { name: string; args: unknown }[];
-  decision: "emit_nudge" | "update_checklist" | "stay_quiet" | "none";
+  decision: "emit_nudge" | "stay_quiet" | "none";
   /** stay_quiet reason, when that was the decision. */
   reason?: string;
   nudgeFired: boolean;
@@ -45,7 +44,6 @@ export interface AgentTurnDebug {
 
 export type AgentEvents = {
   onNudge: (n: Nudge) => void;
-  onChecklistUpdate: (id: string, status: ChecklistItem["status"]) => void;
   onStayQuiet: (reason: string) => void;
   onError: (e: Error) => void;
   /** Optional verbose per-turn capture (debug mode). */
@@ -54,13 +52,12 @@ export type AgentEvents = {
 
 export type Agent = {
   consider(window: TranscriptUtterance[], trigger: "auto" | "hotkey"): Promise<void>;
-  noteChecklistChange(itemId: string, status: ChecklistItem["status"], itemText: string): void;
   close(): Promise<void>;
 };
 
 export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<Agent> {
   const { query, tool, createSdkMcpServer } = await loadSdk();
-  const decisionCounters = { nudge: 0, quiet: 0, checklist: 0 };
+  const decisionCounters = { nudge: 0, quiet: 0 };
   // Tracks the start of the most recent consider() turn so the emit_nudge
   // handler can log hotkey/auto latency. 0 = no turn in flight.
   let considerStart = 0;
@@ -153,21 +150,6 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
         },
       ),
       tool(
-        "update_checklist",
-        "Mark a checklist item as covered or partially covered.",
-        {
-          item_id: z.string(),
-          status: z.enum(["partial", "covered"]),
-        },
-        async (args) => {
-          decisionCounters.checklist++;
-          dbgTurn?.toolCalls.push({ name: "update_checklist", args });
-          logDecision("update_checklist", ` item=${args.item_id} ${args.status}`);
-          events.onChecklistUpdate(args.item_id, args.status);
-          return { content: [{ type: "text", text: "checklist_updated" }] };
-        },
-      ),
-      tool(
         "stay_quiet",
         "Explicit no-op when nothing high-signal applies. Use this as the default.",
         {
@@ -252,7 +234,6 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       mcpServers: { "prompty-nudges": mcp },
       allowedTools: [
         "mcp__prompty-nudges__emit_nudge",
-        "mcp__prompty-nudges__update_checklist",
         "mcp__prompty-nudges__stay_quiet",
       ],
       // `tools` is not in current SDK options shape; allowedTools is the gate.
@@ -298,9 +279,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
               ? "emit_nudge"
               : tc.some((c) => c.name === "stay_quiet")
                 ? "stay_quiet"
-                : tc.some((c) => c.name === "update_checklist")
-                  ? "update_checklist"
-                  : "none";
+                : "none";
             events.onDebug({
               trigger: dt.trigger,
               turnId: dt.turnId,
@@ -328,16 +307,6 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   })();
 
   return {
-    noteChecklistChange(itemId, status, itemText) {
-      const note =
-        status === "skipped"
-          ? `[user override] Checklist item ${itemId} ("${itemText}") marked SKIPPED — user says it's irrelevant for this call. Do not emit nudges about it.`
-          : status === "covered"
-            ? `[user override] Checklist item ${itemId} ("${itemText}") marked COVERED by the user. Do not emit nudges about it.`
-            : `[user override] Checklist item ${itemId} ("${itemText}") status set to ${status} by the user.`;
-      pushUserMessage?.(note);
-      turnDoneWaiters.push(() => {});
-    },
     async consider(window, trigger) {
       const transcriptBlock = window
         .map((u) => `[${u.speaker}] ${u.text}`)
@@ -345,7 +314,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       const triggerLine =
         trigger === "hotkey"
           ? "The user just hit the hotkey asking 'what should I ask?'. Emit one helpful nudge even if you would otherwise stay quiet — but keep it ≤15 words and concrete."
-          : "Recent transcript chunk. Decide: emit_nudge / update_checklist / stay_quiet. Default to stay_quiet unless a nudge is clearly warranted.";
+          : "Recent transcript chunk. Decide: emit_nudge / stay_quiet. Default to stay_quiet unless a nudge is clearly warranted.";
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
       const t0 = Date.now();
       turnCount++;

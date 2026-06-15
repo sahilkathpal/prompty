@@ -2,8 +2,6 @@ import { app, Menu, Tray, nativeImage } from "electron";
 import path from "node:path";
 import { showOverlay } from "./overlay-window";
 import { openMainWindow } from "./main-window";
-import { getSettings } from "./settings-store";
-import { checkForUpdatesNow } from "./auto-updater";
 import { getActiveSession, endActiveSession } from "./ipc-handlers";
 
 let tray: Tray | null = null;
@@ -49,15 +47,6 @@ export function rebuildMenu(): void {
       },
     },
     { type: "separator" },
-    {
-      label: `Signed in: ${getSettings().signedIn ? "yes" : "no"}`,
-      enabled: false,
-    },
-    { type: "separator" },
-    {
-      label: "Check for updates",
-      click: () => checkForUpdatesNow(),
-    },
     {
       label: "Quit Prompty",
       click: () => app.quit(),

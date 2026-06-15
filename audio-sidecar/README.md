@@ -2,7 +2,9 @@
 
 Swift command-line binary that captures the microphone and process-targeted
 system audio on macOS and emits PCM frames over stdout for consumption by the
-Prompty Electron parent process. Block A of `PLAN.md`.
+Prompty Electron parent process. System audio is captured via a CoreAudio
+process tap (`CATapDescription` + `AudioHardwareCreateProcessTap`), which
+requires macOS 14.4+.
 
 ## Build
 
@@ -29,11 +31,9 @@ closed (parent process died).
 ## Permissions
 
 * **Microphone** — required. macOS prompts on first launch.
-* **Screen Recording** — required on macOS 13.0–14.3 (ScreenCaptureKit path).
-  Apple lifted this requirement on 14.4+ via the CoreAudio Tap API, but our
-  CoreAudio Tap implementation is currently a stub (see TODOs in
-  `Sources/AudioSidecar/CoreAudioTap.swift`), so the sidecar uses the SCK path
-  on all versions today and consequently still requests Screen Recording.
+
+System audio goes through the CoreAudio process tap, which needs no Screen
+Recording permission and produces no prompt — it works once the binary runs.
 
 ## Wire protocol
 
@@ -56,8 +56,6 @@ Tag values:
 Control messages the sidecar emits:
 
     {"type":"ready"}                     # all subsystems initialized
-    {"type":"screen_share_started"}      # another app started capturing the display
-    {"type":"screen_share_stopped"}      # ...stopped
     {"type":"error","msg":"..."}         # non-fatal subsystem error
 
 ## Tests
@@ -82,15 +80,3 @@ unknown-tag rejection, and short-buffer handling.
     -h, --help                  Show usage.
 
 `--target-pid` and `--target-bundle` are mutually exclusive.
-
-## Known TODOs
-
-* **CoreAudio Tap (macOS 14.4+)** — `CoreAudioTap.swift` is a stub. The
-  ScreenCaptureKit fallback covers 13.0+ but still requires Screen Recording
-  permission. Replacing the stub with a real `CATapDescription` +
-  `AudioHardwareCreateProcessTap` implementation will remove that permission
-  requirement on 14.4+.
-* **Screen-share watcher** uses a `CGWindowListCopyWindowInfo` heuristic; it
-  catches the common cases (Zoom share toolbar, "you are sharing" banners,
-  ControlCenter recording dot) but isn't authoritative. Good enough for v1.
-* **Codesigning** is Block G's job, not done here.

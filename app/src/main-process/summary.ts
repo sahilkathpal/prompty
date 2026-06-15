@@ -1,8 +1,21 @@
-// Post-call summary: one-shot agent pass over the final transcript + setup.
+// Post-call summary card (RUBY_MVP decision #9).
 //
-// Output shape lands directly on the call log JSON so the home screen's
-// "completed call detail" view can render checklist items with the answers
-// the model mined from the conversation.
+// One post-call model pass over { full transcript with [me]/[them], the list of
+// nudges Ruby surfaced with timestamps } produces a card with exactly three
+// sections + a stat, landed on the call log JSON for the past-calls view to
+// render:
+//   1. recap            — a few lines of what was discussed.
+//   2. insights         — notable takeaways/quotes; Ruby-assisted ones marked
+//                          assisted:true with a short `via` clause.
+//   3. questionsNotAsked — nudges Ruby surfaced that [me] never picked up.
+//   + stat              — surfaced N (= nudges Ruby surfaced), used M (inferred).
+//
+// Attribution is INFERRED here, not tracked live: Ruby surfaced X at time t; if
+// shortly after [me] asked something close and [them] revealed Y, that insight
+// is "assisted". The pass is told to UNDER-CLAIM — a false claim of credit is
+// worse than no claim, so a fuzzy match is left unmarked. M (used count) is
+// derived from how many surfaced nudges the model attributes (assisted insights
+// + any nudge it judges the user clearly acted on), so it can never exceed N.
 
 type ClaudeAgentSdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdkPromise: Promise<ClaudeAgentSdk> | null = null;
@@ -15,65 +28,105 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
   return sdkPromise;
 }
 
-import type { CallSetup, ChecklistItem, TranscriptUtterance } from "./types";
+import type { CallSetup, Nudge, TranscriptUtterance } from "./types";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { modelFor } from "./models";
 
-export interface CallSummaryItem {
-  id: string;
+/** One notable takeaway/quote. `assisted` flags a Ruby-credited one. */
+export interface CallInsight {
+  /** The takeaway or quote, 1-2 lines. */
   text: string;
-  status: ChecklistItem["status"];
-  answer: string;
+  /** True only when the pass is confident Ruby's nudge led here. */
+  assisted: boolean;
+  /** Short trailing clause for assisted ones, e.g. "after Ruby's nudge to ask
+   *  what they tried before". Empty for unassisted. */
+  via: string;
+}
+
+/** A nudge Ruby surfaced that [me] never picked up. */
+export interface UnaskedQuestion {
+  /** The question/nudge Ruby surfaced, paraphrased or verbatim. */
+  text: string;
 }
 
 export interface CallSummary {
-  goalRecap: string;
-  items: CallSummaryItem[];
+  /** A few lines on what was discussed. */
+  recap: string;
+  insights: CallInsight[];
+  questionsNotAsked: UnaskedQuestion[];
+  /** Quiet stat. surfaced = nudges Ruby surfaced; used = inferred acted-on. */
+  stat: { surfaced: number; used: number };
 }
 
-function buildPrompt(setup: CallSetup, transcript: TranscriptUtterance[]): string {
-  const checklistBlock = setup.checklist
-    .map((c) => `- [${c.id}] (${c.status}) ${c.text}`)
-    .join("\n");
+function fmtTime(ms: number, startedAt: number): string {
+  // Nudge timestamps are wall-clock (Date.now()); render as mm:ss into the call.
+  const rel = Math.max(0, Math.round((ms - startedAt) / 1000));
+  const m = Math.floor(rel / 60);
+  const s = rel % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function buildPrompt(
+  transcript: TranscriptUtterance[],
+  nudges: Nudge[],
+  startedAt: number,
+): string {
   const transcriptBlock =
     transcript.length === 0
       ? "(no transcript recorded)"
       : transcript.map((u) => `[${u.speaker}] ${u.text}`).join("\n");
-  return `You are summarising a just-ended conversation. The user prepped with a goal and a checklist of things to ASK or VERIFY during the call. You now have the full transcript.
+  const nudgeBlock =
+    nudges.length === 0
+      ? "(Ruby surfaced nothing this call)"
+      : nudges
+          .map((n) => `- [${fmtTime(n.createdAt, startedAt)}] ${n.text}`)
+          .join("\n");
 
-Produce a structured summary the user can review later.
+  return `You are writing a short post-call card for a conversation that just ended. The user ("me" in the transcript) was the one being coached; the other party is "them". A live assistant named Ruby surfaced follow-up questions during the call. You have the FULL transcript and the list of questions Ruby surfaced, each with a timestamp.
 
-## Goal
-${setup.goal}
+Your job: produce three sections and one stat. ZERO of this is shown to Ruby — it's for the user to review later.
 
-## Checklist
-${checklistBlock}
-
-## Transcript
+## Transcript ([me] = the user, [them] = the other party)
 ${transcriptBlock}
 
-## Output
+## Questions Ruby surfaced (with mm:ss into the call)
+${nudgeBlock}
 
+## How to attribute (read carefully)
+For each question Ruby surfaced, decide whether the USER actually picked it up:
+- Look just AFTER the surfaced timestamp. If [me] then asked something close to it, and [them] revealed something as a result, that insight is Ruby-ASSISTED.
+- UNDER-CLAIM. If the match is fuzzy — the user might have gone there anyway, the timing is loose, the phrasing only loosely overlaps — do NOT mark it assisted and do NOT count it as used. A false claim of credit is worse than no claim.
+- A surfaced question the user never asked (no close follow-up from [me] after it) belongs in "questions you didn't ask".
+
+## Output
 Reply with ONLY a single fenced JSON block. No prose before or after.
 
 \`\`\`json
 {
-  "goalRecap": "<2-3 sentences: was the goal achieved? what's the headline outcome?>",
-  "items": [
+  "recap": "<a few lines (2-4 sentences) on what was discussed and where it landed>",
+  "insights": [
     {
-      "id": "<checklist id>",
-      "text": "<original checklist text>",
-      "status": "<open|covered|skipped — your assessment of whether this was actually covered in the transcript, NOT just what the agent toggled mid-call>",
-      "answer": "<what was learned about this item during the call, in 1-3 sentences. If nothing was learned, say 'Not discussed.'>"
+      "text": "<a notable takeaway or quote from the call, 1-2 lines>",
+      "assisted": <true ONLY if you are confident Ruby's nudge led here; else false>,
+      "via": "<if assisted: a short clause like 'after Ruby's nudge to ask what they tried before'; else empty string>"
     }
-  ]
+  ],
+  "questionsNotAsked": [
+    { "text": "<a question Ruby surfaced that the user never picked up>" }
+  ],
+  "stat": {
+    "surfaced": <integer = number of questions Ruby surfaced, given above>,
+    "used": <integer = how many of those the user clearly acted on; must be ≤ surfaced and should match the count of assisted insights unless a surfaced question was clearly acted on without yielding a notable insight>
+  }
 }
 \`\`\`
 
 Rules:
-- Include EVERY checklist item, in the original order, with its original id and text.
-- Be concrete. Quote a phrase from the transcript when useful.
-- Do not invent answers that aren't supported by the transcript.`;
+- 3-6 insights is typical; quote a phrase from the transcript when it's sharp.
+- Only mark an insight assisted when the evidence is clear — bias toward false.
+- "used" can never exceed "surfaced".
+- If Ruby surfaced nothing, insights are still fine (just none assisted), questionsNotAsked is empty, and stat is {surfaced:0, used:0}.
+- Be concrete and grounded in the transcript; invent nothing.`;
 }
 
 function extractJson(text: string): string | null {
@@ -83,13 +136,51 @@ function extractJson(text: string): string | null {
   return obj ? obj[0] : null;
 }
 
+/** Normalize + clamp a parsed payload so the renderer can trust its shape. */
+function sanitize(parsed: unknown, surfacedCount: number): CallSummary | null {
+  const p = parsed as Partial<CallSummary> & Record<string, unknown>;
+  if (typeof p.recap !== "string") return null;
+  const insights: CallInsight[] = Array.isArray(p.insights)
+    ? p.insights
+        .map((i) => {
+          const it = i as Partial<CallInsight>;
+          if (typeof it.text !== "string" || !it.text.trim()) return null;
+          const assisted = it.assisted === true;
+          return {
+            text: it.text.trim(),
+            assisted,
+            via: assisted && typeof it.via === "string" ? it.via.trim() : "",
+          };
+        })
+        .filter((x): x is CallInsight => x !== null)
+    : [];
+  const questionsNotAsked: UnaskedQuestion[] = Array.isArray(p.questionsNotAsked)
+    ? p.questionsNotAsked
+        .map((q) => {
+          const qt = q as Partial<UnaskedQuestion>;
+          return typeof qt.text === "string" && qt.text.trim()
+            ? { text: qt.text.trim() }
+            : null;
+        })
+        .filter((x): x is UnaskedQuestion => x !== null)
+    : [];
+  const rawStat = (p.stat ?? {}) as Partial<CallSummary["stat"]>;
+  // Trust the real surfaced count over the model's; clamp used into [0, surfaced].
+  const surfaced = surfacedCount;
+  let used = Number.isFinite(rawStat.used) ? Math.round(Number(rawStat.used)) : 0;
+  used = Math.max(0, Math.min(surfaced, used));
+  return { recap: p.recap.trim(), insights, questionsNotAsked, stat: { surfaced, used } };
+}
+
 export async function summarizeCall(
-  setup: CallSetup,
+  _setup: CallSetup,
   transcript: TranscriptUtterance[],
+  nudges: Nudge[],
+  startedAt: number,
 ): Promise<CallSummary | null> {
   try {
     const { query } = await loadSdk();
-    const prompt = buildPrompt(setup, transcript);
+    const prompt = buildPrompt(transcript, nudges, startedAt);
     const q = query({
       prompt,
       options: {
@@ -116,12 +207,12 @@ export async function summarizeCall(
       console.error("[summary] no JSON block in response");
       return null;
     }
-    const parsed = JSON.parse(json) as CallSummary;
-    if (!parsed.goalRecap || !Array.isArray(parsed.items)) {
+    const summary = sanitize(JSON.parse(json), nudges.length);
+    if (!summary) {
       console.error("[summary] malformed payload");
       return null;
     }
-    return parsed;
+    return summary;
   } catch (e) {
     console.error("[summary] failed:", (e as Error).message);
     return null;

@@ -1,68 +1,77 @@
-# Prompty
+# Prompty (Ruby)
 
-A real-time call coach for macOS. A small floating panel listens to any call — Zoom, Google Meet, FaceTime, Slack huddles, Discord, phone-via-Continuity — and keeps a live **goal**, **checklist**, and stream of **nudges** in front of you while you talk. Only you can see it.
+A real-time call coach for macOS. A small floating gem listens to any call — Zoom, Google Meet, FaceTime, Slack huddles, Discord, phone-via-Continuity — and hands you the next good follow-up question while you talk. Only you can see it; the gem is hidden from screen shares.
 
-Platform-agnostic by design: audio is captured at the OS level via a Swift sidecar (CoreAudio process tap on macOS 14.4+, ScreenCaptureKit fallback on 13.0–14.3), so Prompty doesn't care which app the call lives in.
+Audio is captured at the OS level by a Swift sidecar (a CoreAudio process tap), so Prompty doesn't care which app the call lives in.
 
-## What it does for you
+The product name is **Ruby**; the code stays `prompty`.
 
-Most calls go sideways the same way: you forget a question you meant to ask, you drift off your goal, you blank when it's your turn to talk, or the perfect follow-up only occurs to you in the shower afterward. Prompty is a coach in your ear for exactly those moments — it watches the live transcript and surfaces the right thing to say *at the moment it fits*, then gets out of the way.
+## What it does
 
-The guiding principle, enforced all the way down to the agent's system prompt: **a bad nudge is worse than no nudge.** Prompty stays quiet by default and only speaks up when it has something that fits the sentence you're on right now.
+You're in a conversation where getting good information out of the other person is the point — a discovery call, a user interview, a 1:1. At the moment you'd otherwise say "makes sense, so anyway…", Ruby surfaces the one follow-up that mines what they just said.
 
-### In-call — the core experience
+The guiding principle, enforced down to the agent's system prompt: **a bad nudge is worse than no nudge.** Ruby is silent by default and only speaks up when it has something that fits the sentence you're on right now.
 
-While a call is live, the floating panel shows three things and the agent keeps them current from the running transcript:
+## The loop
 
-- **Goal** — the one outcome you set for this call, pinned at the top so you don't lose the thread.
-- **Checklist** — the topics you wanted to cover, treated as *parallel tracks to mine*, not a script to run in order. As you talk, the agent marks items `covered` (✓), `partial` (◐), or leaves them `open` (○). You can click any item to cycle its state yourself, or mark it `skipped` (—) to tell the coach it's off-limits for this call.
-- **Nudges** — short, actionable suggestions (≤15 words, phrased as something you can actually say). The agent emits **at most one at a time**, and only when it's clearly useful:
-  - **deepen** — the conversation just landed on something that matters; here's the follow-up that mines it further. (The most common, most valuable nudge — people give their best answers when followed up on, not interrupted.)
-  - **pivot** — what they just said opens a natural bridge to a track you haven't covered. The nudge names the bridge.
-  - **missed goal** — you've drifted off your goal for a stretch; here's what to steer back to.
-  - **fact reminder** — a detail from your prep/CRM notes just became relevant.
-  - **correction** — you said something that contradicts your notes.
+### Start — manual
 
-**Heads-up bar (teleprompter).** With the heads-up bar on (the default), nudges flash one at a time in a single-line floating bar — shown long enough to read, queued if they bunch up, and an urgent nudge jumps the line. Turn the bar off and nudges instead collect as a quiet feed inside the panel. Either way, nothing pops a notification or makes a sound the other side could notice.
+Ruby does nothing until you reach for it. Start a call with the global hotkey or the menubar item. There is no background mic-watching, no foreground-app polling, no calendar awareness.
 
-**"What should I ask?" (⌥⇧Space).** Blanked? Hit the hotkey (or the panel button) and the agent picks the single highest-value thing to say *for this exact moment* — not the next item on a list.
+Two optional inputs, both free-text and both off by default:
 
-**Status at a glance.** A status dot shows the health of the audio pipeline — `listening`, `no audio`, `reconnecting`, or `error` — so you always know whether the coach can actually hear the call.
+- **Direction** — a free-text box: who you're talking to, what you're after, how readily Ruby should speak up. A stated pacing preference ("only interrupt if critical" / "jump in often") overrides Ruby's default quiet bar.
+- **Skill** — an opt-in playbook (`discovery`, `hiring`, `user-interview`). Never the default. You can also drop your own `~/.prompty/skills/<name>/in-call.md` to add or override a skill.
 
-**Coaching modes.** The agent's behavior is driven by a swappable mode — `default`, `discovery`, `user-interview`, or `hiring` — each a different system prompt tuned for that kind of conversation. Drop your own `~/.prompty/modes/<name>.md` to override or add modes.
+### In-call — the gem
 
-### Before the call — prep
+A small ruby gem sits top-right. A faint glow means it's listening. A status tone shows the health of the audio pipeline: `listening`, `no audio`, `reconnecting`, or `error`, so you always know whether Ruby can hear the call.
 
-Prompty turns your raw intent into a structured goal and checklist *before* you dial in:
+The gem has three states:
 
-- **Prep interview** — a short conversational setup (powered by your local Claude Code) where you describe what the call is for, and the agent drafts the goal and the tracks to mine.
-- **Calendar arming** — connect Google Calendar and Prompty watches your upcoming events, arming itself for calls as they approach so the panel is ready when the meeting starts.
-- **Context enrichment** — attendee details, prior CRM notes (Attio), and your own manual framing are folded into the agent's context, so reminders and corrections are grounded in what you already know about the person.
-- **Mic-activation watcher** — detects when a call actually starts so coaching kicks in at the right time.
+- **Anchor** — at rest, just the gem. Nothing accumulates.
+- **Bloom** — when there's something to say, one ephemeral note blooms beneath the gem and fades after a few seconds. At most one note at a time.
+- **History** — click the gem to expand a quiet scrollback of the notes surfaced this call; click away to collapse.
 
-### After the call
+Two ways to reach the engine: **proactive** notes (high bar — Ruby decides) and the **on-demand hotkey** (low bar — you asked, so it answers). Cadence is the agent's judgment plus a short display debounce. Nothing pops a notification or makes a sound the other side could notice, and the gem window is hidden from screen share via content-protection.
 
-Each session is written to a local call log (`~/.prompty/calls/*.json`) with a summary, so you have a record of what was covered against what you set out to do.
+### After the call — one summary card
+
+Each call is written to `~/.prompty/calls/` with no required input. The card has three sections:
+
+- **Recap** — a few lines.
+- **Insights & quotes** — Ruby-assisted ones marked `✦` with a trailing clause naming the nudge that surfaced them. Attribution under-claims when unsure.
+- **Questions you didn't ask** — the notes Ruby surfaced that you never picked up.
+
+Plus one quiet stat line: "Ruby surfaced N, you used M."
 
 ## Requirements
 
-- macOS 13 (Ventura) or later
-- [Claude Code](https://docs.claude.com/en/docs/agents-and-tools/claude-code/overview) installed locally — Prompty shells out to your installed `claude` binary for the agent loop (silent dependency)
-- Internet connection (Deepgram for transcription, Anthropic for the LLM)
+- macOS 14.4 (Sonoma) or later — the CoreAudio process tap requires it.
+- [Claude Code](https://docs.claude.com/en/docs/agents-and-tools/claude-code/overview) installed locally — Prompty shells out to your installed `claude` binary for the agent loop.
+- An internet connection (Deepgram for transcription, Anthropic for the agent).
+- A Deepgram API key.
+
+## Setup
+
+The Deepgram key is read from `process.env.DEEPGRAM_API_KEY`. Put it in a gitignored `.env` at the repo root:
+
+```sh
+cp .env.example .env
+# edit .env and set DEEPGRAM_API_KEY=...
+```
 
 ## Repo layout
 
 ```
 prompty/
-├── app/              # Electron + React app (main process, renderer, IPC, agent loop)
-├── audio-sidecar/    # Swift CLI: CoreAudio tap + SCK fallback + mic capture
-├── relay/            # Cloudflare Worker: Apple JWT validation, Deepgram token minting
-├── skills/           # Claude Code skills invoked silently by the app
-│   └── prompty-setup/
+├── app/                          # Electron + React app
+│   └── src/main-process/prompts/ # the in-app coaching prompts (base.md + skills/)
+├── audio-sidecar/                # Swift CLI: CoreAudio process tap + mic capture
 └── README.md
 ```
 
-## Development setup
+## Development
 
 Build the Swift sidecar:
 
@@ -71,7 +80,7 @@ cd audio-sidecar
 swift build -c release
 ```
 
-Run the Electron app:
+Run the Electron app in dev (set the key in `.env` first):
 
 ```sh
 cd app
@@ -79,52 +88,41 @@ npm install
 npm run dev
 ```
 
-The relay is optional in dev — the app's dev paste-token modal lets you bypass it and feed a Deepgram key directly. Deploy the relay when you need end-to-end auth:
+`npm run dev` runs via the dev Electron binary; macOS attributes the microphone grant to "Electron" (grant it once). To build and launch the packaged app with your current prompts bundled in:
 
 ```sh
-cd relay
-npm install
-npx wrangler deploy
+npm start
 ```
 
 ## Architecture
 
 ```
-                                 ┌─────────────────────────────────┐
-                                 │ Cloudflare Worker (relay)       │
-                                 │  POST /auth/apple  (validate)   │
-                                 │  POST /deepgram/token (mint)    │
-                                 │  KV: rate-limit counters        │
-                                 └────────────┬────────────────────┘
-                                              │ HTTPS
-┌─────────────────────────────────────────────┴────────────────────┐
-│ Prompty.app (Electron, single signed bundle)                     │
+┌──────────────────────────────────────────────────────────────────┐
+│ Prompty.app (Electron)                                           │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │ Main process (Node)                                      │   │
-│  │  - Floating panel window mgmt (BrowserWindow + panel)    │   │
-│  │  - Deepgram WS client (dual stream)                      │   │
+│  │  - Gem overlay window mgmt (BrowserWindow)               │   │
+│  │  - Deepgram WS client (dual stream: mic + tap)           │   │
 │  │  - Agent loop (Claude Agent SDK → user's `claude`)       │   │
-│  │  - Calendar-arm scheduler (via `claude` skill calls)     │   │
-│  │  - Mic-activation watcher                                │   │
-│  │  - Call log writer (~/.prompty/calls/*.json)             │   │
-│  │  - Relay client (auth, deepgram token)                   │   │
+│  │  - Call log + summary writer (~/.prompty/calls/)         │   │
+│  │  - DEEPGRAM_API_KEY read from .env / process env         │   │
 │  └────┬─────────────────────────────────┬───────────────────┘   │
 │       │ IPC (renderer)                  │ stdout/stdin (PCM)    │
 │  ┌────▼──────────────────┐         ┌────▼──────────────────┐    │
 │  │ Renderer (React)      │         │ audio-sidecar (Swift) │    │
-│  │  - Floating panel UI  │         │  - CoreAudio tap      │    │
-│  │  - Heads-up bar       │         │  - SCK fallback       │    │
-│  │  - Onboarding         │         │  - Mic capture        │    │
-│  │  - Settings           │         │  - Screen-share watch │    │
+│  │  - Gem overlay UI     │         │  - CoreAudio tap      │    │
+│  │  - Direction + skills │         │  - Mic capture        │    │
 │  └───────────────────────┘         └───────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
-         │                                       │
-         │ shells out                            │
-         ▼                                       ▼
-   ~/.claude/local/claude                  CoreAudio / SCK
-   (user's installed Claude Code)         (system frameworks)
+         │                  │                       │
+         │ shells out       │ HTTPS                 │
+         ▼                  ▼                       ▼
+   ~/.claude/local/claude   api.deepgram.com    CoreAudio
+   (user's Claude Code)     (transcription)     (system frameworks)
 ```
+
+Transcription runs against Deepgram over a WebSocket (two streams — your mic and the system-audio tap). The agent loop runs locally via your installed `claude` binary.
 
 ## Smoke tests
 
@@ -134,12 +132,9 @@ From `app/`:
 npm test
 ```
 
-Runs `smoke:transcribe-mock` (Deepgram client against a recorded fixture) and `smoke:agent` (agent loop against a synthetic transcript).
+Runs the transcribe-mock, agent, coach-session, hotkey-answer, system-prompt, and debug-logger/debug-capture smoke checks.
 
-## Distribution
+## Prompts and distribution
 
-See `app/RELEASING.md` for the signed-DMG + notarization + Sparkle auto-update flow.
-
-## Last verified
-
-**2026-06-06** — End-to-end app builds and typechecks; manual call testing pending.
+- `app/PROMPTING.md` — how to edit and test the coaching prompts (including the offline replay harness).
+- `app/RELEASING.md` — the local signed-build flow for handing a DMG to a design partner.

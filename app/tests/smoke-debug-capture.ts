@@ -36,8 +36,7 @@ function assert(cond: boolean, msg: string): void {
 }
 
 const setup: CallSetup = {
-  goal: "Learn whether the prospect needs managed Kafka.",
-  checklist: [{ id: "team", text: "Ask about team size", status: "open" }],
+  direction: "Learn whether the prospect needs managed Kafka; probe team size and scale.",
   context: { attendee: { name: "Test User", company: "Acme" } },
 };
 
@@ -65,7 +64,6 @@ const debugAgentFactory = (_setup: CallSetup, events: AgentEvents): Promise<Agen
         createdAt: 1700000000000 + turn,
       });
     },
-    noteChecklistChange() {},
     async close() {},
   });
 
@@ -109,7 +107,7 @@ async function main() {
   // session-start carries the resolved static prompt (fidelity B, logged once).
   const start = events.find((e) => e.kind === "session-start");
   assert(typeof start.systemPrompt === "string" && start.systemPrompt.length > 0, "session-start should carry systemPrompt");
-  assert(start.goal === setup.goal, "session-start goal preserved");
+  assert(start.direction === setup.direction, "session-start direction preserved");
   assert(events.filter((e) => e.kind === "session-start").length === 1, "systemPrompt logged exactly once");
 
   // Every event carries a wall-clock ts.

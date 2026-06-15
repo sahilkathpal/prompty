@@ -36,32 +36,23 @@ export interface SummaryKeeper {
   current(): string;
 }
 
-// Absent optional pieces (goal/direction/checklist) produce NO section — same
-// doctrine as the in-call system prompt (see system.ts): an empty "(none)"
-// placeholder would mis-tell the summarizer there's nothing to track against.
+// Absent optional pieces (the direction) produce NO section — same doctrine as
+// the in-call system prompt (see system.ts): an empty "(none)" placeholder would
+// mis-tell the summarizer there's nothing to track against. Goal/checklist were
+// cut from the MVP (RUBY_MVP §4); the direction is the whole brief.
 function buildPrompt(setup: CallSetup, transcript: TranscriptUtterance[]): string {
   const parts: string[] = [
     `You are keeping a running brief of a conversation that is STILL ONGOING. This brief is context for a real-time assistant helping the user — it is not shown to the user.`,
   ];
 
-  const goal = setup.goal?.trim();
-  if (goal) parts.push(`## Goal\n${goal}`);
-
   const direction = setup.direction?.trim();
   if (direction) parts.push(`## Direction (what a good call looks like)\n${direction}`);
-
-  if (setup.checklist.length) {
-    const checklistBlock = setup.checklist
-      .map((c) => `- [${c.id}] (${c.status}) ${c.text}`)
-      .join("\n");
-    parts.push(`## Checklist (concrete things the user wanted to ask or verify)\n${checklistBlock}`);
-  }
 
   const transcriptBlock = transcript.map((u) => `[${u.speaker}] ${u.text}`).join("\n");
   parts.push(`## Transcript so far\n${transcriptBlock}`);
 
   parts.push(`Write a tight brief (max ~150 words), plain prose, no preamble. Capture:
-- what's been established or decided so far${direction ? "\n- how the call is tracking against the direction (and any drift from it)" : ""}${setup.checklist.length ? "\n- which checklist items have been answered vs are still open" : ""}
+- what's been established or decided so far${direction ? "\n- how the call is tracking against the direction (and any drift from it)" : ""}
 - the current open thread — what's being discussed right now
 
 Be concrete. Output only the brief.`);

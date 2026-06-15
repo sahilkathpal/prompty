@@ -30,7 +30,7 @@ export type StartTranscriptionOptions = {
   micStream: Readable;
   /** 16 kHz mono 16-bit LE PCM. Tagged as speaker "them". */
   tapStream: Readable;
-  /** Deepgram API key (already minted via relay-client.getDeepgramToken). */
+  /** Deepgram API key, read from `process.env.DEEPGRAM_API_KEY`. */
   deepgramKey: string;
   onUtterance: (u: TranscriptUtterance) => void;
   onError?: (err: Error) => void;

@@ -13,13 +13,8 @@ import type {
  */
 
 const setup: CallSetup = {
-  goal: "Learn about the prospect's migration to Kafka and whether they have budget for managed streaming.",
-  checklist: [
-    { id: "timeline", text: "Ask when the Kafka migration started and finished", status: "open" },
-    { id: "team", text: "Ask how big the platform team is", status: "open" },
-    { id: "pain", text: "Ask what pain points they're hitting at current scale", status: "open" },
-    { id: "budget", text: "Ask if streaming has a dedicated budget line", status: "open" },
-  ],
+  direction:
+    "Learn about the prospect's migration to Kafka and whether they have budget for managed streaming. Probe the migration timeline, team size, pain at current scale, and whether streaming has a dedicated budget line.",
   context: {
     attendee: {
       name: "Alex Chen",
@@ -61,7 +56,6 @@ function utt(speaker: "me" | "them", text: string): TranscriptUtterance {
 
 async function main() {
   const nudges: Nudge[] = [];
-  const checklistUpdates: { id: string; status: string }[] = [];
   const stayQuiets: string[] = [];
   const errors: Error[] = [];
 
@@ -70,10 +64,6 @@ async function main() {
     onNudge: (n) => {
       nudges.push(n);
       console.log(`[smoke] NUDGE (${n.urgency}): ${n.text}`);
-    },
-    onChecklistUpdate: (id, status) => {
-      checklistUpdates.push({ id, status });
-      console.log(`[smoke] CHECKLIST: ${id} → ${status}`);
     },
     onStayQuiet: (reason) => {
       stayQuiets.push(reason);
@@ -103,11 +93,10 @@ async function main() {
 
   console.log("\n[smoke] summary:");
   console.log(`  nudges: ${nudges.length}`);
-  console.log(`  checklist updates: ${checklistUpdates.length}`);
   console.log(`  stay_quiet: ${stayQuiets.length}`);
   console.log(`  errors: ${errors.length}`);
 
-  const totalDecisions = nudges.length + checklistUpdates.length + stayQuiets.length;
+  const totalDecisions = nudges.length + stayQuiets.length;
   const pass =
     errors.length === 0 &&
     totalDecisions >= 2 &&

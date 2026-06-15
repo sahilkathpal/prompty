@@ -8,7 +8,6 @@ type StepKey =
   | "welcome"
   | "claude"
   | "mic"
-  | "auth"
   | "notifications"
   | "done";
 
@@ -21,7 +20,6 @@ const baseSteps: StepDef[] = [
   { key: "welcome", title: "Welcome" },
   { key: "claude", title: "Claude Code" },
   { key: "mic", title: "Microphone" },
-  { key: "auth", title: "Sign in" },
   { key: "notifications", title: "Notifications" },
   { key: "done", title: "Done" },
 ];
@@ -36,31 +34,20 @@ export default function App(): JSX.Element {
   const [stepIdx, setStepIdx] = useState(0);
   const [claude, setClaude] = useState<{ found: boolean; path: string | null } | null>(null);
   const [perm, setPerm] = useState<PermissionStatus | null>(null);
-  const [signedIn, setSignedIn] = useState(false);
-  const [signedInUser, setSignedInUser] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
   const [notifFired, setNotifFired] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
   const [claudeBusy, setClaudeBusy] = useState(false);
 
-  // Initial probes + listen to auth state changes.
+  // Initial probes.
   useEffect(() => {
     void (async () => {
-      const [c, p, auth] = await Promise.all([
+      const [c, p] = await Promise.all([
         window.prompty.invoke("onboarding:check-claude", undefined as never),
         window.prompty.invoke("onboarding:permission-status", undefined as never),
-        window.prompty.invoke("auth:status", undefined as never),
       ]);
       setClaude(c);
       setPerm(p);
-      setSignedIn(auth.signedIn);
-      setSignedInUser(auth.userId ?? null);
     })();
-    const off = window.prompty.on("auth:state-changed", (payload) => {
-      setSignedIn(payload.signedIn);
-      setSignedInUser(payload.userId ?? null);
-    });
     // Re-poll permission status when window regains focus (user may have
     // toggled toggles in System Settings).
     const onFocus = () => {
@@ -70,7 +57,6 @@ export default function App(): JSX.Element {
     };
     window.addEventListener("focus", onFocus);
     return () => {
-      off();
       window.removeEventListener("focus", onFocus);
     };
   }, []);
@@ -92,8 +78,6 @@ export default function App(): JSX.Element {
         return !!claude?.found;
       case "mic":
         return micGranted;
-      case "auth":
-        return signedIn;
       case "notifications":
         return notifFired;
       case "done":
@@ -129,19 +113,6 @@ export default function App(): JSX.Element {
     }
   }
 
-  async function signIn(): Promise<void> {
-    setAuthBusy(true);
-    setAuthError(null);
-    try {
-      const r = await window.prompty.invoke("auth:google-sign-in", undefined as never);
-      if (!r.ok) setAuthError(r.error ?? "sign-in failed");
-    } catch (e) {
-      setAuthError((e as Error).message);
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
   async function fireNotification(): Promise<void> {
     const r = await window.prompty.invoke("onboarding:fire-notification", undefined as never);
     if (r.ok) setNotifFired(true);
@@ -164,9 +135,8 @@ export default function App(): JSX.Element {
             <h1 className="ob-h1">Welcome to Prompty</h1>
             <p className="ob-p">
               Prompty is a real-time call coach for macOS. It listens to your
-              meetings, tracks your goals and checklist, and surfaces quiet
-              nudges in a floating panel — across Zoom, Meet, FaceTime, Slack,
-              and more.
+              meetings and surfaces quiet nudges in a floating panel — across
+              Zoom, Meet, FaceTime, Slack, and more.
             </p>
             <div className="ob-hero">[screenshot placeholder]</div>
             <p className="ob-muted">
@@ -263,44 +233,6 @@ export default function App(): JSX.Element {
                   </button>
                 )}
               </div>
-            </div>
-          </>
-        )}
-
-        {step === "auth" && (
-          <>
-            <h1 className="ob-h1">Sign in with Google</h1>
-            <p className="ob-p">
-              Sign in with Google to enable live transcription and let Prompty
-              read your upcoming calendar events. Only your email + calendar
-              read scope are requested.
-            </p>
-            <div className="ob-card">
-              <div className="ob-row">
-                <Check ok={signedIn} />
-                <div>
-                  <div className="ob-strong">
-                    {signedIn ? "Signed in" : "Not signed in"}
-                  </div>
-                  {signedInUser && (
-                    <div className="ob-muted">{signedInUser}</div>
-                  )}
-                </div>
-              </div>
-              <div className="ob-actions">
-                <button
-                  className="ob-btn ob-btn-primary"
-                  disabled={authBusy || signedIn}
-                  onClick={signIn}
-                >
-                  {signedIn
-                    ? "Signed in"
-                    : authBusy
-                      ? "Signing in…"
-                      : "Sign in with Google"}
-                </button>
-              </div>
-              {authError && <p className="ob-error">{authError}</p>}
             </div>
           </>
         )}

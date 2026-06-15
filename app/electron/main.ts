@@ -4,11 +4,6 @@ import {
   configureOverlayWindow,
   getOverlayWindow,
 } from "./overlay-window";
-import {
-  createTeleprompterWindow,
-  configureTeleprompterWindow,
-  getTeleprompterWindow,
-} from "./teleprompter-window";
 import { configureMainWindow, openMainWindow } from "./main-window";
 import { configureOnboardingWindow, openOnboardingWindow } from "./onboarding-window";
 import { createTray, rebuildMenu } from "./tray";
@@ -20,7 +15,10 @@ import {
 } from "./ipc-handlers";
 import { recoverOrphanedJournals } from "../src/main-process/journal";
 import { getSettings, updateSettings } from "./settings-store";
-import { setupAutoUpdater } from "./auto-updater";
+import { loadEnv } from "./load-env";
+
+// Load the gitignored `.env` (DEEPGRAM_API_KEY, etc.) before anything reads it.
+loadEnv();
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const E2E_MODE = process.env.PROMPTY_E2E === "1";
@@ -72,16 +70,14 @@ if (E2E_MODE) {
 }
 
 // Show a Dock icon. Clicking it re-opens the main window via the
-// `activate` handler below; the floating overlay/teleprompter still
-// appear over fullscreen apps because they set visibleOnFullScreen.
+// `activate` handler below; the floating overlay (the gem) still
+// appears over fullscreen apps because it sets visibleOnFullScreen.
 
 let trayCreated = false;
 
 function startTrayAndOverlay(): void {
-  // Create overlay hidden — it only displays when showOverlay() is called.
+  // Create overlay (the gem) hidden — it only displays when showOverlay() is called.
   createOverlayWindow();
-  // Create teleprompter hidden — shown when a session goes live.
-  createTeleprompterWindow();
   if (!trayCreated) {
     createTray();
     trayCreated = true;
@@ -132,7 +128,6 @@ function maybePromptLoginItem(): void {
 app.on("ready", () => {
   configureMainWindow(DEV_URL);
   configureOverlayWindow(DEV_URL);
-  configureTeleprompterWindow(DEV_URL);
   configureOnboardingWindow(DEV_URL);
 
   registerIpcHandlers({
@@ -166,11 +161,6 @@ app.on("ready", () => {
         const { hideOverlay } = require("./overlay-window");
         hideOverlay();
       },
-      pollCalendarArm: async () => {
-        const { getCalendarArm } = require("./ipc-handlers");
-        const arm = getCalendarArm?.();
-        if (arm) await arm.pollNow();
-      },
       getE2ENotifications: () => {
         return (
           (global as unknown as { __prompty_notifications?: unknown[] })
@@ -188,31 +178,6 @@ app.on("ready", () => {
       injectUtterance: (u: unknown) => {
         const { e2eInjectUtterance } = require("./ipc-handlers");
         return e2eInjectUtterance(u);
-      },
-      openPrepWindow: (event?: unknown) => {
-        // Legacy E2E helper: prep now lives in the main window's Prep tab.
-        openMainWindow("prep");
-        void event;
-      },
-      sendPrepMessage: async (text: string) => {
-        const { e2eSendPrepMessage } = require("./ipc-handlers");
-        return e2eSendPrepMessage(text);
-      },
-      getPrepState: () => {
-        const { e2eGetPrepState } = require("./ipc-handlers");
-        return e2eGetPrepState();
-      },
-      ensurePrepSession: async (event?: unknown) => {
-        const { e2eEnsurePrepSession } = require("./ipc-handlers");
-        return e2eEnsurePrepSession(event ?? null);
-      },
-      fireNotificationClick: async (eventId?: string) => {
-        const { e2eFireNotificationClick } = require("./ipc-handlers");
-        return e2eFireNotificationClick(eventId);
-      },
-      getPendingPrep: () => {
-        const { e2eGetPendingPrep } = require("./ipc-handlers");
-        return e2eGetPendingPrep();
       },
       getSettings: () => {
         const { getSettings } = require("./settings-store");
@@ -242,8 +207,6 @@ app.on("ready", () => {
     startTrayAndOverlay();
     maybePromptLoginItem();
   }
-
-  setupAutoUpdater();
 });
 
 let endingSessionForQuit = false;

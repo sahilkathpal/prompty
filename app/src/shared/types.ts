@@ -30,14 +30,6 @@ export interface SessionStatusEvent {
   reason?: string;
 }
 
-export type ChecklistStatus = "open" | "covered" | "partial" | "skipped";
-
-export interface ChecklistItem {
-  id: string;
-  text: string;
-  status: ChecklistStatus;
-}
-
 export type Speaker = "me" | "them";
 
 export interface TranscriptUtterance {
@@ -63,12 +55,10 @@ export interface CallContext {
 }
 
 export interface CallSetup {
-  goal: string;
-  // The primary fuel for in-call nudges: a synthesized prose paragraph (~40-60
-  // words) describing what a good call looks like. Optional only because a draft
-  // may not have one yet.
+  // The whole coaching brief: a free-text direction describing what a good call
+  // looks like (RUBY_MVP §3/§4 — goal + checklist were cut). Optional only
+  // because a draft may not have one yet.
   direction?: string;
-  checklist: ChecklistItem[];
   context: CallContext;
   // Optional named playbook layered on top of base + direction (e.g.
   // "discovery", "hiring", "user-interview"). Empty/absent = no skill.
@@ -78,8 +68,6 @@ export interface CallSetup {
 export interface PanelState {
   compact: boolean;
   callStatus: "idle" | "armed" | "live" | "ended";
-  goal: string | null;
-  checklist: ChecklistItem[];
   nudges: Nudge[];
 }
 
@@ -92,16 +80,9 @@ export interface AppSettings {
   panelSize: { width: number; height: number } | null;
   launchAtLogin: boolean;
   hotkey: string;
-  signedIn: boolean;
   onboardingCompleted: boolean;
   loginItemPrompted: boolean;
-  signedInUserId: string | null;
-  signedInEmail: string | null;
   lastTab: MainTab;
-  // When true, nudges flash in the floating teleprompter bar and the overlay
-  // stays minimal. When false, the bar is hidden and nudges collect as a feed
-  // inside the overlay. Replaces the old inverted `focusMode` flag.
-  headsUpBar: boolean;
   // When true, prep and in-call sessions write a verbose debug log (the
   // model's-eye view: resolved prompts, per-turn context deltas, raw model
   // responses, tool calls, latencies) to ~/.prompty/debug/. Off by default;
@@ -114,14 +95,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   panelSize: null,
   launchAtLogin: false,
   hotkey: "Alt+Shift+Space",
-  signedIn: false,
   onboardingCompleted: false,
   loginItemPrompted: false,
-  signedInUserId: null,
-  signedInEmail: null,
   lastTab: "prep",
-  headsUpBar: true,
-  debugMode: false,
+  // Playground default: on, so every call self-archives its direction + the
+  // model's-eye view to ~/.prompty/debug/call-*.{jsonl,md} for replay later.
+  debugMode: true,
 };
 
 export type MediaPermissionStatus =

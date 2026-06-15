@@ -6,23 +6,16 @@ const store = new Store<AppSettings>({
   defaults: DEFAULT_SETTINGS,
 });
 
-// One-shot, idempotent migration: the old inverted `focusMode` flag became
-// `headsUpBar` with flipped polarity (focusMode=false meant the bar was shown,
-// which is headsUpBar=true). Also strips the now-removed `compact` key. Runs on
-// every load but only writes when a legacy key is actually present.
+// One-shot, idempotent migration: strip now-removed keys from pre-Ruby settings
+// files (`focusMode`, `compact`, `headsUpBar` — the gem replaced the
+// teleprompter/heads-up-bar split, so the toggle is gone). Runs on every load
+// but only writes when a legacy key is actually present.
 (function migrateLegacySettings(): void {
   const raw = store.store as unknown as Record<string, unknown>;
-  // NOTE: `store.store` merges defaults, so `headsUpBar` always *appears*
-  // present. `focusMode`, however, is not a default key — its presence means a
-  // pre-migration settings file. The two flags never coexist legitimately (the
-  // new app deletes `focusMode` on write), so always derive and overwrite.
-  if (Object.prototype.hasOwnProperty.call(raw, "focusMode")) {
-    const legacy = raw.focusMode;
-    store.set("headsUpBar", legacy === undefined ? true : !legacy);
-    store.delete("focusMode" as keyof AppSettings);
-  }
-  if (Object.prototype.hasOwnProperty.call(raw, "compact")) {
-    store.delete("compact" as keyof AppSettings);
+  for (const key of ["focusMode", "compact", "headsUpBar"] as const) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      store.delete(key as keyof AppSettings);
+    }
   }
 })();
 

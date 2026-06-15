@@ -5,10 +5,11 @@
 // waiting, so it gets its own dedicated pass instead: a fresh single-turn query
 // over the live call context, returning one concrete line.
 //
-// Context = goal + checklist(status) + the background running summary (long-
-// range arc) + the last ~60 utterances verbatim (the immediate thread the
+// Context = the direction (the whole brief) + the background running summary
+// (long-range arc) + the last ~60 utterances verbatim (the immediate thread the
 // answer must fit) + recent nudge texts (so it won't repeat itself). Plain-text
 // reply, no MCP tool round-trip — the fastest path to an in-turn answer.
+// Goal/checklist were cut from the MVP (RUBY_MVP §4).
 
 type ClaudeAgentSdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdkPromise: Promise<ClaudeAgentSdk> | null = null;
@@ -38,10 +39,6 @@ Output only that single line. No preamble, no quotes, no explanation.`;
 
 function buildPrompt(input: AnswerInput): string {
   const { setup, summary, recent, recentNudges } = input;
-  const checklistBlock =
-    setup.checklist.length === 0
-      ? "(none)"
-      : setup.checklist.map((c) => `- [${c.id}] (${c.status}) ${c.text}`).join("\n");
   const transcriptBlock =
     recent.length === 0
       ? "(nothing said yet)"
@@ -51,14 +48,8 @@ function buildPrompt(input: AnswerInput): string {
     recentNudges.length === 0
       ? "(none yet)"
       : recentNudges.map((t) => `- ${t}`).join("\n");
-  return `## Goal
-${setup.goal || "(none set — let the direction below guide you)"}
-
-## Direction (what a good call looks like — your primary steer)
+  return `## Direction (what a good call looks like — your primary steer)
 ${setup.direction?.trim() || "(none set)"}
-
-## Checklist (concrete don't-forget items, secondary)
-${checklistBlock}
 
 ## Call so far (running brief)
 ${summaryBlock}

@@ -9,7 +9,6 @@
 
 import type {
   Nudge,
-  ChecklistItem,
   PanelState,
   AppSettings,
   CallSetup,
@@ -42,6 +41,23 @@ export interface InvokeChannels {
     request: { name: string };
     response: { content: string };
   };
+  // Playground: pick a file and return its contents, to load a direction/prompt
+  // from disk instead of typing it. Returns null if the user cancels.
+  "direction:load-file": {
+    request: void;
+    response: { content: string; path: string } | null;
+  };
+  // Playground: the single persisted direction (~/.prompty/playground/direction.md).
+  // The home textarea loads this on launch and saves it on Start/blur, so the UI
+  // box and the on-disk file are the same artifact — nothing is lost.
+  "direction:load-current": {
+    request: void;
+    response: { content: string };
+  };
+  "direction:save-current": {
+    request: { content: string };
+    response: { ok: boolean };
+  };
   "settings:get": {
     request: void;
     response: AppSettings;
@@ -60,22 +76,18 @@ export interface InvokeChannels {
     request: void;
     response: { ok: boolean; error?: string };
   };
-  "checklist:toggle": {
-    request: { id: string; status: ChecklistItem["status"] };
-    response: void;
-  };
   // On-demand nudge request from the overlay's "What should I ask?" button.
   "nudge:request": {
     request: { source: "panel" };
     response: { ok: boolean };
   };
-  // Renderer asks the overlay window to fit its content height. "grow" only
-  // increases height (revealing the sticky-note stack without shrinking a
-  // height the user dragged taller); "exact" snaps to the measured height
-  // (used when the feed is hidden, to drop the now-unused space). Width is
-  // never touched — it stays under manual control.
+  // The gem renderer asks the overlay window to fit its measured content
+  // height as it moves between states (gem-only → gem+bloom → gem+history).
+  // Always exact: the window snaps tightly to each state so a dismissed bloom
+  // or collapsed history returns it to the small resting footprint. Width is
+  // fixed.
   "overlay:set-height": {
-    request: { height: number; mode: "grow" | "exact" };
+    request: { height: number };
     response: { ok: boolean };
   };
   // Last recent pre-flight failure — queried by the main window on mount so a
@@ -83,19 +95,7 @@ export interface InvokeChannels {
   // one-shot preflight:failed broadcast.
   "preflight:get": {
     request: void;
-    response: { code: "mic" | "auth" | "claude"; message: string } | null;
-  };
-  "auth:google-sign-in": {
-    request: void;
-    response: { ok: boolean; error?: string; userId?: string; email?: string };
-  };
-  "auth:sign-out": {
-    request: void;
-    response: { ok: boolean };
-  };
-  "auth:status": {
-    request: void;
-    response: { signedIn: boolean; userId?: string; email?: string };
+    response: { code: "mic" | "claude"; message: string } | null;
   };
   "quit": {
     request: void;
@@ -136,14 +136,6 @@ export interface InvokeChannels {
     request: void;
     response: { ok: boolean };
   };
-  "calendar:current-arm": {
-    request: void;
-    response: { event: ArmedEvent | null };
-  };
-  "calendar:list-upcoming": {
-    request: { limit?: number; windowMinutes?: number };
-    response: { events: ArmedEvent[] };
-  };
   "session:state": {
     request: void;
     response: {
@@ -153,114 +145,6 @@ export interface InvokeChannels {
       transcript: TranscriptUtterance[];
     };
   };
-  "prep:open": {
-    request: { eventId?: string };
-    response: { ok: boolean; error?: string };
-  };
-  "prep:send-message": {
-    request: { text: string };
-    response: { ok: boolean; error?: string };
-  };
-  "prep:kick": {
-    request: void;
-    response: { ok: boolean; error?: string };
-  };
-  "prep:get-state": {
-    request: void;
-    response: PrepStatePayload | null;
-  };
-  "prep:save": {
-    request: { andStartCoaching: boolean };
-    response: { ok: boolean; error?: string };
-  };
-  "prep:discard": {
-    request: void;
-    response: { ok: boolean };
-  };
-  "prep:set-skill": {
-    request: { skill: string };
-    response: { ok: boolean; error?: string };
-  };
-  // Direct (silent) rail edits — see PrepSessionHandle.set/add/edit/remove.
-  "prep:set-goal": {
-    request: { text: string };
-    response: { ok: boolean; error?: string };
-  };
-  // The call's direction — the synthesized prose paragraph that primarily
-  // drives in-call nudges (silent rail edit).
-  "prep:set-direction": {
-    request: { text: string };
-    response: { ok: boolean; error?: string };
-  };
-  // Free-text notes added inside an open prep session (silent rail edit).
-  "prep:set-notes": {
-    request: { text: string };
-    response: { ok: boolean; error?: string };
-  };
-  // Direction set on the idle/home screen with no prep session open — the
-  // quick-start primary steer. Writes straight to the pending-prep draft.
-  "draft:set-direction": {
-    request: { direction: string };
-    response: { ok: boolean };
-  };
-  "prep:add-checklist-item": {
-    request: { text: string };
-    response: { ok: boolean; error?: string };
-  };
-  "prep:edit-checklist-item": {
-    request: { id: string; text: string };
-    response: { ok: boolean; error?: string };
-  };
-  "prep:remove-checklist-item": {
-    request: { id: string };
-    response: { ok: boolean; error?: string };
-  };
-  "pending-prep:get": {
-    request: void;
-    response: PendingPrepPayload | null;
-  };
-  "pending-prep:clear": {
-    request: void;
-    response: { ok: boolean };
-  };
-}
-
-export interface PrepMessagePayload {
-  id: string;
-  role: "user" | "assistant" | "tool";
-  text: string;
-  createdAt: number;
-  streaming?: boolean;
-  toolName?: string;
-}
-
-export interface PrepStatePayload {
-  goal: string;
-  direction: string;
-  checklist: ChecklistItem[];
-  notes: string;
-  skill: string;
-  messages: PrepMessagePayload[];
-  event: ArmedEvent | null;
-  assistantBusy: boolean;
-}
-
-export interface PendingPrepPayload {
-  goal: string;
-  direction?: string;
-  checklist: ChecklistItem[];
-  notes?: string;
-  skill?: string;
-  eventId?: string;
-  eventTitle?: string;
-  savedAt: number;
-}
-
-export interface ArmedEvent {
-  id: string;
-  title: string;
-  startsAt: number;
-  attendees?: { name?: string; email?: string }[];
 }
 
 export type InvokeChannel = keyof InvokeChannels;
@@ -277,7 +161,6 @@ export interface EventChannels {
   "call:status": { status: "idle" | "armed" | "live" | "ended"; reason?: string };
   "transcript:utterance": TranscriptUtterance;
   "setup:loaded": { setup: CallSetup; eventId?: string };
-  "auth:state-changed": { signedIn: boolean; userId?: string; email?: string };
   "main:tab-changed": { tab: MainTab };
   "session:state-changed": {
     state: "idle" | "starting" | "live" | "ending" | "ended" | "error";
@@ -286,12 +169,8 @@ export interface EventChannels {
   // Live audio/transcription health for the overlay status dot.
   "session:status": SessionStatusEvent;
   // A start attempt was blocked by a failed pre-flight check.
-  "preflight:failed": { code: "mic" | "auth" | "claude"; message: string };
+  "preflight:failed": { code: "mic" | "claude"; message: string };
   "session:setup": { setup: CallSetup };
-  "calendar:arm-changed": { event: ArmedEvent | null };
-  "prep:state-changed": PrepStatePayload | null;
-  "prep:assistant-chunk": { delta: string; messageId: string };
-  "pending-prep:changed": { prep: PendingPrepPayload | null };
 }
 
 export type EventChannel = keyof EventChannels;

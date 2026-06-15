@@ -39,11 +39,10 @@ import { startSession } from "../src/main-process/coach-session";
 import type { CallSetup, TranscriptUtterance } from "../src/main-process/types";
 
 const setup: CallSetup = {
-  goal: "Learn whether the prospect needs managed Kafka.",
-  checklist: [
-    { id: "team", text: "Ask about team size", status: "open" },
-    { id: "scale", text: "Ask about current Kafka scale", status: "open" },
-  ],
+  // Calls are direction-only — the direction is the whole coaching prompt
+  // (goal/checklist were cut from the MVP, RUBY_MVP §4).
+  direction:
+    "Find out whether the prospect needs managed Kafka: probe team size and current Kafka scale, and listen for operational pain.",
   context: {
     attendee: { name: "Test User", company: "Acme" },
   },
@@ -61,7 +60,6 @@ async function main() {
       console.log(`[smoke] nudge: ${n.urgency} — ${n.text}`);
     },
     onStateChange: (s) => console.log(`[smoke] state → ${s}`),
-    silenceTimeoutMs: 5 * 60_000, // don't auto-end during the smoke
   });
 
   console.log("[smoke] injecting utterances…");
@@ -82,8 +80,7 @@ async function main() {
   }
   const log = JSON.parse(readFileSync(join(logDir, files[0]!), "utf8"));
   const ok =
-    log.goal === setup.goal &&
-    Array.isArray(log.checklist) &&
+    log.direction === setup.direction &&
     Array.isArray(log.transcript) &&
     Array.isArray(log.nudges) &&
     typeof log.startedAt === "number" &&

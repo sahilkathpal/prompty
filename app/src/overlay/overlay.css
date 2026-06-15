@@ -1,4 +1,6 @@
-/* Ported and adapted from extension/sidebar.css for the Electron panel. */
+/* The gem: a small ruby anchor pinned top-right, with an ephemeral note bloom
+   beneath it and an expandable scrollback history. The window itself is mostly
+   transparent — only the gem and any open surface (bloom / history) paint. */
 
 html, body, #root {
   margin: 0;
@@ -7,414 +9,166 @@ html, body, #root {
   width: 100%;
   background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
-  color: #e5e5e5;
+  color: #f4f6f8;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.prompty-root {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
+.gem-root {
   width: 100vw;
-  background: rgba(20, 22, 28, 0.78);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  /* Anchor everything to the top-right corner. */
+  display: flex;
+  justify-content: flex-end;
 }
 
-.prompty-drag {
+/* The measured wrapper (overlay:set-height fits the window to this). A
+   flow-root so child margins are contained in the measurement. The whole
+   surface is a drag region; interactive children opt out with no-drag. */
+.gem-content {
   -webkit-app-region: drag;
-  height: 22px;
-  flex-shrink: 0;
+  display: flow-root;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px 14px;
+}
+
+/* The old DragHandle's visible bar is hidden for the gem — the gem surface is
+   itself the drag region. Kept in the tree (it still marks a drag area) but
+   collapsed to nothing so the resting state is just the gem. */
+.prompty-drag,
+.prompty-drag-handle {
+  display: none;
+}
+
+.gem-anchor-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---- The gem ---- */
+.gem {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
-}
-.prompty-drag-handle {
-  -webkit-app-region: drag;
-  width: 36px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.18);
-}
-.prompty-drag .prompty-actions {
-  -webkit-app-region: no-drag;
-}
-
-.prompty-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px 8px;
-  flex-shrink: 0;
-}
-.prompty-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #cdd1ff;
-}
-.prompty-header-actions {
-  display: flex;
-  gap: 6px;
-  -webkit-app-region: no-drag;
-}
-.prompty-icon-btn {
-  -webkit-app-region: no-drag;
+  border-radius: 50%;
   background: transparent;
-  border: none;
-  color: #9aa0b4;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 0;
+  transition: filter 200ms ease, transform 160ms ease;
 }
-.prompty-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+.gem:hover { transform: scale(1.08); }
+.gem-expanded { transform: scale(1.05); }
+
+.gem-glyph {
+  font-size: 20px;
+  line-height: 1;
+  /* Default (idle) — dim slate ruby, no glow. */
+  color: #7e85a0;
+  transition: color 240ms ease, text-shadow 240ms ease;
 }
 
-.prompty-body-scroll {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 0 12px 12px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+/* Status-coded glow. The gem's color + halo encode the SessionStatus. */
+.gem[data-tone="green"] .gem-glyph {
+  color: #ff5a6e; /* ruby red, lit */
+  text-shadow: 0 0 8px rgba(255, 90, 110, 0.55), 0 0 16px rgba(255, 90, 110, 0.3);
 }
-.prompty-body-scroll::-webkit-scrollbar { width: 6px; }
-.prompty-body-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+.gem[data-tone="amber"] .gem-glyph {
+  color: #e2c14c;
+  text-shadow: 0 0 8px rgba(226, 193, 76, 0.5);
 }
-/* flow-root so the wrapper's measured height includes its children's margins
-   (the overlay's auto-resize relies on this natural-height measurement). */
-.prompty-body-content {
-  display: flow-root;
+.gem[data-tone="red"] .gem-glyph {
+  color: #ff6b6b;
+  text-shadow: 0 0 9px rgba(255, 107, 107, 0.65), 0 0 18px rgba(255, 107, 107, 0.35);
 }
 
-.prompty-brief {
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+/* Calm breathing pulse while listening. */
+.gem-pulsing .gem-glyph {
+  animation: gem-pulse 2.4s ease-in-out infinite;
 }
-/* The goal is secondary to the direction: a thin rule separates it and it sits
-   slightly quieter below. Only rendered when a goal was set. */
-.prompty-brief-goal {
+@keyframes gem-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* ---- The bloomed note: one ephemeral line beneath the gem ---- */
+.gem-bloom {
+  -webkit-app-region: no-drag;
   margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.prompty-label {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #7e85a0;
-  margin-bottom: 2px;
-}
-/* The active coaching skill, as a small pill beside the Direction label. */
-.prompty-skill-badge {
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(120, 140, 255, 0.16);
-  color: #aab4ff;
-  font-size: 9px;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  vertical-align: middle;
-}
-.prompty-goal-text {
-  font-size: 13px;
-  line-height: 1.4;
-  color: #e5e5e5;
-}
-.prompty-brief-empty {
-  color: #7e85a0;
-}
-
-.prompty-checklist {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-.prompty-check {
-  display: flex;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 1.4;
-  color: #c8ccdf;
-  padding: 5px 8px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.025);
-  cursor: pointer;
-  user-select: none;
-  align-items: flex-start;
-}
-.prompty-check:hover { background: rgba(255, 255, 255, 0.06); }
-.prompty-check-icon {
-  width: 14px;
-  flex-shrink: 0;
-  color: #6e7590;
-}
-.prompty-check-text { flex: 1; word-wrap: break-word; }
-.prompty-check-covered { color: #6e7590; text-decoration: line-through; }
-.prompty-check-covered .prompty-check-icon { color: #6ad196; }
-.prompty-check-partial .prompty-check-icon { color: #e2c14c; }
-.prompty-check-skipped { color: #5d637a; text-decoration: line-through; opacity: 0.65; }
-
-/* ---- Sticky-note prompts: a pile, newest on top, pale-yellow paper ---- */
-.prompty-notes {
-  display: flex;
-  flex-direction: column;
-}
-.prompty-note-stack {
-  position: relative;
-  /* Generous top gap so the post-its sit clear of the checklist — and so the
-     peeking edges (which poke up via transform, outside layout) don't crowd it. */
-  margin: 22px 6px 6px;
-}
-.prompty-note {
-  border-radius: 4px;
-  padding: 12px 13px 14px;
-  background: #fdef9a; /* pale Post-it yellow */
-  color: #2c2713;      /* dark ink */
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.4);
-}
-/* High-urgency keeps the plain yellow paper — urgency is communicated by a
-   hand-scribbled mark scrawled in the corner (see .prompty-note-urgent), not
-   by recoloring the note. */
-.prompty-note-urgent {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  display: flex;
-  align-items: flex-start;
-  pointer-events: none;
-  animation: prompty-scribble 0.28s ease-out;
-}
-.prompty-note-mark {
-  width: 18px;
-  height: 30px;
-}
-/* Slightly different angles so the two read as a hand-scrawled "!!". */
-.prompty-note-mark:first-child { transform: rotate(-9deg); }
-/* Pull the second in so they sit tight together. */
-.prompty-note-mark:last-child { transform: rotate(-2deg) translateY(3px); margin-left: -8px; }
-@keyframes prompty-scribble {
-  from { opacity: 0; transform: scale(0.55) rotate(-14deg); }
-  to   { opacity: 1; transform: scale(1) rotate(0deg); }
-}
-.prompty-note-text {
+  padding: 11px 13px 12px;
+  border-radius: 10px;
+  background: rgba(18, 20, 26, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   font-size: 13.5px;
   line-height: 1.45;
   font-weight: 500;
-  padding-right: 42px; /* clearance for the two-mark corner urgency scribble */
+  color: #f1f3f8;
+  animation: gem-bloom-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1.1);
 }
-/* The newest note is in flow (defines the stack height) and drops in on top. */
-.prompty-note-top {
-  position: relative;
-  z-index: 10;
-  transform: rotate(-0.8deg);
-  animation: prompty-note-drop 0.24s cubic-bezier(0.2, 0.8, 0.3, 1.15);
+.gem-bloom-high {
+  border-color: rgba(255, 90, 110, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 18px 1px rgba(255, 70, 60, 0.45);
 }
-/* Older notes sit behind, offset up so just their edge peeks out. */
-.prompty-note-peek {
-  position: absolute;
-  inset: 0;
+@keyframes gem-bloom-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.prompty-note-peek[data-depth="1"] {
-  z-index: 9;
-  transform: rotate(1.5deg) translateY(-6px);
-  filter: brightness(0.95);
+
+/* ---- Expanded history: quiet scrollback ---- */
+.gem-history {
+  -webkit-app-region: no-drag;
+  margin-top: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(18, 20, 26, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
-.prompty-note-peek[data-depth="2"] {
-  z-index: 8;
-  transform: rotate(-2.2deg) translateY(-11px);
-  filter: brightness(0.9);
+.gem-history::-webkit-scrollbar { width: 6px; }
+.gem-history::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
 }
-@keyframes prompty-note-drop {
-  from { opacity: 0; transform: translateY(-12px) rotate(-3deg) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0) rotate(-0.8deg) scale(1); }
-}
-.prompty-empty {
+.gem-history-empty {
   font-size: 12px;
   color: #6e7590;
   text-align: center;
-  padding: 16px 8px;
+  padding: 10px 4px;
 }
-
-.prompty-footer {
-  flex-shrink: 0;
+.gem-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  gap: 6px;
-  padding: 8px 12px 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(20, 22, 28, 0.55);
-}
-.prompty-btn {
-  flex: 1;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-}
-.prompty-btn-start { background: #6a71e2; color: white; }
-.prompty-btn-end   { background: #3a3d4d; color: #f4f5fb; }
-
-/* ---- Overlay header: status dot + heads-up-bar toggle ---- */
-.prompty-overlay-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 8px;
-  padding: 4px 10px 2px;
-  flex-shrink: 0;
 }
-.prompty-status {
+.gem-history-item {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
-.prompty-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: #6e7590;
-}
-.prompty-status-green { background: #6ad196; }
-.prompty-status-amber { background: #e2c14c; }
-.prompty-status-red   { background: #ff6b6b; }
-.prompty-status-dot.pulsing { animation: prompty-pulse 1.4s ease-in-out infinite; }
-.prompty-status-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: #c8ccdf;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.prompty-status-idle { color: #6e7590; }
-.prompty-status-reason {
+.gem-history-item:last-child { border-bottom: none; }
+.gem-history-time {
   font-size: 10px;
-  font-weight: 400;
-  color: #ff8f8f;
-  margin-left: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 320px;
-}
-
-@keyframes prompty-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(0.78); }
-}
-
-/* A real toggle switch (label + sliding track), not a filled pill. */
-.prompty-headsup-switch {
-  -webkit-app-region: no-drag;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 2px 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.prompty-switch-label {
-  font-size: 11px;
   font-weight: 500;
-  color: #9aa0b4;
-  white-space: nowrap;
-}
-.prompty-headsup-switch.on .prompty-switch-label { color: #c8ccdf; }
-.prompty-switch-track {
-  position: relative;
-  width: 28px;
-  height: 16px;
-  border-radius: 999px;
-  background: #3a3d4d;
-  transition: background 140ms ease;
-  flex-shrink: 0;
-}
-.prompty-headsup-switch.on .prompty-switch-track { background: #6a71e2; }
-.prompty-switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: transform 140ms ease;
-}
-.prompty-headsup-switch.on .prompty-switch-thumb { transform: translateX(12px); }
-
-/* ---- Overlay footer actions ---- */
-.prompty-overlay-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-/* A quiet inline suggestion — plain text + a key cap, not a filled button. */
-.prompty-ask-hint-btn {
-  -webkit-app-region: no-drag;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 2px;
-  border: none;
-  background: transparent;
   color: #7e85a0;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 400;
-  text-align: left;
-  cursor: pointer;
+  letter-spacing: 0.02em;
 }
-.prompty-ask-hint-btn:hover { color: #c8ccdf; }
-.prompty-kbd {
-  font-family: inherit;
-  font-size: 10px;
-  color: #c8ccdf;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  padding: 1px 5px;
-  white-space: nowrap;
-}
-.prompty-end-btn {
-  -webkit-app-region: no-drag;
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: transparent;
-  color: #d98a86;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.prompty-end-btn:hover {
-  background: rgba(255, 59, 48, 0.14);
-  color: #ff6b60;
+.gem-history-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #e7eaf2;
 }

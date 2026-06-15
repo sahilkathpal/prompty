@@ -1,6 +1,10 @@
 // Smoke test for in-call system-prompt assembly — no claude, no electron.
 // Verifies conditional-section composition (base + optional skill fragment +
-// optional goal/checklist/notes) and skill-folder resolution.
+// optional direction/notes) and skill-folder resolution.
+//
+// Goal/Checklist were cut from the MVP (RUBY_MVP §4): the direction is the
+// whole brief, and goal/checklist were removed from CallSetup. The assembled
+// prompt must never render a Goal or Checklist section.
 
 import { buildSystemPrompt } from "../src/main-process/prompts/system";
 import { loadSkillFragment, listAvailableSkills } from "../src/main-process/prompts/loader";
@@ -14,7 +18,7 @@ function assert(cond: boolean, msg: string): void {
 }
 
 // 1) No skill, no prep: just base. No optional sections, no playbook, no throw.
-const bare: CallSetup = { goal: "", checklist: [], context: {} };
+const bare: CallSetup = { context: {} };
 const bareP = buildSystemPrompt(bare);
 assert(!bareP.includes("{{"), "bare prompt still has {{placeholders}}");
 assert(
@@ -39,15 +43,12 @@ assert(
   "no-skill prompt should append no playbook section",
 );
 
-// 2) Full + skill: direction + goal + checklist + notes + the skill playbook.
+// 2) Full + skill: direction + notes + the skill playbook. The MVP prompt has
+//    no Goal/Checklist sections (those fields are gone from CallSetup) — the
+//    direction is the whole brief.
 const full: CallSetup = {
-  goal: "Get them to commit to a 2-week pilot",
   direction:
     "Explore their ingestion pain before pitching; stay curious and qualify fit.",
-  checklist: [
-    { id: "c1", text: "Budget authority", status: "open" },
-    { id: "c2", text: "Current tooling", status: "partial" },
-  ],
   context: { manualNotes: "Skeptical CTO — mention SOC2." },
   skill: "discovery",
 };
@@ -60,30 +61,25 @@ assert(
   fullP.includes("Explore their ingestion pain before pitching"),
   "full prompt missing direction text",
 );
-assert(fullP.includes("## Goal\n"), "full prompt missing Goal section");
+assert(!fullP.includes("## Goal\n"), "MVP prompt should not render a Goal section");
 assert(
-  fullP.includes("Get them to commit to a 2-week pilot"),
-  "full prompt missing goal text",
+  !fullP.includes("## Checklist\n"),
+  "MVP prompt should not render a Checklist section",
 );
-assert(
-  fullP.includes("## Checklist\n"),
-  "full prompt missing checklist section",
-);
-assert(fullP.includes("[c1]") && fullP.includes("Budget authority"), "missing checklist item");
 assert(fullP.includes("## Background context"), "full prompt missing context section");
 assert(fullP.includes("Skeptical CTO — mention SOC2."), "full prompt missing notes");
 assert(
   fullP.includes("sales discovery"),
   "discovery prompt should include the discovery playbook",
 );
-// Direction must render above the checklist (priority order).
+// Direction must render above the background context (priority order).
 assert(
-  fullP.indexOf("## Direction\n") < fullP.indexOf("## Checklist\n"),
-  "Direction section should precede the checklist section",
+  fullP.indexOf("## Direction\n") < fullP.indexOf("## Background context"),
+  "Direction section should precede the Background context section",
 );
 
 // 3) Unknown skill appends no fragment (no throw, no leak).
-const unknown: CallSetup = { goal: "", checklist: [], context: {}, skill: "no-such-skill" };
+const unknown: CallSetup = { context: {}, skill: "no-such-skill" };
 const unknownP = buildSystemPrompt(unknown);
 assert(
   !unknownP.includes("## Playbook:"),
@@ -91,13 +87,14 @@ assert(
 );
 assert(unknownP.includes("real-time call coach"), "unknown-skill prompt still has the base");
 
-// 4) prep fragment loads for a known skill; "" for empty/unknown skill (no
-//    default fallback exists anymore).
+// 4) in-call fragment loads for a known skill; "" for empty/unknown skill (no
+//    default fallback exists anymore). (Prep playbooks were removed in the Ruby
+//    MVP strip — prep is a cut feature — so only the in-call fragment remains.)
 assert(
-  loadSkillFragment("user-interview", "prep").includes("Mom Test"),
-  "user-interview prep fragment should mention Mom Test",
+  loadSkillFragment("user-interview", "in-call").trim().length > 0,
+  "user-interview in-call fragment should be non-empty",
 );
-assert(loadSkillFragment("", "prep") === "", "empty skill prep fragment should be ''");
+assert(loadSkillFragment("", "in-call") === "", "empty skill in-call fragment should be ''");
 assert(
   loadSkillFragment("no-such-skill", "in-call") === "",
   "unknown skill in-call fragment should be ''",

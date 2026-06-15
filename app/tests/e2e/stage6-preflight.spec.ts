@@ -1,11 +1,11 @@
-import { test, expect, _electron as electron, ElectronApplication, Page } from "@playwright/test";
+import { test, expect, _electron as electron, ElectronApplication } from "@playwright/test";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
 
-// S6 verification: a start attempt that fails pre-flight (mic / auth / claude)
-// must NOT open a dead overlay — it surfaces an actionable banner in the main
-// window. A clean start (mocks, no forced failure) still opens the overlay.
+// S6 verification: a clean start (mocks, no forced failure) opens the overlay.
+// (The parametrized preflight-failure cases asserted removed mic/auth/claude
+// banner UI and were dropped in the Ruby MVP rebuild.)
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
@@ -24,28 +24,9 @@ async function seedSettings(userDataDir: string): Promise<void> {
       panelPosition: null,
       launchAtLogin: false,
       hotkey: "Alt+Shift+Space",
-      signedIn: true,
       onboardingCompleted: true,
       loginItemPrompted: true,
-      signedInUserId: "google-sub-abc",
-      signedInEmail: "alice@example.com",
       lastTab: "in-call",
-      headsUpBar: true,
-    }),
-    "utf8",
-  );
-}
-
-async function seedSession(userDataDir: string): Promise<void> {
-  await fs.writeFile(
-    path.join(userDataDir, "google-session.bin"),
-    JSON.stringify({
-      accessToken: "fake-access",
-      refreshToken: "fake-refresh",
-      expiresAt: Date.now() + 3_600_000,
-      sub: "google-sub-abc",
-      email: "alice@example.com",
-      idToken: "fake-id-token",
     }),
     "utf8",
   );
@@ -55,7 +36,6 @@ async function launchApp(extraEnv: Record<string, string> = {}): Promise<Electro
   const userDataDir = await freshUserDataDir();
   const callLogDir = await freshCallLogDir();
   await seedSettings(userDataDir);
-  await seedSession(userDataDir);
   return await electron.launch({
     args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
     env: {
@@ -88,62 +68,12 @@ async function startSession(app: ElectronApplication): Promise<{ ok: boolean; er
   })) as { ok: boolean; error?: string };
 }
 
-async function getMainPage(app: ElectronApplication): Promise<Page> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const p = app.windows().find((pg) => pg.url().includes("main-window"));
-    if (p) return p;
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  throw new Error("main window page not found");
-}
-
 function overlayVisible(app: ElectronApplication): Promise<boolean> {
   return app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().some(
       (w) => !w.isDestroyed() && w.isVisible() && w.webContents.getURL().includes("overlay"),
     ),
   );
-}
-
-async function overlayStaysHidden(app: ElectronApplication, ms = 1500): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (await overlayVisible(app)) return false;
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  return true;
-}
-
-const CASES: { code: "mic" | "auth" | "claude"; action: string }[] = [
-  { code: "mic", action: "preflight-grant-mic" },
-  { code: "auth", action: "preflight-sign-in" },
-  { code: "claude", action: "preflight-install-claude" },
-];
-
-for (const c of CASES) {
-  test(`Stage 6: preflight '${c.code}' failure blocks start and shows the banner`, async () => {
-    const app = await launchApp({ PROMPTY_E2E_FORCE_PREFLIGHT: c.code });
-    try {
-      await waitForReady(app);
-      const res = await startSession(app);
-      expect(res.ok).toBe(false);
-      expect(res.error).toBe(c.code);
-
-      // The main window opens and shows the actionable banner (via preflight:get
-      // on mount and/or the preflight:failed broadcast).
-      const main = await getMainPage(app);
-      const banner = main.locator('[data-testid="preflight-error"]');
-      await expect(banner).toBeVisible({ timeout: 8000 });
-      await expect(banner).toHaveAttribute("data-code", c.code);
-      await expect(main.locator(`[data-testid="${c.action}"]`)).toBeVisible();
-
-      // No dead overlay.
-      expect(await overlayStaysHidden(app)).toBe(true);
-    } finally {
-      await app.close();
-    }
-  });
 }
 
 test("Stage 6: a clean start (mocks, no forced failure) opens the overlay", async () => {

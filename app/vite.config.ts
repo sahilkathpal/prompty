@@ -17,7 +17,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         overlay: resolve(__dirname, "src/overlay/index.html"),
-        teleprompter: resolve(__dirname, "src/teleprompter/index.html"),
         "main-window": resolve(__dirname, "src/main-window/index.html"),
         onboarding: resolve(__dirname, "src/onboarding/index.html"),
       },
