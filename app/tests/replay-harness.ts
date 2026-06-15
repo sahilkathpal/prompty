@@ -352,7 +352,11 @@ async function replayOne(
     }
   }
 
-  await handle.end();
+  // background:false — await the summary pass + debug-log render inline, so the
+  // call log is fully finalized (and the .md below exists) before we read it.
+  // (The live app backgrounds this for an instant end; an offline tool wants the
+  // complete artifact.)
+  await handle.end("user", { background: false });
 
   // debug-logger renders the .md sibling on close. Surface the newest one in
   // outDir so the user can open it straight away.
