@@ -150,16 +150,9 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    // Restore the persisted direction — box ⇄ ~/.prompty/playground/direction.md.
-    window.prompty
-      .invoke("direction:load-current", undefined as never)
-      .then((r) => {
-        if (r.content && !seeded.current) {
-          setDirection(r.content);
-          seeded.current = true;
-        }
-      })
-      .catch(() => {});
+    // Direction is ephemeral (RUBY B2 phase 2a): the editor starts empty every
+    // launch. The only seed is an already-live call's direction, so reopening
+    // the window mid-call still shows what's being coached.
     window.prompty
       .invoke("session:state", undefined as never)
       .then((r) => {
@@ -251,18 +244,13 @@ export default function App(): JSX.Element {
   // status line explains the wait, so a re-click can't fire end() again.
   const isEnding = sessionState === "ending";
 
-  const saveDir = useCallback((text: string) => {
-    void window.prompty.invoke("direction:save-current", { content: text });
-  }, []);
-
   const start = useCallback(async () => {
     setError(null);
     if (!direction.trim()) {
       setError("Add a direction first — it's the brief your coach follows on the call.");
       return;
     }
-    saveDir(direction);
-    const r = await window.prompty.invoke("call:start", {});
+    const r = await window.prompty.invoke("call:start", { direction });
     if (!r.ok) {
       const pf = await window.prompty
         .invoke("preflight:get", undefined as never)
@@ -270,7 +258,7 @@ export default function App(): JSX.Element {
       setError(pf?.message ?? r.error ?? "Couldn't start the call.");
       if (pf?.code === "mic") refreshMic();
     }
-  }, [direction, saveDir, refreshMic]);
+  }, [direction, refreshMic]);
 
   const end = useCallback(() => {
     void window.prompty.invoke("call:end", undefined as never);
@@ -280,11 +268,8 @@ export default function App(): JSX.Element {
     const r = await window.prompty
       .invoke("direction:load-file", undefined as never)
       .catch(() => null);
-    if (r) {
-      setDirection(r.content);
-      saveDir(r.content);
-    }
-  }, [saveDir]);
+    if (r) setDirection(r.content);
+  }, []);
 
   const toggleDebug = useCallback(() => {
     setDebug((cur) => {
@@ -373,7 +358,6 @@ export default function App(): JSX.Element {
               data-testid="playground-direction"
               value={direction}
               onChange={(e) => setDirection(e.target.value)}
-              onBlur={() => saveDir(direction)}
               placeholder="Describe what a good call looks like: what to explore, the stance to carry, when to speak up…"
               spellCheck={false}
               style={S.textarea}

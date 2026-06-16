@@ -95,24 +95,6 @@ let lastPreflightFailure:
   | null = null;
 let lastBroadcastState: SessionState | "idle" = "idle";
 
-// The single persisted playground direction. UI box ⇄ this file. It is the
-// surviving free-text context input (RUBY_MVP §7.2): a call starts straight
-// from this direction with no prep.
-const playgroundDirectionFile = path.join(
-  os.homedir(),
-  ".prompty",
-  "playground",
-  "direction.md",
-);
-
-async function readPlaygroundDirection(): Promise<string> {
-  try {
-    return await fs.readFile(playgroundDirectionFile, "utf8");
-  } catch {
-    return "";
-  }
-}
-
 // Build a CallSetup from the free-text direction (+ optional skill). No prep,
 // no goal, no checklist — the direction is the whole brief (RUBY_MVP §3, §7.2).
 function directionToSetup(direction: string, skill?: string): CallSetup {
@@ -185,7 +167,7 @@ async function preflight(): Promise<PreflightResult> {
 }
 
 async function doStartSession(
-  skill?: string,
+  opts: { skill?: string; direction?: string } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   if (activeSession) {
     return { ok: false, error: "session already active" };
@@ -204,10 +186,9 @@ async function doStartSession(
     return { ok: false, error: pf.code };
   }
   lastPreflightFailure = null;
-  // The free-text direction (persisted to ~/.prompty/playground/direction.md by
-  // the direction:save-current handler) is the whole brief. No prep dependency.
-  const direction = await readPlaygroundDirection();
-  const setup = directionToSetup(direction, skill);
+  // The ephemeral per-call direction comes straight from the renderer at start
+  // (RUBY B2 phase 2a) — nothing is read from disk. It is the whole brief.
+  const setup = directionToSetup(opts.direction ?? "", opts.skill);
   activeSessionSetup = setup;
   statusLog = [];
 
@@ -405,7 +386,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   });
 
   handle("call:start", async (payload) => {
-    return doStartSession(payload?.skill);
+    return doStartSession({
+      skill: payload?.skill,
+      direction: payload?.direction,
+    });
   });
 
   handle("call:end", async () => {
@@ -429,20 +413,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     } catch (e) {
       console.error("[ipc] direction:load-file failed:", (e as Error).message);
       return null;
-    }
-  });
-
-  handle("direction:load-current", async () => {
-    return { content: await readPlaygroundDirection() };
-  });
-  handle("direction:save-current", async (payload) => {
-    try {
-      await fs.mkdir(path.dirname(playgroundDirectionFile), { recursive: true });
-      await fs.writeFile(playgroundDirectionFile, payload?.content ?? "", "utf8");
-      return { ok: true };
-    } catch (e) {
-      console.error("[ipc] direction:save-current failed:", (e as Error).message);
-      return { ok: false };
     }
   });
 

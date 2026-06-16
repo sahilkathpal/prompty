@@ -60,22 +60,12 @@ export interface InvokeChannels {
     request: { name: string; title: string };
     response: { ok: boolean };
   };
-  // Playground: pick a file and return its contents, to load a direction/prompt
-  // from disk instead of typing it. Returns null if the user cancels.
+  // Pick a file and return its contents, to load a direction into the editor
+  // instead of typing it. Returns null if the user cancels. (Convenience only —
+  // direction is no longer persisted between calls.)
   "direction:load-file": {
     request: void;
     response: { content: string; path: string } | null;
-  };
-  // Playground: the single persisted direction (~/.prompty/playground/direction.md).
-  // The home textarea loads this on launch and saves it on Start/blur, so the UI
-  // box and the on-disk file are the same artifact — nothing is lost.
-  "direction:load-current": {
-    request: void;
-    response: { content: string };
-  };
-  "direction:save-current": {
-    request: { content: string };
-    response: { ok: boolean };
   };
   // Memory (RUBY upgrade B1): the user's curated personalisation for how Ruby
   // coaches them. Flat global list, managed from the Memory tab; injected into
@@ -105,9 +95,10 @@ export interface InvokeChannels {
     response: AppSettings;
   };
   "call:start": {
-    // Optional skill. Lets a user start a call straight from the home screen
-    // with a chosen playbook (or none), with no prep required.
-    request: { skill?: string } | void;
+    // The per-call direction (the whole brief) typed in the Direction tab, plus
+    // an optional skill. Direction is ephemeral: passed in at start, snapshotted
+    // into the CallLog, never persisted pre-call (RUBY B2 phase 2a).
+    request: { skill?: string; direction?: string } | void;
     response: { ok: boolean; error?: string };
   };
   "call:end": {
