@@ -512,10 +512,12 @@ export default function App(): JSX.Element {
                 ✕
               </button>
             </div>
-            <input
-              style={S.memInput}
+            <textarea
+              style={S.goalInput}
               data-testid="goal-input"
               value={c.text}
+              rows={2}
+              placeholder="The one outcome that makes this call a success…"
               onChange={(e) => editGoal(c.id, e.target.value)}
             />
           </div>
@@ -1179,6 +1181,21 @@ const S: Record<string, React.CSSProperties> = {
     boxSizing: "border-box",
   },
   compBlock: { marginBottom: 16 },
+  goalInput: {
+    width: "100%",
+    minHeight: 64,
+    padding: "10px 12px",
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: v("--ink", "#211d15"),
+    background: v("--card", "#fff"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 10,
+    outline: "none",
+    resize: "vertical",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+  },
   compHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
   compKind: {
     fontSize: 10,
