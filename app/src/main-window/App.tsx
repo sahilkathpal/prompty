@@ -19,7 +19,13 @@ type CallMeta = {
   endedAt?: number;
   summaryPending?: boolean;
 };
-type Tab = "direction" | "settings";
+type Tab = "direction" | "memory" | "settings";
+type Mem = { id: string; text: string; createdAt: number; source: "manual" | "suggested" };
+const TAB_LABELS: Record<Tab, string> = {
+  direction: "Direction",
+  memory: "Memory",
+  settings: "Settings",
+};
 
 // The post-call card (RUBY_MVP decision #9), as written onto the call log JSON
 // by summary.ts. Optional fields are defensive — older logs predate this shape.
@@ -91,6 +97,9 @@ export default function App(): JSX.Element {
   const [editing, setEditing] = useState<{ name: string; draft: string } | null>(null);
   const [micStatus, setMicStatus] = useState<string | null>(null);
   const [claude, setClaude] = useState<{ found: boolean; path: string | null } | null>(null);
+  const [memories, setMemories] = useState<Mem[]>([]);
+  const [newMemory, setNewMemory] = useState("");
+  const [editingMem, setEditingMem] = useState<{ id: string; draft: string } | null>(null);
   const seeded = useRef(false);
 
   const refreshCalls = useCallback(() => {
@@ -109,6 +118,12 @@ export default function App(): JSX.Element {
     window.prompty
       .invoke("onboarding:check-claude", undefined as never)
       .then((r) => setClaude(r))
+      .catch(() => {});
+  }, []);
+  const refreshMemories = useCallback(() => {
+    window.prompty
+      .invoke("memory:list", undefined as never)
+      .then((r) => setMemories(r.items))
       .catch(() => {});
   }, []);
   const readCall = useCallback(async (name: string): Promise<ParsedCall | null> => {
@@ -172,6 +187,7 @@ export default function App(): JSX.Element {
     refreshCalls();
     refreshMic();
     refreshClaude();
+    refreshMemories();
 
     const offState = window.prompty.on("session:state-changed", (p) => {
       setSessionState(p.state);
@@ -200,7 +216,33 @@ export default function App(): JSX.Element {
       offPf();
       offCallsUpdated();
     };
-  }, [refreshCalls, refreshMic, refreshClaude, readCall]);
+  }, [refreshCalls, refreshMic, refreshClaude, refreshMemories, readCall]);
+
+  const addMemoryItem = useCallback(() => {
+    const text = newMemory.trim();
+    if (!text) return;
+    setNewMemory("");
+    void window.prompty.invoke("memory:add", { text }).then((r) => {
+      if (r.item) setMemories((list) => [...list, r.item as Mem]);
+    });
+  }, [newMemory]);
+
+  const saveMemoryEdit = useCallback(() => {
+    if (!editingMem) return;
+    const { id, draft } = editingMem;
+    const text = draft.trim();
+    setEditingMem(null);
+    if (!text) return;
+    void window.prompty.invoke("memory:update", { id, text }).then((r) => {
+      if (r.ok) setMemories((list) => list.map((m) => (m.id === id ? { ...m, text } : m)));
+    });
+  }, [editingMem]);
+
+  const deleteMemoryItem = useCallback((id: string) => {
+    void window.prompty.invoke("memory:delete", { id }).then((r) => {
+      if (r.ok) setMemories((list) => list.filter((m) => m.id !== id));
+    });
+  }, []);
 
   const isLive =
     sessionState === "starting" || sessionState === "live" || sessionState === "ending";
@@ -298,13 +340,14 @@ export default function App(): JSX.Element {
           <div style={S.subtitle}>Your coaching brief — what a good call looks like, on every call.</div>
         </div>
         <nav className="app-no-drag" style={S.nav}>
-          {(["direction", "settings"] as Tab[]).map((t) => (
+          {(["direction", "memory", "settings"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
+              data-testid={`tab-${t}`}
               style={{ ...S.navBtn, ...(tab === t ? S.navBtnActive : null) }}
             >
-              {t === "direction" ? "Direction" : "Settings"}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </nav>
@@ -439,6 +482,94 @@ export default function App(): JSX.Element {
                   </ul>
                 </div>
               ))
+            )}
+          </section>
+        </>
+      ) : tab === "memory" ? (
+        <>
+          <section style={S.card}>
+            <div style={S.cardHead}>
+              <span style={S.label}>Memory</span>
+            </div>
+            <div style={S.memIntro}>
+              Tell Ruby how to coach you. These apply to every call — nudge
+              frequency, tone, things to always watch for.
+            </div>
+            <div style={S.memAddRow}>
+              <input
+                data-testid="memory-input"
+                style={S.memInput}
+                value={newMemory}
+                placeholder="e.g. Nudge me rarely — only when it really matters."
+                onChange={(e) => setNewMemory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addMemoryItem();
+                }}
+              />
+              <button
+                style={S.btnAccent}
+                data-testid="memory-add"
+                onClick={addMemoryItem}
+                disabled={!newMemory.trim()}
+              >
+                Add
+              </button>
+            </div>
+            {memories.length === 0 ? (
+              <div style={S.empty} data-testid="memory-empty">
+                No memories yet — add one above and Ruby will keep it in mind.
+              </div>
+            ) : (
+              <ul style={S.list} data-testid="memory-list">
+                {memories.map((m) => {
+                  const isEditing = editingMem?.id === m.id;
+                  return (
+                    <li key={m.id}>
+                      <div className="pc-rowwrap" style={S.memRowWrap} data-testid="memory-item">
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            style={S.renameInput}
+                            value={editingMem.draft}
+                            onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveMemoryEdit();
+                              if (e.key === "Escape") setEditingMem(null);
+                            }}
+                            onBlur={saveMemoryEdit}
+                          />
+                        ) : (
+                          <>
+                            <span style={S.memText}>{m.text}</span>
+                            {m.source === "suggested" && (
+                              <span style={S.memTag} title="Suggested by Ruby">
+                                suggested
+                              </span>
+                            )}
+                            <button
+                              style={S.renameBtn}
+                              title="Edit"
+                              aria-label="Edit memory"
+                              onClick={() => setEditingMem({ id: m.id, draft: m.text })}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              style={S.renameBtn}
+                              title="Delete"
+                              aria-label="Delete memory"
+                              data-testid="memory-delete"
+                              onClick={() => deleteMemoryItem(m.id)}
+                            >
+                              ✕
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </section>
         </>
@@ -686,6 +817,38 @@ const S: Record<string, React.CSSProperties> = {
   },
   cardHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   empty: { fontSize: 13, color: v("--muted-dim", "#6a6a72") },
+  memIntro: { fontSize: 13, lineHeight: 1.5, color: v("--muted", "#6e6757"), marginBottom: 14 },
+  memAddRow: { display: "flex", gap: 10, marginBottom: 8 },
+  memInput: {
+    flex: 1,
+    padding: "10px 12px",
+    fontSize: 13,
+    color: v("--ink", "#211d15"),
+    background: v("--card", "#fff"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 10,
+    outline: "none",
+    fontFamily: "inherit",
+  },
+  memRowWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "10px 12px",
+    borderRadius: 10,
+  },
+  memText: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.45, color: v("--ink", "#211d15") },
+  memTag: {
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: v("--gold", "#c98e2e"),
+    border: `1px solid ${v("--gold", "#c98e2e")}`,
+    borderRadius: 6,
+    padding: "2px 6px",
+  },
   list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 },
   callRow: {
     width: "100%",

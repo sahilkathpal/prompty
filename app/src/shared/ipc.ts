@@ -12,6 +12,7 @@ import type {
   PanelState,
   AppSettings,
   CallSetup,
+  MemoryItem,
   TranscriptUtterance,
   PermissionStatus,
   MainTab,
@@ -74,6 +75,25 @@ export interface InvokeChannels {
   };
   "direction:save-current": {
     request: { content: string };
+    response: { ok: boolean };
+  };
+  // Memory (RUBY upgrade B1): the user's curated personalisation for how Ruby
+  // coaches them. Flat global list, managed from the Memory tab; injected into
+  // the in-call + hotkey prompts.
+  "memory:list": {
+    request: void;
+    response: { items: MemoryItem[] };
+  };
+  "memory:add": {
+    request: { text: string };
+    response: { item: MemoryItem | null };
+  };
+  "memory:update": {
+    request: { id: string; text: string };
+    response: { ok: boolean };
+  };
+  "memory:delete": {
+    request: { id: string };
     response: { ok: boolean };
   };
   "settings:get": {

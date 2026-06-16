@@ -22,6 +22,12 @@ import {
 import { rebuildMenu } from "./tray";
 import { startSession, type SessionHandle, type SessionState } from "../src/main-process/coach-session";
 import { deriveCallTitle } from "../src/main-process/call-log";
+import {
+  readMemory,
+  addMemory,
+  updateMemory,
+  deleteMemory,
+} from "../src/main-process/memory-store";
 import { debugDir } from "../src/main-process/debug-logger";
 import type {
   CallSetup,
@@ -357,6 +363,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return { content: `Error reading ${safe}: ${(e as Error).message}` };
     }
   });
+
+  handle("memory:list", () => ({ items: readMemory() }));
+  handle("memory:add", (payload) => ({
+    item: addMemory(payload.text, "manual"),
+  }));
+  handle("memory:update", (payload) => ({
+    ok: updateMemory(payload.id, payload.text),
+  }));
+  handle("memory:delete", (payload) => ({ ok: deleteMemory(payload.id) }));
 
   handle("settings:get", () => getSettings());
 
