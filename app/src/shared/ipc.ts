@@ -61,13 +61,6 @@ export interface InvokeChannels {
     request: { name: string; title: string };
     response: { ok: boolean };
   };
-  // Pick a file and return its contents, to load a direction into the editor
-  // instead of typing it. Returns null if the user cancels. (Convenience only —
-  // direction is no longer persisted between calls.)
-  "direction:load-file": {
-    request: void;
-    response: { content: string; path: string } | null;
-  };
   // Memory (RUBY upgrade B1): the user's curated personalisation for how Ruby
   // coaches them. Flat global list, managed from the Memory tab; injected into
   // the in-call + hotkey prompts.

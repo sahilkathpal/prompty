@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, ipcMain, Notification, shell, systemPreferences } from "electron";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -459,26 +459,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle("call:end", async () => {
     return doEndSession();
-  });
-
-  handle("direction:load-file", async () => {
-    const res = await dialog.showOpenDialog({
-      title: "Load direction from file",
-      properties: ["openFile"],
-      filters: [
-        { name: "Markdown / text", extensions: ["md", "txt"] },
-        { name: "All files", extensions: ["*"] },
-      ],
-    });
-    const file = res.canceled ? undefined : res.filePaths[0];
-    if (!file) return null;
-    try {
-      const content = await fs.readFile(file, "utf8");
-      return { content, path: file };
-    } catch (e) {
-      console.error("[ipc] direction:load-file failed:", (e as Error).message);
-      return null;
-    }
   });
 
   handle("nudge:request", (payload) => {

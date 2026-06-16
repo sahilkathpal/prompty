@@ -324,13 +324,6 @@ export default function App(): JSX.Element {
     void window.prompty.invoke("call:end", undefined as never);
   }, []);
 
-  const loadFile = useCallback(async () => {
-    const r = await window.prompty
-      .invoke("direction:load-file", undefined as never)
-      .catch(() => null);
-    if (r) setDirection(r.content);
-  }, []);
-
   const toggleDebug = useCallback(() => {
     setDebug((cur) => {
       const next = !cur;
@@ -577,9 +570,6 @@ export default function App(): JSX.Element {
               style={S.textarea}
             />
             <div style={S.row}>
-              <button style={S.btnGhost} onClick={loadFile}>
-                Load from file…
-              </button>
               {!prepOpen && !isLive && (
                 <button style={S.btnGhost} data-testid="prep-open" onClick={openPrep}>
                   Prep with Ruby
