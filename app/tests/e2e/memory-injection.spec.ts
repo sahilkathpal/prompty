@@ -13,7 +13,7 @@ import fs from "node:fs/promises";
 // injected into the in-call agent's RESOLVED system prompt under a
 // `## What Ruby knows about you` section. We drive the real built Electron app,
 // start a session, then assert against the `session-start` event's
-// `systemPrompt` captured by the debug logger (requires debugMode:true) — i.e.
+// `systemPrompt` captured by the debug logger (requires PROMPTY_DEBUG=1) — i.e.
 // the actual model-facing prompt the app produced, not a re-derivation.
 
 const APP_ROOT = path.resolve(__dirname, "../..");
@@ -26,7 +26,6 @@ async function seedSettings(userDataDir: string): Promise<void> {
     JSON.stringify({
       onboardingCompleted: true,
       loginItemPrompted: true,
-      debugMode: true, // REQUIRED: makes the resolved prompt get captured.
       hotkey: "Alt+Shift+Space",
       panelPosition: null,
       launchAtLogin: false,
@@ -46,6 +45,7 @@ async function launchApp(
     env: {
       ...process.env,
       PROMPTY_E2E: "1",
+      PROMPTY_DEBUG: "1", // REQUIRED: makes the resolved prompt get captured.
       PROMPTY_MOCK_AUDIO: "1",
       PROMPTY_MOCK_DEEPGRAM: "1",
       PROMPTY_MOCK_AGENT: "1",

@@ -24,7 +24,6 @@ async function seedSettings(userDataDir: string): Promise<void> {
     JSON.stringify({
       onboardingCompleted: true,
       loginItemPrompted: true,
-      debugMode: true,
       hotkey: "Alt+Shift+Space",
       panelPosition: null,
       launchAtLogin: false,
@@ -40,6 +39,7 @@ async function launchApp(userDataDir: string): Promise<ElectronApplication> {
     env: {
       ...process.env,
       PROMPTY_E2E: "1",
+      PROMPTY_DEBUG: "1",
       PROMPTY_MOCK_AUDIO: "1",
       PROMPTY_MOCK_DEEPGRAM: "1",
       PROMPTY_MOCK_AGENT: "1",

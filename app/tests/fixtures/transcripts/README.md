@@ -93,8 +93,39 @@ npm run replay -- tests/fixtures/transcripts/my-fixture.jsonl
 
 ## Prefer recording over hand-authoring
 
-The best fixtures are *real*: turn on the `debugMode` setting, take a call, and
+The best fixtures are *real*: set `PROMPTY_DEBUG=1` in your `.env`, take a call, and
 `~/.prompty/debug/call-*.jsonl` already has correct structure, real fragmentation,
-and hotkey markers. Hand-author only for deliberate edge cases you can't easily
-record (or can't share because the real one is sensitive). See
+and hotkey markers. Hand-author (or AI-generate) only for deliberate edge cases you
+can't easily record (or can't share because the real one is sensitive). See
 `discovery-kafka.jsonl` in this folder as a worked example.
+
+## Generating a fixture with AI
+
+You don't need a script — ask Claude (in the editor, or a subagent) to write the
+fixture, then commit it. The format is trivial; what makes a *good* fixture is the
+messiness discipline above, so paste that into the prompt. A working starting point:
+
+> Write a synthetic call transcript as a replay fixture for Prompty's coach, in the
+> debug-JSONL format below. Emit ONLY the file contents — one JSON object per line,
+> no prose, no code fence.
+>
+> Scenario: **\<describe it — e.g. "a discovery call where the prospect is cagey
+> about budget and keeps deflecting to features"\>**.
+>
+> Lines:
+> - First line: `{"kind":"session-start","direction":"…","skill":"discovery"}`
+>   (set `skill` to `discovery` | `hiring` | `user-interview` or omit; add
+>   `goal`, `checklist`, `attendee` if the scenario wants them).
+> - Then `{"kind":"utterance","speaker":"them|me","text":"…","startMs":0,"endMs":0}`
+>   lines — `them` = the other party, `me` = the user being coached.
+> - Optionally one `{"kind":"agent-turn","trigger":"hotkey"}` line at a natural
+>   "your turn" beat to exercise the hotkey.
+>
+> Make it realistically messy, NOT a clean script: Deepgram-style fragmentation,
+> mid-sentence cut-offs, filler and false starts, plus dead air (small talk,
+> "Yeah.", "Nice.", tangents) that a good coach should stay QUIET through. Plant
+> only one or two genuine openings (pain / buying signal / a checklist-relevant
+> thread). Aim for ~30–50 utterances. One scenario per file.
+
+Then sanity-check and run it with the authoring loop above. Name the file for the
+scenario (`discovery-cagey-budget.jsonl`).

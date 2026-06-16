@@ -8,11 +8,12 @@ const store = new Store<AppSettings>({
 
 // One-shot, idempotent migration: strip now-removed keys from pre-Ruby settings
 // files (`focusMode`, `compact`, `headsUpBar` — the gem replaced the
-// teleprompter/heads-up-bar split, so the toggle is gone). Runs on every load
-// but only writes when a legacy key is actually present.
+// teleprompter/heads-up-bar split, so the toggle is gone; `debugMode` — debug
+// capture moved off the settings surface to the `PROMPTY_DEBUG` env switch).
+// Runs on every load but only writes when a legacy key is actually present.
 (function migrateLegacySettings(): void {
   const raw = store.store as unknown as Record<string, unknown>;
-  for (const key of ["focusMode", "compact", "headsUpBar"] as const) {
+  for (const key of ["focusMode", "compact", "headsUpBar", "debugMode"] as const) {
     if (Object.prototype.hasOwnProperty.call(raw, key)) {
       store.delete(key as keyof AppSettings);
     }

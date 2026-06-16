@@ -44,7 +44,6 @@ PROMPTY_MOCK_DEEPGRAM=1 npm run replay   # no key needed (audio is mocked anyway
 npm run replay                          # built-in committed fixture
 npm run replay -- ~/.prompty/debug      # every *.jsonl in a directory
 npm run replay -- path/to/call-*.jsonl  # one or more recorded sessions
-npm run replay -- ~/.prompty/calls/x.json   # an old call log (see below)
 npm run replay -- --parse-only [path]   # load + print, don't call the model
 ```
 
@@ -66,19 +65,18 @@ while you iterate.)
 
 ```bash
 PROMPTY_MOCK_DEEPGRAM=1 npm run replay -- --direction-file ./scratch-prompt.md \
-  ~/.prompty/calls/2026-06-05T12-54-16-748Z-Name.json
+  tests/fixtures/transcripts/discovery-kafka.jsonl
 ```
 
 `--skill`/`--direction` matter because replay always loads your *current* repo
 prompts: a transcript that stored a skill loads it automatically, but to test a
-**new skill or direction against a transcript that didn't store one** (e.g. an old
-call log), impose it. Example — test the discovery playbook on a past call, first
-30 turns only:
+**new skill or direction against a transcript that didn't store one**, impose it.
+Example — test the discovery playbook on a recorded call, first 30 turns only:
 
 ```bash
 PROMPTY_MOCK_DEEPGRAM=1 npm run replay -- --limit 30 --skill discovery \
   --direction "Explore their workflow pain before pitching" \
-  ~/.prompty/calls/2026-06-05T12-54-16-748Z-Name.json
+  ~/.prompty/debug/call-2026-06-05T12-54-16-748Z.jsonl
 ```
 
 The timeline shows, per turn: auto-nudges (💡), stay-quiet reasons (·), and — at a
@@ -104,29 +102,22 @@ with the model's context and raw response — the "why did it say (or not say) t
 view. (This lives under `~/.prompty/replay/`, NOT `~/.prompty/debug/`, so replaying
 `~/.prompty/debug` never picks up its own output.)
 
-**Transcripts (the input):**
+**Transcripts (the input).** One format — debug-JSONL — from two sources:
 
-1. **Recorded real calls** — turn on the `debugMode` setting, take a call, and a
+1. **Recorded real calls** — set `PROMPTY_DEBUG=1` in your `.env` (the same
+   gitignored file as `DEEPGRAM_API_KEY`), take a call, and a
    `~/.prompty/debug/call-*.jsonl` is written (with `agent-turn` `trigger:"hotkey"`
    lines marking every hotkey press). Replay it forever. **These stay local — we
-   don't commit real calls.**
-2. **Hand-authored fixtures** — `tests/fixtures/transcripts/*.jsonl`, committed and
-   shared. Same debug-JSONL format: a `session-start` line, `utterance` lines, and
-   a `{"kind":"agent-turn","trigger":"hotkey"}` line wherever you want the hotkey
-   exercised. Mostly you'll *record* these (copy a debug log in) rather than type
-   them.
-3. **Old call logs** — `~/.prompty/calls/*.json` (the always-on call record, written
-   for *every* call). Pass a `.json` path and the harness loads it too:
-
-   ```bash
-   PROMPTY_MOCK_DEEPGRAM=1 npm run replay -- ~/.prompty/calls/2026-06-02T06-22-47-980Z-Name.json
-   ```
-
-   Caveats vs a debug recording: no **hotkey** markers (the format never had them, so
-   only auto-nudges replay) and no **direction** (call logs don't persist it — falls
-   back to skill alone). Note big calls = one model turn per utterance: a
-   600-utterance log is a long, quota-heavy run. Directory globbing only picks up
-   `*.jsonl`, so pass old `.json` logs as explicit paths (no accidental mass replay).
+   don't commit real calls.** (`PROMPTY_DEBUG` is an env switch, not a UI setting:
+   it ships in every build but is invisible to external users, who never get a
+   `.env`.) Note big calls = one model turn per utterance: a 600-utterance log is a
+   long, quota-heavy run.
+2. **Hand-authored / AI-generated fixtures** — `tests/fixtures/transcripts/*.jsonl`,
+   committed and shared. Same debug-JSONL format: a `session-start` line,
+   `utterance` lines, and a `{"kind":"agent-turn","trigger":"hotkey"}` line wherever
+   you want the hotkey exercised. Record these, hand-write them, or have an AI
+   generate one — see the **generation prompt** in
+   `tests/fixtures/transcripts/README.md`.
 
 ### Tier 2 — `npm start` (real app, current repo prompts, live call)
 

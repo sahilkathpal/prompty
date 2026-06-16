@@ -126,7 +126,7 @@ async function main() {
   const mdFile = join(debugDirPath, files[0]!.replace(/\.jsonl$/, ".md"));
   assert(existsSync(mdFile), `expected rendered .md at ${mdFile}`);
   const md = readFileSync(mdFile, "utf8");
-  assert(md.includes("# Prompty debug — call session"), "md call-session header");
+  assert(md.includes("# Ruby debug — call session"), "md call-session header");
   assert(md.includes("💡 **nudge**"), "md should render a nudge in the timeline");
 
   console.log(`[smoke-debug-capture] captured ${events.length} events: ${[...new Set(kinds)].join(", ")}`);

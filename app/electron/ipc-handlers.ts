@@ -30,7 +30,7 @@ import {
 } from "../src/main-process/memory-store";
 import { openPrepAgent, type PrepAgent } from "../src/main-process/prep-agent";
 import type { PrepComponent } from "../src/main-process/types";
-import { debugDir } from "../src/main-process/debug-logger";
+import { debugDir, debugEnabled } from "../src/main-process/debug-logger";
 import type {
   CallSetup,
   TranscriptUtterance,
@@ -207,7 +207,7 @@ async function doStartSession(
 
   try {
     const session = await startSession(setup, {
-      debug: getSettings().debugMode,
+      debug: debugEnabled(),
       onUtterance: (u) => broadcast("transcript:utterance", u),
       onNudge: (n) => broadcast("nudge:received", n),
       onStatus: (s) => {
@@ -441,15 +441,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("settings:set", (payload) => {
     const next = updateSettings(payload);
     broadcast("settings:changed", next);
-    // Debug mode takes effect immediately mid-session: open/close the capture
-    // file on the active coach session right away.
-    if (payload.debugMode !== undefined) {
-      try {
-        activeSession?.setDebug(next.debugMode);
-      } catch (e) {
-        console.error("[ipc] debug toggle failed:", (e as Error).message);
-      }
-    }
     return next;
   });
 

@@ -1,4 +1,4 @@
-// Verbose, opt-in debug logger (gated by the `debugMode` setting).
+// Verbose, opt-in debug logger (gated by the `PROMPTY_DEBUG=1` env switch).
 //
 // While the always-on journal (journal.ts) captures only the final transcript
 // and emitted nudges — enough to reconstruct a call log after a crash — debug
@@ -34,6 +34,16 @@ export function debugDir(): string {
   return (
     process.env.PROMPTY_DEBUG_LOG_DIR ?? path.join(os.homedir(), ".prompty", "debug")
   );
+}
+
+// The master switch for verbose debug capture. Gated by an env var rather than
+// a user-facing setting: it ships in every build but is invisible on the product
+// surface, so external users never see a toggle. Team members enable it by
+// setting `PROMPTY_DEBUG=1` in their local (gitignored) `.env` — the same file
+// that carries DEEPGRAM_API_KEY — when they want to record a call as a replay
+// fixture. Off (absent) by default.
+export function debugEnabled(): boolean {
+  return process.env.PROMPTY_DEBUG === "1";
 }
 
 // When true, callers should include the full resolved prompt on every turn

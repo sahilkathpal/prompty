@@ -77,7 +77,7 @@ export interface SessionOpts {
   mockDeepgram?: boolean;
   /** Mocked agent factory — primarily for E2E. */
   agentFactory?: (setup: CallSetup, events: Parameters<typeof openAgent>[1]) => Promise<Agent>;
-  /** Start with verbose debug capture on (the `debugMode` setting). */
+  /** Start with verbose debug capture on (the `PROMPTY_DEBUG` env switch). */
   debug?: boolean;
 }
 
@@ -99,7 +99,7 @@ export interface SessionHandle {
    * replay harness uses it to feed utterances settle-between.
    */
   waitIdle(): Promise<void>;
-  /** Toggle verbose debug capture mid-session (the `debugMode` setting). */
+  /** Toggle verbose debug capture mid-session (used by the debug-capture smoke test). */
   setDebug(enabled: boolean): void;
   /** Force an "error" status — used by E2E to verify the status wiring. */
   simulateTransportError(reason?: string): void;
@@ -180,7 +180,7 @@ export async function startSession(
   const journal: JournalHandle | null = openJournal(setup, startedAt);
   const considerWindow: TranscriptUtterance[] = [];
 
-  // ---- Verbose debug capture (opt-in `debugMode`) ----
+  // ---- Verbose debug capture (opt-in via `PROMPTY_DEBUG=1`) ----
   // Separate from the always-on journal: captures the model's-eye view
   // (resolved prompt, per-turn context, raw responses, tool calls, latencies,
   // interim utterances, status transitions). Null unless debug is on; can be

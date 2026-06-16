@@ -87,7 +87,7 @@ assert(events[2].nudgeFired === true, "agent-turn nudgeFired preserved");
 const mdFile = expectedFile.replace(/\.jsonl$/, ".md");
 assert(existsSync(mdFile), `expected rendered markdown at ${mdFile}`);
 const md = readFileSync(mdFile, "utf8");
-assert(md.includes("# Prompty debug — call session"), "md should have a call-session header");
+assert(md.includes("# Ruby debug — call session"), "md should have a call-session header");
 assert(md.includes("**Goal:** Win the demo"), "md header should carry the goal");
 assert(md.includes("## Timeline"), "md should have a timeline section");
 assert(md.includes("🗣️ **them:** Tell me about pricing"), "md timeline should render the utterance");

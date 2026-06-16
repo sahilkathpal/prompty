@@ -95,7 +95,6 @@ export default function App(): JSX.Element {
   const [direction, setDirection] = useState("");
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [debug, setDebug] = useState(false);
   const [hotkey, setHotkey] = useState("Alt+Shift+Space");
   const [calls, setCalls] = useState<CallMeta[]>([]);
   const [openCall, setOpenCall] = useState<{ name: string; call: ParsedCall } | null>(null);
@@ -182,11 +181,8 @@ export default function App(): JSX.Element {
     window.prompty
       .invoke("settings:get", undefined as never)
       .then((s) => {
-        const set = s as { debugMode?: boolean; hotkey?: string };
+        const set = s as { hotkey?: string };
         if (set.hotkey) setHotkey(set.hotkey);
-        // Playground defaults debug on; force it on if a stored setting was off.
-        setDebug(true);
-        if (set.debugMode !== true) window.prompty.invoke("settings:set", { debugMode: true } as never);
       })
       .catch(() => {});
     window.prompty
@@ -357,14 +353,6 @@ export default function App(): JSX.Element {
 
   const end = useCallback(() => {
     void window.prompty.invoke("call:end", undefined as never);
-  }, []);
-
-  const toggleDebug = useCallback(() => {
-    setDebug((cur) => {
-      const next = !cur;
-      window.prompty.invoke("settings:set", { debugMode: next } as never);
-      return next;
-    });
   }, []);
 
   const grantMic = useCallback(async () => {
@@ -853,9 +841,6 @@ export default function App(): JSX.Element {
           </section>
 
           <section style={S.card}>
-            <Setting label="Debug logging" value={debug ? "on" : "off"} tone="muted">
-              <input type="checkbox" checked={debug} onChange={toggleDebug} />
-            </Setting>
             <Setting label="Reveal debug logs" value="~/.prompty/debug" tone="muted">
               <button
                 style={S.btnGhost}
