@@ -12,7 +12,7 @@ import type {
   EventPayload,
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
-import { openMainWindow } from "./main-window";
+import { openMainWindow, getMainWindow } from "./main-window";
 import {
   showOverlay,
   hideOverlay,
@@ -402,6 +402,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       activePrep = null;
     }
     return { ok: true };
+  });
+
+  handle("main:set-prep-layout", (payload) => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    const [w, h] = payload.wide ? [1180, 760] : [900, 600];
+    try {
+      const [x, y] = win.getPosition();
+      const [curW] = win.getSize();
+      // Grow/shrink around the window's horizontal centre so it expands evenly
+      // instead of lurching off one edge.
+      const nextX = Math.round(x - (w - curW) / 2);
+      win.setBounds({ x: nextX, y, width: w, height: h }, true);
+    } catch {
+      win.setSize(w, h, true);
+    }
   });
 
   handle("prep:set-components", (payload) => {

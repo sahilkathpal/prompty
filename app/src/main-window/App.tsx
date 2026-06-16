@@ -112,6 +112,8 @@ export default function App(): JSX.Element {
   const [prepError, setPrepError] = useState<string | null>(null);
   const [prepComponents, setPrepComponents] = useState<PrepComp[]>([]);
   const seeded = useRef(false);
+  const prepInputRef = useRef<HTMLTextAreaElement>(null);
+  const chatLogRef = useRef<HTMLDivElement>(null);
 
   const refreshCalls = useCallback(() => {
     window.prompty
@@ -249,8 +251,10 @@ export default function App(): JSX.Element {
     setPrepMessages([]);
     setPrepComponents([]);
     const r = await window.prompty.invoke("prep:start", { direction });
-    if (r.ok) setPrepOpen(true);
-    else setPrepError("Couldn't start prep — is Claude Code installed?");
+    if (r.ok) {
+      setPrepOpen(true);
+      void window.prompty.invoke("main:set-prep-layout", { wide: true });
+    } else setPrepError("Couldn't start prep — is Claude Code installed?");
   }, [direction]);
 
   const syncComponents = useCallback((next: PrepComp[]) => {
@@ -262,14 +266,22 @@ export default function App(): JSX.Element {
     const msg = prepInput.trim();
     if (!msg || prepThinking) return;
     setPrepInput("");
+    if (prepInputRef.current) prepInputRef.current.style.height = "auto";
     setPrepMessages((m) => [...m, { role: "user", text: msg }]);
     void window.prompty.invoke("prep:send", { message: msg });
   }, [prepInput, prepThinking]);
 
   const closePrep = useCallback(() => {
     void window.prompty.invoke("prep:end", undefined as never);
+    void window.prompty.invoke("main:set-prep-layout", { wide: false });
     setPrepOpen(false);
   }, []);
+
+  // Keep the chat pinned to the latest message as the conversation grows.
+  useEffect(() => {
+    const el = chatLogRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [prepMessages, prepThinking]);
 
   const addMemoryItem = useCallback(() => {
     const text = newMemory.trim();
@@ -374,7 +386,7 @@ export default function App(): JSX.Element {
           Done
         </button>
       </div>
-      <div style={S.chatLog} data-testid="prep-log">
+      <div ref={chatLogRef} style={S.chatLog} data-testid="prep-log">
         {prepMessages.length === 0 && !prepThinking ? (
           <div style={S.empty}>Tell Ruby about the call you're about to have.</div>
         ) : (
@@ -396,14 +408,24 @@ export default function App(): JSX.Element {
       </div>
       {prepError && <div style={S.error}>{prepError}</div>}
       <div style={S.chatInputRow}>
-        <input
+        <textarea
+          ref={prepInputRef}
           data-testid="prep-input"
-          style={S.memInput}
+          style={S.chatComposer}
           value={prepInput}
-          placeholder="Message Ruby…"
-          onChange={(e) => setPrepInput(e.target.value)}
+          rows={1}
+          placeholder="Message Ruby…  (Enter to send · Shift+Enter for a new line)"
+          onChange={(e) => {
+            setPrepInput(e.target.value);
+            const el = e.target;
+            el.style.height = "auto";
+            el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") sendPrep();
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              sendPrep();
+            }
           }}
         />
         <button
@@ -518,7 +540,7 @@ export default function App(): JSX.Element {
   );
 
   return (
-    <div style={S.page}>
+    <div style={prepOpen ? { ...S.page, ...S.pageWide } : S.page}>
       <div className="app-dragbar" />
       <header className="app-drag" style={S.header}>
         <div>
@@ -567,7 +589,7 @@ export default function App(): JSX.Element {
               onChange={(e) => setDirection(e.target.value)}
               placeholder="Describe what a good call looks like: what to explore, the stance to carry, when to speak up…"
               spellCheck={false}
-              style={S.textarea}
+              style={prepOpen ? { ...S.textarea, ...S.textareaTall } : S.textarea}
             />
             <div style={S.row}>
               {!prepOpen && !isLive && (
@@ -1065,10 +1087,12 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: 10,
   },
   memText: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.45, color: v("--ink", "#211d15") },
-  prepSplit: { display: "flex", gap: 16, alignItems: "stretch" },
-  prepRight: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" },
+  pageWide: { maxWidth: 1120 },
+  textareaTall: { minHeight: 460 },
+  prepSplit: { display: "flex", gap: 20, alignItems: "stretch" },
+  prepRight: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" },
   chatCard: {
-    flex: 1,
+    flex: "1 1 0",
     minWidth: 0,
     display: "flex",
     flexDirection: "column",
@@ -1081,13 +1105,14 @@ const S: Record<string, React.CSSProperties> = {
   chatHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   chatLog: {
     flex: 1,
-    minHeight: 240,
-    maxHeight: 360,
+    minHeight: 440,
+    maxHeight: "62vh",
     overflowY: "auto",
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 10,
     marginBottom: 12,
+    paddingRight: 4,
   },
   bubbleUser: {
     alignSelf: "flex-end",
@@ -1112,7 +1137,24 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: "12px 12px 12px 4px",
     whiteSpace: "pre-wrap",
   },
-  chatInputRow: { display: "flex", gap: 8 },
+  chatInputRow: { display: "flex", gap: 8, alignItems: "flex-end" },
+  chatComposer: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    maxHeight: 160,
+    padding: "11px 12px",
+    fontSize: 14,
+    lineHeight: 1.45,
+    color: v("--ink", "#211d15"),
+    background: v("--card", "#fff"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 10,
+    outline: "none",
+    resize: "none",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+  },
   compBlock: { marginBottom: 16 },
   compHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
   compKind: {

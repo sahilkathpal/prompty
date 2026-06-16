@@ -96,6 +96,12 @@ export interface InvokeChannels {
     request: void;
     response: { ok: boolean };
   };
+  // Grow the main window for the prep split-view, restore it on exit. The split
+  // (chat + direction + components) needs real width to breathe.
+  "main:set-prep-layout": {
+    request: { wide: boolean };
+    response: void;
+  };
   // Push user edits to the prep components back to the armed setup in main
   // (RUBY B3 phase 3a). Replaces the whole list.
   "prep:set-components": {
