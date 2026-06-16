@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.cpSync('src/main-process/prompts/skills','dist/electron/src/main-process/prompts/skills',{recursive:true});fs.cpSync('src/main-process/prompts/base.md','dist/electron/src/main-process/prompts/base.md')\"",
+    "build:main": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.cpSync('src/main-process/prompts/skills','dist/electron/src/main-process/prompts/skills',{recursive:true});for(const m of ['base.md','prep.md'])fs.cpSync('src/main-process/prompts/'+m,'dist/electron/src/main-process/prompts/'+m)\"",
     "prebuild-sidecar": "node scripts/prebuild-sidecar.mjs",
     "build": "npm run prebuild-sidecar && npm run build:renderer && npm run build:main",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
@@ -18,11 +18,12 @@
     "smoke:agent": "node --import tsx tests/smoke-agent.ts",
     "smoke:coach-session": "node --import tsx tests/smoke-coach-session.ts",
     "smoke:hotkey-answer": "node --import tsx tests/smoke-hotkey-answer.ts",
+    "smoke:prep": "node --import tsx tests/smoke-prep.ts",
     "smoke:system-prompt": "node --import tsx tests/smoke-system-prompt.ts",
     "smoke:debug-logger": "node --import tsx tests/smoke-debug-logger.ts",
     "smoke:debug-capture": "node --import tsx tests/smoke-debug-capture.ts",
     "replay": "node --import tsx tests/replay-harness.ts",
-    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:system-prompt && npm run smoke:debug-logger && npm run smoke:debug-capture",
+    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:prep && npm run smoke:system-prompt && npm run smoke:debug-logger && npm run smoke:debug-capture",
     "e2e": "playwright test"
   },
   "dependencies": {

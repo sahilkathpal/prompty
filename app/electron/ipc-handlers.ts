@@ -28,6 +28,7 @@ import {
   updateMemory,
   deleteMemory,
 } from "../src/main-process/memory-store";
+import { openPrepAgent, type PrepAgent } from "../src/main-process/prep-agent";
 import { debugDir } from "../src/main-process/debug-logger";
 import type {
   CallSetup,
@@ -87,6 +88,8 @@ function permissionStatus(): PermissionStatus {
 
 let activeSession: SessionHandle | null = null;
 let activeSessionSetup: CallSetup | null = null;
+// The current prep chat session (RUBY B2 phase 2b). At most one at a time.
+let activePrep: PrepAgent | null = null;
 // Buffer of session:status events for the active session — read by E2E.
 let statusLog: SessionStatusEvent[] = [];
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
@@ -343,6 +346,47 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     } catch (e) {
       return { content: `Error reading ${safe}: ${(e as Error).message}` };
     }
+  });
+
+  handle("prep:start", async (payload) => {
+    if (activePrep) {
+      await activePrep.close().catch(() => {});
+      activePrep = null;
+    }
+    try {
+      activePrep = await openPrepAgent(payload?.direction ?? "", {
+        onAssistant: (text) => broadcast("prep:assistant", { text }),
+        onDirection: (direction) => broadcast("prep:direction", { direction }),
+        onError: (e) => broadcast("prep:error", { message: e.message }),
+      });
+      return { ok: true };
+    } catch (e) {
+      console.error("[ipc] prep:start failed:", (e as Error).message);
+      activePrep = null;
+      return { ok: false };
+    }
+  });
+
+  handle("prep:send", async (payload) => {
+    if (!activePrep) return { ok: false };
+    broadcast("prep:thinking", { thinking: true });
+    try {
+      await activePrep.send(payload.message);
+      return { ok: true };
+    } catch (e) {
+      broadcast("prep:error", { message: (e as Error).message });
+      return { ok: false };
+    } finally {
+      broadcast("prep:thinking", { thinking: false });
+    }
+  });
+
+  handle("prep:end", async () => {
+    if (activePrep) {
+      await activePrep.close().catch(() => {});
+      activePrep = null;
+    }
+    return { ok: true };
   });
 
   handle("memory:list", () => ({ items: readMemory() }));

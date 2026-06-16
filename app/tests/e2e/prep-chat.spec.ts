@@ -1,0 +1,205 @@
+import {
+  test,
+  expect,
+  _electron as electron,
+  ElectronApplication,
+  Page,
+} from "@playwright/test";
+import path from "node:path";
+import os from "node:os";
+import fs from "node:fs/promises";
+
+// Independent verification of Phase 2b: prep chat split-view + prep agent.
+// Under PROMPTY_MOCK_AGENT=1 the prep agent is a deterministic mock: each user
+// message M produces an assistant bubble "Updated the working direction to
+// focus on: M" and a working-direction rewrite appending a line "Focus: M".
+// We drive the real built Electron app and read the on-disk CallLog.
+
+const APP_ROOT = path.resolve(__dirname, "../..");
+
+async function seedSettings(userDataDir: string): Promise<void> {
+  await fs.mkdir(userDataDir, { recursive: true });
+  await fs.writeFile(
+    path.join(userDataDir, "prompty-settings.json"),
+    JSON.stringify({
+      onboardingCompleted: true,
+      loginItemPrompted: true,
+      debugMode: true,
+      hotkey: "Alt+Shift+Space",
+      panelPosition: null,
+      launchAtLogin: false,
+      lastTab: "direction",
+    }),
+    "utf8",
+  );
+}
+
+async function launchApp(
+  userDataDir: string,
+  callLogDir: string,
+): Promise<ElectronApplication> {
+  return await electron.launch({
+    args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
+    env: {
+      ...process.env,
+      PROMPTY_E2E: "1",
+      PROMPTY_MOCK_AUDIO: "1",
+      PROMPTY_MOCK_DEEPGRAM: "1",
+      PROMPTY_MOCK_AGENT: "1",
+      PROMPTY_CALL_LOG_DIR: callLogDir,
+      NODE_ENV: "development",
+    },
+  });
+}
+
+async function waitForReady(app: ElectronApplication): Promise<void> {
+  await app.evaluate(async ({ app: electronApp }) => {
+    if (!electronApp.isReady()) {
+      await new Promise<void>((resolve) =>
+        electronApp.once("ready", () => resolve()),
+      );
+    }
+  });
+}
+
+async function openMainWindow(app: ElectronApplication): Promise<void> {
+  await app.evaluate(async () => {
+    const h = (
+      globalThis as unknown as {
+        __prompty_e2e: { openMainWindow: () => void };
+      }
+    ).__prompty_e2e;
+    h.openMainWindow();
+  });
+}
+
+async function getMainPage(app: ElectronApplication): Promise<Page> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const p = app.windows().find((pg) => pg.url().includes("main-window"));
+    if (p) return p;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error("main window page not found");
+}
+
+// Read the newest *.json CallLog in the dir, polling until `direction` is set.
+async function waitForNewestCallLog(
+  callLogDir: string,
+  timeoutMs = 15_000,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  let last: Record<string, unknown> | null = null;
+  while (Date.now() < deadline) {
+    let names: string[] = [];
+    try {
+      names = (await fs.readdir(callLogDir)).filter((n) => n.endsWith(".json"));
+    } catch {
+      names = [];
+    }
+    if (names.length > 0) {
+      names.sort();
+      const newest = names[names.length - 1];
+      try {
+        const raw = await fs.readFile(path.join(callLogDir, newest), "utf8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        last = parsed;
+        if (typeof parsed.direction === "string") return parsed;
+      } catch {
+        // file may be mid-write; retry
+      }
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  if (last) return last;
+  throw new Error("no CallLog json written within deadline");
+}
+
+test("prep chat: split-view, live direction rewrite, done retains, prep→call", async () => {
+  const userDataDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "prompty-e2e-prep-chat-"),
+  );
+  const callLogDir = path.join(userDataDir, "calls");
+  await fs.mkdir(callLogDir, { recursive: true });
+  await seedSettings(userDataDir);
+
+  const SEED_DIRECTION = `Seed brief ${Date.now()}: explore the buyer's situation.`;
+  const PREP_MSG = `pricing objections ${Math.random().toString(36).slice(2)}`;
+
+  const app = await launchApp(userDataDir, callLogDir);
+  try {
+    await waitForReady(app);
+    await openMainWindow(app);
+    const page = await getMainPage(app);
+
+    // Ensure we are on the Direction tab.
+    const directionTab = page.getByTestId("tab-direction");
+    if (await directionTab.count()) await directionTab.click();
+
+    const textarea = page.getByTestId("playground-direction");
+    await expect(textarea).toBeVisible();
+
+    // Seed a starting direction so we can assert the rewrite is seeded from it.
+    await textarea.fill(SEED_DIRECTION);
+
+    // ===== Criterion 1: Prep button opens split view =====
+    const prepOpen = page.getByTestId("prep-open");
+    await expect(prepOpen).toBeVisible();
+    await prepOpen.click();
+
+    const prepLog = page.getByTestId("prep-log");
+    await expect(prepLog).toBeVisible();
+    // Direction editor still visible alongside the chat panel (split view).
+    await expect(textarea).toBeVisible();
+    console.log("CRIT1: prep-log visible AND playground-direction visible (split view)");
+
+    // ===== Criterion 2: send → user + assistant bubbles =====
+    await page.getByTestId("prep-input").fill(PREP_MSG);
+    await page.getByTestId("prep-send").click();
+
+    const userBubble = page.getByTestId("prep-msg-user");
+    const asstBubble = page.getByTestId("prep-msg-assistant");
+    await expect(userBubble).toBeVisible({ timeout: 15_000 });
+    await expect(asstBubble).toBeVisible({ timeout: 15_000 });
+
+    const userText = (await userBubble.first().textContent()) ?? "";
+    const asstText = (await asstBubble.first().textContent()) ?? "";
+    console.log("CRIT2 user bubble:", JSON.stringify(userText));
+    console.log("CRIT2 assistant bubble:", JSON.stringify(asstText));
+    expect(asstText).toContain(
+      `Updated the working direction to focus on: ${PREP_MSG}`,
+    );
+
+    // ===== Criterion 3: live direction rewrite =====
+    await expect
+      .poll(async () => await textarea.inputValue(), { timeout: 15_000 })
+      .toContain(`Focus: ${PREP_MSG}`);
+    const afterRewrite = await textarea.inputValue();
+    console.log("CRIT3 editor value after live rewrite:", JSON.stringify(afterRewrite));
+    expect(afterRewrite).toContain(`Focus: ${PREP_MSG}`);
+
+    // ===== Criterion 4: Done closes split view, retains direction =====
+    await page.getByTestId("prep-done").click();
+    await expect(prepLog).toHaveCount(0);
+    const afterDone = await textarea.inputValue();
+    console.log("CRIT4 editor value after Done:", JSON.stringify(afterDone));
+    expect(afterDone).toContain(`Focus: ${PREP_MSG}`);
+
+    // ===== Criterion 5: prep → call; CallLog direction carries the rewrite =====
+    await page.getByTestId("playground-start").click();
+    await expect(page.getByTestId("playground-end")).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.getByTestId("playground-end").click();
+    await expect(page.getByTestId("playground-start")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const log = await waitForNewestCallLog(callLogDir);
+    console.log("CRIT5 CallLog direction:", JSON.stringify(log.direction));
+    expect(typeof log.direction).toBe("string");
+    expect(log.direction as string).toContain(`Focus: ${PREP_MSG}`);
+  } finally {
+    await app.close();
+  }
+});

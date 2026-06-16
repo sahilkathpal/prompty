@@ -50,10 +50,12 @@ if (existsSync(skillsSrc)) {
   cpSync(skillsSrc, resolve(promptsDst, "skills"), { recursive: true });
   console.log("[dev] copied skills/ -> dist");
 }
-const baseSrc = resolve(promptsSrc, "base.md");
-if (existsSync(baseSrc)) {
-  cpSync(baseSrc, resolve(promptsDst, "base.md"));
-  console.log("[dev] copied base.md -> dist");
+for (const md of ["base.md", "prep.md"]) {
+  const src = resolve(promptsSrc, md);
+  if (existsSync(src)) {
+    cpSync(src, resolve(promptsDst, md));
+    console.log(`[dev] copied ${md} -> dist`);
+  }
 }
 
 console.log("[dev] waiting for vite…");

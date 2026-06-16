@@ -100,6 +100,11 @@ export default function App(): JSX.Element {
   const [memories, setMemories] = useState<Mem[]>([]);
   const [newMemory, setNewMemory] = useState("");
   const [editingMem, setEditingMem] = useState<{ id: string; draft: string } | null>(null);
+  const [prepOpen, setPrepOpen] = useState(false);
+  const [prepMessages, setPrepMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [prepInput, setPrepInput] = useState("");
+  const [prepThinking, setPrepThinking] = useState(false);
+  const [prepError, setPrepError] = useState<string | null>(null);
   const seeded = useRef(false);
 
   const refreshCalls = useCallback(() => {
@@ -204,12 +209,50 @@ export default function App(): JSX.Element {
         return oc;
       });
     });
+    // Prep chat streaming (RUBY B2 phase 2b).
+    const offPrepAsst = window.prompty.on("prep:assistant", (p) =>
+      setPrepMessages((m) => [...m, { role: "assistant", text: p.text }]),
+    );
+    const offPrepDir = window.prompty.on("prep:direction", (p) => {
+      // Ruby rewrote the shared working direction — reflect it live in the editor.
+      setDirection(p.direction);
+      seeded.current = true;
+    });
+    const offPrepThinking = window.prompty.on("prep:thinking", (p) =>
+      setPrepThinking(p.thinking),
+    );
+    const offPrepError = window.prompty.on("prep:error", (p) => setPrepError(p.message));
     return () => {
       offState();
       offPf();
       offCallsUpdated();
+      offPrepAsst();
+      offPrepDir();
+      offPrepThinking();
+      offPrepError();
     };
   }, [refreshCalls, refreshMic, refreshClaude, refreshMemories, readCall]);
+
+  const openPrep = useCallback(async () => {
+    setPrepError(null);
+    setPrepMessages([]);
+    const r = await window.prompty.invoke("prep:start", { direction });
+    if (r.ok) setPrepOpen(true);
+    else setPrepError("Couldn't start prep — is Claude Code installed?");
+  }, [direction]);
+
+  const sendPrep = useCallback(() => {
+    const msg = prepInput.trim();
+    if (!msg || prepThinking) return;
+    setPrepInput("");
+    setPrepMessages((m) => [...m, { role: "user", text: msg }]);
+    void window.prompty.invoke("prep:send", { message: msg });
+  }, [prepInput, prepThinking]);
+
+  const closePrep = useCallback(() => {
+    void window.prompty.invoke("prep:end", undefined as never);
+    setPrepOpen(false);
+  }, []);
 
   const addMemoryItem = useCallback(() => {
     const text = newMemory.trim();
@@ -313,6 +356,58 @@ export default function App(): JSX.Element {
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
 
+  const chatPanel = (
+    <section style={S.chatCard}>
+      <div style={S.chatHead}>
+        <span style={S.label}>Prep with Ruby</span>
+        <button style={S.linkBtn} data-testid="prep-done" onClick={closePrep}>
+          Done
+        </button>
+      </div>
+      <div style={S.chatLog} data-testid="prep-log">
+        {prepMessages.length === 0 && !prepThinking ? (
+          <div style={S.empty}>Tell Ruby about the call you're about to have.</div>
+        ) : (
+          prepMessages.map((m, i) => (
+            <div
+              key={i}
+              data-testid={`prep-msg-${m.role}`}
+              style={m.role === "user" ? S.bubbleUser : S.bubbleAsst}
+            >
+              {m.text}
+            </div>
+          ))
+        )}
+        {prepThinking && (
+          <div style={S.bubbleAsst} data-testid="prep-thinking">
+            …
+          </div>
+        )}
+      </div>
+      {prepError && <div style={S.error}>{prepError}</div>}
+      <div style={S.chatInputRow}>
+        <input
+          data-testid="prep-input"
+          style={S.memInput}
+          value={prepInput}
+          placeholder="Message Ruby…"
+          onChange={(e) => setPrepInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") sendPrep();
+          }}
+        />
+        <button
+          style={S.btnAccent}
+          data-testid="prep-send"
+          onClick={sendPrep}
+          disabled={!prepInput.trim() || prepThinking}
+        >
+          Send
+        </button>
+      </div>
+    </section>
+  );
+
   return (
     <div style={S.page}>
       <div className="app-dragbar" />
@@ -340,7 +435,7 @@ export default function App(): JSX.Element {
 
       {tab === "direction" ? (
         <>
-          {!micOk && micStatus && (
+          {!prepOpen && !micOk && micStatus && (
             <div style={S.warn}>
               <span>🎙️ Microphone not granted — calls can't hear audio.</span>
               <button style={S.linkBtn} onClick={() => setTab("settings")}>
@@ -349,6 +444,9 @@ export default function App(): JSX.Element {
             </div>
           )}
 
+          <div style={prepOpen ? S.prepSplit : undefined}>
+          {prepOpen && chatPanel}
+          <div style={prepOpen ? S.prepRight : undefined}>
           <section style={S.card}>
             <label style={S.label} htmlFor="direction">
               Direction
@@ -366,6 +464,11 @@ export default function App(): JSX.Element {
               <button style={S.btnGhost} onClick={loadFile}>
                 Load from file…
               </button>
+              {!prepOpen && !isLive && (
+                <button style={S.btnGhost} data-testid="prep-open" onClick={openPrep}>
+                  Prep with Ruby
+                </button>
+              )}
               <span style={{ flex: 1 }} />
               {isLive ? (
                 <button
@@ -398,7 +501,10 @@ export default function App(): JSX.Element {
               </div>
             )}
           </section>
+          </div>
+          </div>
 
+          {!prepOpen && (
           <section style={S.card}>
             <div style={S.cardHead}>
               <span style={S.label}>Past calls</span>
@@ -468,6 +574,7 @@ export default function App(): JSX.Element {
               ))
             )}
           </section>
+          )}
         </>
       ) : tab === "memory" ? (
         <>
@@ -822,6 +929,54 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: 10,
   },
   memText: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.45, color: v("--ink", "#211d15") },
+  prepSplit: { display: "flex", gap: 16, alignItems: "stretch" },
+  prepRight: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" },
+  chatCard: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    background: v("--surface", "#fff"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 12,
+    padding: 18,
+    marginBottom: 18,
+  },
+  chatHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  chatLog: {
+    flex: 1,
+    minHeight: 240,
+    maxHeight: 360,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    marginBottom: 12,
+  },
+  bubbleUser: {
+    alignSelf: "flex-end",
+    maxWidth: "85%",
+    padding: "8px 12px",
+    fontSize: 13,
+    lineHeight: 1.45,
+    color: "#fff",
+    background: `linear-gradient(140deg, ${v("--ruby", "#d61f47")}, ${v("--ruby-deep", "#b01238")})`,
+    borderRadius: "12px 12px 4px 12px",
+    whiteSpace: "pre-wrap",
+  },
+  bubbleAsst: {
+    alignSelf: "flex-start",
+    maxWidth: "85%",
+    padding: "8px 12px",
+    fontSize: 13,
+    lineHeight: 1.45,
+    color: v("--ink", "#211d15"),
+    background: v("--surface-2", "#f1ecd9"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: "12px 12px 12px 4px",
+    whiteSpace: "pre-wrap",
+  },
+  chatInputRow: { display: "flex", gap: 8 },
   memTag: {
     flexShrink: 0,
     fontSize: 10,

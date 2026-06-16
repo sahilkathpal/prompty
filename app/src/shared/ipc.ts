@@ -86,6 +86,22 @@ export interface InvokeChannels {
     request: { id: string };
     response: { ok: boolean };
   };
+  // Prep chat (RUBY B2 phase 2b): a conversational pre-call session. Start opens
+  // the prep agent seeded with the current working direction; send is one user
+  // turn; end tears it down. Assistant replies + live direction rewrites arrive
+  // as events (prep:assistant / prep:direction).
+  "prep:start": {
+    request: { direction?: string };
+    response: { ok: boolean };
+  };
+  "prep:send": {
+    request: { message: string };
+    response: { ok: boolean };
+  };
+  "prep:end": {
+    request: void;
+    response: { ok: boolean };
+  };
   "settings:get": {
     request: void;
     response: AppSettings;
@@ -210,6 +226,11 @@ export interface EventChannels {
   // A saved call changed on disk (e.g. the background summary pass landed) —
   // renderers showing the Past Calls list re-read it. `name` is the log filename.
   "calls:updated": { name: string };
+  // Prep chat streaming (RUBY B2 phase 2b).
+  "prep:assistant": { text: string };
+  "prep:direction": { direction: string };
+  "prep:thinking": { thinking: boolean };
+  "prep:error": { message: string };
 }
 
 export type EventChannel = keyof EventChannels;
