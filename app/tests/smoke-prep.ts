@@ -20,9 +20,13 @@ async function main() {
   const assistantReplies: string[] = [];
   const directions: string[] = [];
   const errors: Error[] = [];
+  let deltaCount = 0;
 
   console.log("[smoke-prep] opening prep agent…");
   const prep = await openPrepAgent("", {
+    onAssistantDelta: () => {
+      deltaCount++;
+    },
     onAssistant: (text) => {
       assistantReplies.push(text);
       console.log(`[smoke-prep] RUBY: ${text}`);
@@ -37,9 +41,12 @@ async function main() {
     },
   });
 
+  // We sell Revise, an AI call-coach. The context is spelled out so the model
+  // has no reason to keep interviewing, and the last turn forces the write.
   const turns = [
-    "I've got a discovery call with a fintech startup in 20 minutes. I want to figure out if they're a real fit for us.",
-    "It's a Series A, ~30 people. I mainly need to know their current tooling and whether they have budget this quarter. Please write the direction.",
+    "I sell Revise, an AI real-time call coach for sales teams. I've got a discovery call with a fintech startup in 20 minutes and want to qualify fit.",
+    "They're Series A, ~30 people, and their reps do a lot of live calls. I need to learn their current tooling and whether they have budget this quarter.",
+    "That's all the context. Call set_goal and set_checklist and write the direction now with update_direction — don't ask any more questions.",
   ];
   for (let i = 0; i < turns.length; i++) {
     console.log(`\n[smoke-prep] turn ${i + 1}…`);
@@ -52,12 +59,14 @@ async function main() {
 
   console.log("\n[smoke-prep] summary:");
   console.log(`  assistant replies: ${assistantReplies.length}`);
+  console.log(`  streamed deltas: ${deltaCount}`);
   console.log(`  direction rewrites: ${directions.length}`);
   console.log(`  errors: ${errors.length}`);
 
   const pass =
     errors.length === 0 &&
     assistantReplies.length >= 1 &&
+    deltaCount > 0 &&
     directions.length >= 1;
 
   console.log(`\n[smoke-prep] ${pass ? "PASS" : "FAIL"}`);

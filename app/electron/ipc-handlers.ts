@@ -366,6 +366,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     activePrepComponents = [];
     try {
       activePrep = await openPrepAgent(payload?.direction ?? "", {
+        onAssistantDelta: (text) => broadcast("prep:assistant-delta", { text }),
         onAssistant: (text) => broadcast("prep:assistant", { text }),
         onDirection: (direction) => broadcast("prep:direction", { direction }),
         onComponents: (components) => {

@@ -28,7 +28,9 @@ import { modelFor } from "./models";
 import type { PrepComponent } from "./types";
 
 export type PrepEvents = {
-  /** A complete assistant chat message for one turn. */
+  /** Incremental assistant text as it streams in, for a responsive chat. */
+  onAssistantDelta?: (text: string) => void;
+  /** A complete assistant chat message for one turn (authoritative). */
   onAssistant: (text: string) => void;
   /** The working direction was (re)written by the agent. */
   onDirection: (direction: string) => void;
@@ -155,6 +157,9 @@ export async function openPrepAgent(
       model: modelFor("hotkey"),
       systemPrompt: loadPrepPrompt(initialDirection),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
+      // Stream partial assistant text so the chat updates as it generates
+      // rather than only when the whole turn (incl. tool calls) finishes.
+      includePartialMessages: true,
       cwd: agentCwd(),
       mcpServers: { "prompty-prep": mcp },
       allowedTools: [
@@ -170,6 +175,15 @@ export async function openPrepAgent(
   (async () => {
     try {
       for await (const msg of q) {
+        // Token-level streaming: emit text deltas as they arrive.
+        if ((msg as { type?: string }).type === "stream_event") {
+          const ev = (msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
+          if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+            const t = ev.delta.text ?? "";
+            if (t) events.onAssistantDelta?.(t);
+          }
+          continue;
+        }
         if (msg.type === "assistant") {
           for (const block of msg.message.content ?? []) {
             if ((block as { type?: string }).type === "text") {

@@ -233,6 +233,7 @@ export interface EventChannels {
   // renderers showing the Past Calls list re-read it. `name` is the log filename.
   "calls:updated": { name: string };
   // Prep chat streaming (RUBY B2 phase 2b).
+  "prep:assistant-delta": { text: string };
   "prep:assistant": { text: string };
   "prep:direction": { direction: string };
   "prep:thinking": { thinking: boolean };

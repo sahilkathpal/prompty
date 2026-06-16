@@ -114,6 +114,8 @@ export default function App(): JSX.Element {
   const seeded = useRef(false);
   const prepInputRef = useRef<HTMLTextAreaElement>(null);
   const chatLogRef = useRef<HTMLDivElement>(null);
+  // True while the current assistant turn is streaming into the last bubble.
+  const streamingRef = useRef(false);
 
   const refreshCalls = useCallback(() => {
     window.prompty
@@ -218,10 +220,29 @@ export default function App(): JSX.Element {
         return oc;
       });
     });
-    // Prep chat streaming (RUBY B2 phase 2b).
-    const offPrepAsst = window.prompty.on("prep:assistant", (p) =>
-      setPrepMessages((m) => [...m, { role: "assistant", text: p.text }]),
-    );
+    // Prep chat streaming (RUBY B2 phase 2b): deltas append to a live bubble,
+    // and the authoritative full message finalizes it.
+    const offPrepDelta = window.prompty.on("prep:assistant-delta", (p) => {
+      setPrepThinking(false);
+      setPrepMessages((m) => {
+        const last = m[m.length - 1];
+        if (streamingRef.current && last && last.role === "assistant") {
+          return [...m.slice(0, -1), { ...last, text: last.text + p.text }];
+        }
+        streamingRef.current = true;
+        return [...m, { role: "assistant", text: p.text }];
+      });
+    });
+    const offPrepAsst = window.prompty.on("prep:assistant", (p) => {
+      setPrepMessages((m) => {
+        const last = m[m.length - 1];
+        if (streamingRef.current && last && last.role === "assistant") {
+          return [...m.slice(0, -1), { ...last, text: p.text }];
+        }
+        return [...m, { role: "assistant", text: p.text }];
+      });
+      streamingRef.current = false;
+    });
     const offPrepDir = window.prompty.on("prep:direction", (p) => {
       // Ruby rewrote the shared working direction — reflect it live in the editor.
       setDirection(p.direction);
@@ -238,6 +259,7 @@ export default function App(): JSX.Element {
       offState();
       offPf();
       offCallsUpdated();
+      offPrepDelta();
       offPrepAsst();
       offPrepDir();
       offPrepThinking();
@@ -267,6 +289,7 @@ export default function App(): JSX.Element {
     if (!msg || prepThinking) return;
     setPrepInput("");
     if (prepInputRef.current) prepInputRef.current.style.height = "auto";
+    streamingRef.current = false; // next assistant turn starts a fresh bubble
     setPrepMessages((m) => [...m, { role: "user", text: msg }]);
     void window.prompty.invoke("prep:send", { message: msg });
   }, [prepInput, prepThinking]);
