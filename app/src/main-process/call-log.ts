@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type {
   CallContextAttendee,
   Nudge,
+  PrepComponent,
   TranscriptUtterance,
 } from "./types";
 import type { CallSummary } from "./summary";
@@ -21,6 +22,9 @@ export interface CallLog {
   title?: string;
   transcript: TranscriptUtterance[];
   nudges: Nudge[];
+  /** Prep components (goal/checklist) used on the call, with checklist `done`
+   *  reflecting what the coach marked covered (RUBY B3 phase 3c). */
+  components?: PrepComponent[];
   attendee?: CallContextAttendee;
   startedAt: number;
   endedAt: number;

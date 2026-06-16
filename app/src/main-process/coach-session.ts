@@ -111,18 +111,42 @@ export interface SessionHandle {
   getLogPath(): string | null;
 }
 
+/** Mark a checklist item covered in the live setup (RUBY B3 phase 3c). The
+ *  mutated `setup.components` is what end() persists into the CallLog. */
+function markChecklistItemCovered(setup: CallSetup, itemId: string): void {
+  for (const c of setup.components ?? []) {
+    if (c.type !== "checklist") continue;
+    const item = c.items.find((it) => it.id === itemId);
+    if (item) {
+      item.done = true;
+      return;
+    }
+  }
+}
+
 /**
  * Mock agent — used in E2E mode (PROMPTY_MOCK_AGENT=1) and as a stub in
- * smoke tests. Emits a canned nudge each `consider()` call.
+ * smoke tests. Emits a canned nudge each `consider()` call, and on the first
+ * call marks the first checklist item covered so the check-off path is
+ * exercisable without a real model.
  */
 export function createMockAgent(
-  _setup: CallSetup,
+  setup: CallSetup,
   events: Parameters<typeof openAgent>[1],
 ): Promise<Agent> {
   let counter = 0;
+  const firstChecklistItemId = (() => {
+    for (const c of setup.components ?? []) {
+      if (c.type === "checklist" && c.items.length) return c.items[0]!.id;
+    }
+    return null;
+  })();
   return Promise.resolve({
     async consider(_window, trigger) {
       counter++;
+      if (counter === 1 && firstChecklistItemId) {
+        events.onItemCovered?.(firstChecklistItemId);
+      }
       events.onNudge({
         id: `mock-${counter}-${Date.now()}`,
         text: `Mock nudge ${counter} (trigger=${trigger})`,
@@ -405,6 +429,7 @@ export async function startSession(
         console.log(`[coach-session quiet] ${reason}`);
         opts.onStayQuiet?.(reason);
       },
+      onItemCovered: (itemId) => markChecklistItemCovered(setup, itemId),
       onError: (e) => {
         console.error(`[coach-session agent error] ${e.message}`);
         debugLog?.write("error", { where: "agent", message: e.message, stack: e.stack });
@@ -480,6 +505,7 @@ export async function startSession(
           title: deriveCallTitle(undefined, undefined, setup.direction),
           transcript,
           nudges,
+          components: setup.components,
           attendee: setup.context.attendee,
           startedAt,
           endedAt: Date.now(),

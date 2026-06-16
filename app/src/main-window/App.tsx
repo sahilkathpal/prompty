@@ -47,6 +47,7 @@ type ParsedCall = {
   startedAt?: number;
   endedAt?: number;
   attendee?: { name?: string; company?: string };
+  components?: PrepComp[];
   summaryPending?: boolean;
   raw: string;
 };
@@ -149,6 +150,7 @@ export default function App(): JSX.Element {
           startedAt: obj.startedAt as number | undefined,
           endedAt: obj.endedAt as number | undefined,
           attendee: obj.attendee as ParsedCall["attendee"],
+          components: obj.components as PrepComp[] | undefined,
           summaryPending: obj.summaryPending as boolean | undefined,
           raw: JSON.stringify(obj, null, 2),
         };
@@ -861,12 +863,39 @@ function Setting(props: {
 // The post-call card (RUBY_MVP decision #9): Recap / Insights & quotes (✦ marks
 // Ruby-assisted ones) / Questions you didn't ask, plus one quiet stat line. Falls
 // back to the raw JSON for older logs (or a call that never produced a summary).
+function checklistCoverage(components?: PrepComp[]): JSX.Element | null {
+  const checklist = components?.find((c) => c.type === "checklist");
+  if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) return null;
+  const total = checklist.items.length;
+  const covered = checklist.items.filter((it) => it.done).length;
+  return (
+    <section style={S.sec} data-testid="call-checklist">
+      <div style={S.secHead} data-testid="call-checklist-stat">
+        Checklist · covered {covered}/{total}
+      </div>
+      <ul style={S.insightList}>
+        {checklist.items.map((it) => (
+          <li key={it.id} style={S.insight}>
+            <span style={it.done ? S.checkOn : S.checkOff} aria-hidden>
+              {it.done ? "✓" : "○"}
+            </span>
+            <span>{it.text}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { title, summary, raw, attendee, startedAt, endedAt, summaryPending } = props.call;
+  const { title, summary, raw, attendee, startedAt, endedAt, summaryPending, components } =
+    props.call;
+  const coverage = checklistCoverage(components);
   if (!summary) {
     if (summaryPending) {
       return (
         <div style={S.card2} data-testid="call-summarizing">
+          {coverage}
           <div style={S.summarizing}>
             <span className="mw-spinner" aria-hidden /> Summarizing this call…
           </div>
@@ -875,6 +904,7 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
     }
     return (
       <div style={S.card2}>
+        {coverage}
         <div style={S.cardNote}>No summary card for this call — showing the raw log.</div>
         <pre style={S.pre}>{raw}</pre>
       </div>
@@ -891,6 +921,7 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
         {name}
         {mins != null && <span style={S.receiptMeta}> · {mins} min</span>}
       </div>
+      {coverage}
       <section style={S.sec}>
         <div style={S.secHead}>Recap</div>
         <p style={S.recap}>{summary.recap}</p>

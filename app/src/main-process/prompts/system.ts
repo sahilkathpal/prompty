@@ -58,7 +58,7 @@ export function buildSystemPrompt(setup: CallSetup): string {
   const checklist = components.find((c) => c.type === "checklist");
   if (checklist && checklist.type === "checklist" && checklist.items.length) {
     const lines = checklist.items
-      .map((it) => `- [${it.done ? "x" : " "}] ${it.text}`)
+      .map((it) => `- [${it.done ? "x" : " "}] ${it.text} (id: ${it.id})`)
       .join("\n");
     parts.push(`## Checklist\n${lines}`);
   }

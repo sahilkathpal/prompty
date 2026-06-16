@@ -46,6 +46,8 @@ export type AgentEvents = {
   onNudge: (n: Nudge) => void;
   onStayQuiet: (reason: string) => void;
   onError: (e: Error) => void;
+  /** A checklist item was marked covered during the call (RUBY B3 phase 3c). */
+  onItemCovered?: (itemId: string) => void;
   /** Optional verbose per-turn capture (debug mode). */
   onDebug?: (turn: AgentTurnDebug) => void;
 };
@@ -167,6 +169,20 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
           return { content: [{ type: "text", text: "quiet_logged" }] };
         },
       ),
+      tool(
+        "mark_covered",
+        "Mark a checklist item as covered once the call has genuinely addressed it. Auxiliary — it does NOT end the turn; you must still call emit_nudge or stay_quiet for your decision.",
+        {
+          itemId: z
+            .string()
+            .describe("The id of the checklist item shown in the ## Checklist section."),
+        },
+        async (args) => {
+          dbgTurn?.toolCalls.push({ name: "mark_covered", args });
+          events.onItemCovered?.(args.itemId);
+          return { content: [{ type: "text", text: "marked_covered" }] };
+        },
+      ),
     ],
   });
 
@@ -235,6 +251,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       allowedTools: [
         "mcp__prompty-nudges__emit_nudge",
         "mcp__prompty-nudges__stay_quiet",
+        "mcp__prompty-nudges__mark_covered",
       ],
       // `tools` is not in current SDK options shape; allowedTools is the gate.
       maxTurns: 200,
