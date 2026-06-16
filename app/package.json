@@ -19,11 +19,12 @@
     "smoke:coach-session": "node --import tsx tests/smoke-coach-session.ts",
     "smoke:hotkey-answer": "node --import tsx tests/smoke-hotkey-answer.ts",
     "smoke:prep": "node --import tsx tests/smoke-prep.ts",
+    "smoke:checkoff": "node --import tsx tests/smoke-checkoff.ts",
     "smoke:system-prompt": "node --import tsx tests/smoke-system-prompt.ts",
     "smoke:debug-logger": "node --import tsx tests/smoke-debug-logger.ts",
     "smoke:debug-capture": "node --import tsx tests/smoke-debug-capture.ts",
     "replay": "node --import tsx tests/replay-harness.ts",
-    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:prep && npm run smoke:system-prompt && npm run smoke:debug-logger && npm run smoke:debug-capture",
+    "test": "npm run smoke:transcribe-mock && npm run smoke:agent && npm run smoke:coach-session && npm run smoke:hotkey-answer && npm run smoke:prep && npm run smoke:checkoff && npm run smoke:system-prompt && npm run smoke:debug-logger && npm run smoke:debug-capture",
     "e2e": "playwright test"
   },
   "dependencies": {

@@ -13,10 +13,15 @@ import { answerNow } from "../src/main-process/answer";
 import { createSummaryKeeper } from "../src/main-process/running-summary";
 import type { CallSetup, TranscriptUtterance } from "../src/main-process/types";
 
+const MEMORY_TEXT = "Only surface a nudge when it's truly critical — I dislike chatter.";
+
 const setup: CallSetup = {
   direction:
     "Learn whether the prospect needs managed Kafka — probe team size, current scale, and operational pain — and steer toward a follow-up.",
   context: { attendee: { name: "Dana", company: "Acme" } },
+  // RUBY B1 phase 1b: the hotkey one-shot must also see the user's memory. We
+  // assert the real answer.ts prompt carries it (captured via onDebug).
+  memories: [{ id: "m1", text: MEMORY_TEXT, createdAt: 0, source: "manual" }],
 };
 
 function utt(speaker: "me" | "them", text: string): TranscriptUtterance {
@@ -39,13 +44,25 @@ async function main() {
   // ---- 1. Hotkey one-shot ----
   console.log("[smoke] calling answerNow()…");
   const t0 = Date.now();
+  let promptSeen = "";
   const nudge = await answerNow({
     setup,
     summary: "",
     recent: convo,
     recentNudges: [],
+    onDebug: (d) => {
+      promptSeen = d.context;
+    },
   });
   const ms = Date.now() - t0;
+
+  // 1b: the memory must be injected into the real hotkey prompt.
+  if (!promptSeen.includes(MEMORY_TEXT)) {
+    console.error("[smoke] FAIL — memory text missing from the hotkey prompt");
+    failures++;
+  } else {
+    console.log("[smoke] memory present in hotkey prompt ✓");
+  }
   if (!nudge) {
     console.error("[smoke] FAIL — answerNow returned null");
     failures++;
