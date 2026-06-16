@@ -13,6 +13,7 @@ import type {
   AppSettings,
   CallSetup,
   MemoryItem,
+  PrepComponent,
   TranscriptUtterance,
   PermissionStatus,
   MainTab,
@@ -100,6 +101,12 @@ export interface InvokeChannels {
   };
   "prep:end": {
     request: void;
+    response: { ok: boolean };
+  };
+  // Push user edits to the prep components back to the armed setup in main
+  // (RUBY B3 phase 3a). Replaces the whole list.
+  "prep:set-components": {
+    request: { components: PrepComponent[] };
     response: { ok: boolean };
   };
   "settings:get": {
@@ -231,6 +238,8 @@ export interface EventChannels {
   "prep:direction": { direction: string };
   "prep:thinking": { thinking: boolean };
   "prep:error": { message: string };
+  // Prep components changed — full current list (RUBY B3 phase 3a).
+  "prep:components": { components: PrepComponent[] };
 }
 
 export type EventChannel = keyof EventChannels;

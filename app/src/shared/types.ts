@@ -52,6 +52,28 @@ export interface MemoryItem {
   source: "manual" | "suggested";
 }
 
+// Composable prep components (RUBY B3): structured objects Ruby creates during
+// prep to make the call's plan explicit. A small discriminated union so new
+// types (question-bank, talking-points, …) are additive, not a rewrite.
+export interface GoalComponent {
+  type: "goal";
+  id: string;
+  text: string;
+}
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  /** Marked covered during the call (phase 3c); always false pre-call. */
+  done: boolean;
+}
+export interface ChecklistComponent {
+  type: "checklist";
+  id: string;
+  title?: string;
+  items: ChecklistItem[];
+}
+export type PrepComponent = GoalComponent | ChecklistComponent;
+
 export interface CallContextAttendee {
   name?: string;
   email?: string;
@@ -79,6 +101,9 @@ export interface CallSetup {
   // call started — how Ruby should coach them. Threaded onto the setup once in
   // startSession so every prompt built from it (in-call + hotkey) reflects it.
   memories?: MemoryItem[];
+  // Composable components built during prep (goal/checklist). Folded onto the
+  // setup at call start and injected into the in-call prompt (RUBY B3).
+  components?: PrepComponent[];
 }
 
 export interface PanelState {

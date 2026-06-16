@@ -21,6 +21,10 @@ type CallMeta = {
 };
 type Tab = "direction" | "memory" | "settings";
 type Mem = { id: string; text: string; createdAt: number; source: "manual" | "suggested" };
+type ChecklistItemR = { id: string; text: string; done: boolean };
+type PrepComp =
+  | { type: "goal"; id: string; text: string }
+  | { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] };
 const TAB_LABELS: Record<Tab, string> = {
   direction: "Direction",
   memory: "Memory",
@@ -105,6 +109,7 @@ export default function App(): JSX.Element {
   const [prepInput, setPrepInput] = useState("");
   const [prepThinking, setPrepThinking] = useState(false);
   const [prepError, setPrepError] = useState<string | null>(null);
+  const [prepComponents, setPrepComponents] = useState<PrepComp[]>([]);
   const seeded = useRef(false);
 
   const refreshCalls = useCallback(() => {
@@ -222,6 +227,9 @@ export default function App(): JSX.Element {
       setPrepThinking(p.thinking),
     );
     const offPrepError = window.prompty.on("prep:error", (p) => setPrepError(p.message));
+    const offPrepComps = window.prompty.on("prep:components", (p) =>
+      setPrepComponents(p.components as PrepComp[]),
+    );
     return () => {
       offState();
       offPf();
@@ -230,16 +238,23 @@ export default function App(): JSX.Element {
       offPrepDir();
       offPrepThinking();
       offPrepError();
+      offPrepComps();
     };
   }, [refreshCalls, refreshMic, refreshClaude, refreshMemories, readCall]);
 
   const openPrep = useCallback(async () => {
     setPrepError(null);
     setPrepMessages([]);
+    setPrepComponents([]);
     const r = await window.prompty.invoke("prep:start", { direction });
     if (r.ok) setPrepOpen(true);
     else setPrepError("Couldn't start prep — is Claude Code installed?");
   }, [direction]);
+
+  const syncComponents = useCallback((next: PrepComp[]) => {
+    setPrepComponents(next);
+    void window.prompty.invoke("prep:set-components", { components: next as never });
+  }, []);
 
   const sendPrep = useCallback(() => {
     const msg = prepInput.trim();
@@ -408,6 +423,105 @@ export default function App(): JSX.Element {
     </section>
   );
 
+  const editGoal = (id: string, text: string) =>
+    syncComponents(
+      prepComponents.map((c) => (c.id === id && c.type === "goal" ? { ...c, text } : c)),
+    );
+  const editItem = (cid: string, iid: string, text: string) =>
+    syncComponents(
+      prepComponents.map((c) =>
+        c.id === cid && c.type === "checklist"
+          ? { ...c, items: c.items.map((it) => (it.id === iid ? { ...it, text } : it)) }
+          : c,
+      ),
+    );
+  const deleteItem = (cid: string, iid: string) =>
+    syncComponents(
+      prepComponents.map((c) =>
+        c.id === cid && c.type === "checklist"
+          ? { ...c, items: c.items.filter((it) => it.id !== iid) }
+          : c,
+      ),
+    );
+  const addItem = (cid: string) =>
+    syncComponents(
+      prepComponents.map((c) =>
+        c.id === cid && c.type === "checklist"
+          ? { ...c, items: [...c.items, { id: `it_${Date.now()}`, text: "", done: false }] }
+          : c,
+      ),
+    );
+  const deleteComponent = (id: string) =>
+    syncComponents(prepComponents.filter((c) => c.id !== id));
+
+  const componentsPanel = prepComponents.length > 0 && (
+    <section style={S.card} data-testid="prep-components">
+      <div style={S.cardHead}>
+        <span style={S.label}>Call plan</span>
+      </div>
+      {prepComponents.map((c) =>
+        c.type === "goal" ? (
+          <div key={c.id} style={S.compBlock} data-testid="component-goal">
+            <div style={S.compHead}>
+              <span style={S.compKind}>Goal</span>
+              <button
+                style={S.renameBtn}
+                aria-label="Delete goal"
+                onClick={() => deleteComponent(c.id)}
+              >
+                ✕
+              </button>
+            </div>
+            <input
+              style={S.memInput}
+              data-testid="goal-input"
+              value={c.text}
+              onChange={(e) => editGoal(c.id, e.target.value)}
+            />
+          </div>
+        ) : (
+          <div key={c.id} style={S.compBlock} data-testid="component-checklist">
+            <div style={S.compHead}>
+              <span style={S.compKind}>{c.title?.trim() || "Checklist"}</span>
+              <button
+                style={S.renameBtn}
+                aria-label="Delete checklist"
+                onClick={() => deleteComponent(c.id)}
+              >
+                ✕
+              </button>
+            </div>
+            <ul style={S.list}>
+              {c.items.map((it) => (
+                <li key={it.id} style={S.checkRow} data-testid="checklist-item">
+                  <span style={S.checkDot} aria-hidden>
+                    ○
+                  </span>
+                  <input
+                    style={S.checkInput}
+                    value={it.text}
+                    onChange={(e) => editItem(c.id, it.id, e.target.value)}
+                  />
+                  <button
+                    style={S.renameBtn}
+                    aria-label="Delete item"
+                    data-testid="checklist-item-delete"
+                    onClick={() => deleteItem(c.id, it.id)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button style={S.linkBtn} data-testid="checklist-add" onClick={() => addItem(c.id)}>
+              + Add item
+            </button>
+          </div>
+        ),
+      )}
+    </section>
+  );
+
   return (
     <div style={S.page}>
       <div className="app-dragbar" />
@@ -501,6 +615,7 @@ export default function App(): JSX.Element {
               </div>
             )}
           </section>
+          {componentsPanel}
           </div>
           </div>
 
@@ -977,6 +1092,29 @@ const S: Record<string, React.CSSProperties> = {
     whiteSpace: "pre-wrap",
   },
   chatInputRow: { display: "flex", gap: 8 },
+  compBlock: { marginBottom: 16 },
+  compHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  compKind: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0.13em",
+    textTransform: "uppercase",
+    color: v("--ruby", "#d61f47"),
+  },
+  checkRow: { display: "flex", alignItems: "center", gap: 8 },
+  checkDot: { flexShrink: 0, fontSize: 12, color: v("--ink-faint", "#a39a82") },
+  checkInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: "6px 8px",
+    fontSize: 13,
+    color: v("--ink", "#211d15"),
+    background: v("--card", "#fff"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 8,
+    outline: "none",
+    fontFamily: "inherit",
+  },
   memTag: {
     flexShrink: 0,
     fontSize: 10,

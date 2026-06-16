@@ -29,6 +29,7 @@ import {
   deleteMemory,
 } from "../src/main-process/memory-store";
 import { openPrepAgent, type PrepAgent } from "../src/main-process/prep-agent";
+import type { PrepComponent } from "../src/main-process/types";
 import { debugDir } from "../src/main-process/debug-logger";
 import type {
   CallSetup,
@@ -90,6 +91,9 @@ let activeSession: SessionHandle | null = null;
 let activeSessionSetup: CallSetup | null = null;
 // The current prep chat session (RUBY B2 phase 2b). At most one at a time.
 let activePrep: PrepAgent | null = null;
+// Components (goal/checklist) armed by the current/last prep, awaiting the next
+// call start (RUBY B3). Folded onto the setup at call:start, then cleared.
+let activePrepComponents: PrepComponent[] = [];
 // Buffer of session:status events for the active session — read by E2E.
 let statusLog: SessionStatusEvent[] = [];
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
@@ -353,10 +357,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       await activePrep.close().catch(() => {});
       activePrep = null;
     }
+    activePrepComponents = [];
     try {
       activePrep = await openPrepAgent(payload?.direction ?? "", {
         onAssistant: (text) => broadcast("prep:assistant", { text }),
         onDirection: (direction) => broadcast("prep:direction", { direction }),
+        onComponents: (components) => {
+          activePrepComponents = components;
+          broadcast("prep:components", { components });
+        },
         onError: (e) => broadcast("prep:error", { message: e.message }),
       });
       return { ok: true };
@@ -386,6 +395,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       await activePrep.close().catch(() => {});
       activePrep = null;
     }
+    return { ok: true };
+  });
+
+  handle("prep:set-components", (payload) => {
+    // User edited the cards — the renderer is the source of truth for edits.
+    activePrepComponents = payload.components;
     return { ok: true };
   });
 
