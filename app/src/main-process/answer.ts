@@ -23,6 +23,7 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 }
 
 import type { CallSetup, Nudge, TranscriptUtterance } from "./types";
+import { memoryBlock } from "./memory-store";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { modelFor } from "./models";
 import { debugFullPrompt } from "./debug-logger";
@@ -48,7 +49,11 @@ function buildPrompt(input: AnswerInput): string {
     recentNudges.length === 0
       ? "(none yet)"
       : recentNudges.map((t) => `- ${t}`).join("\n");
-  return `## Direction (what a good call looks like — your primary steer)
+  const memory = memoryBlock(setup.memories ?? []);
+  const memorySection = memory
+    ? `## What the user wants from you (standing preferences — honor these)\n${memory}\n\n`
+    : "";
+  return `${memorySection}## Direction (what a good call looks like — your primary steer)
 ${setup.direction?.trim() || "(none set)"}
 
 ## Call so far (running brief)

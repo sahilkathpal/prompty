@@ -75,6 +75,10 @@ export interface CallSetup {
   // Optional named playbook layered on top of base + direction (e.g.
   // "discovery", "hiring", "user-interview"). Empty/absent = no skill.
   skill?: string;
+  // Snapshot of the user's global memory (personalisation) at the moment the
+  // call started — how Ruby should coach them. Threaded onto the setup once in
+  // startSession so every prompt built from it (in-call + hotkey) reflects it.
+  memories?: MemoryItem[];
 }
 
 export interface PanelState {

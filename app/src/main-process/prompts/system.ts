@@ -1,5 +1,6 @@
 import type { CallSetup } from "../types";
 import { loadBase, loadSkillFragment } from "./loader";
+import { memoryBlock } from "../memory-store";
 
 export { listAvailableSkills } from "./loader";
 
@@ -32,6 +33,13 @@ export function buildSystemPrompt(setup: CallSetup): string {
   if (skill) {
     const fragment = loadSkillFragment(skill, "in-call").trim();
     if (fragment) parts.push(fragment);
+  }
+
+  // The user's standing personalisation (how Ruby should coach them), snapshot
+  // onto the setup at session start. Omitted entirely when there are none.
+  const memory = memoryBlock(setup.memories ?? []);
+  if (memory) {
+    parts.push(`## What Ruby knows about you\n${memory}`);
   }
 
   const direction = setup.direction?.trim();

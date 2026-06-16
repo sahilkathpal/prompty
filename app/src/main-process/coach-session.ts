@@ -16,6 +16,7 @@ import { CONSIDER_WINDOW } from "./windowing";
 import { answerNow } from "./answer";
 import { createSummaryKeeper, type SummaryKeeper } from "./running-summary";
 import { writeCallLog, deriveCallTitle, updateCallLogSummary } from "./call-log";
+import { readMemory } from "./memory-store";
 import { openJournal, type JournalHandle } from "./journal";
 import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
@@ -139,6 +140,14 @@ export async function startSession(
   setup: CallSetup,
   opts: SessionOpts = {},
 ): Promise<SessionHandle> {
+  // Snapshot the user's global memory (personalisation) onto the setup so every
+  // prompt built from it — in-call nudges and the hotkey one-shot — reflects how
+  // Ruby should coach them. Done once here, the single entry point for all
+  // sessions (IPC, smoke, replay). A caller may pre-supply `memories` (e.g. [])
+  // to override; we only fill it when absent.
+  if (setup.memories === undefined) {
+    setup = { ...setup, memories: readMemory() };
+  }
   const startedAt = Date.now();
   const transcript: TranscriptUtterance[] = [];
   const nudges: Nudge[] = [];
