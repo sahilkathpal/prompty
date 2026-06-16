@@ -47,6 +47,22 @@ export function buildSystemPrompt(setup: CallSetup): string {
     parts.push(`## Direction\n${direction}`);
   }
 
+  // Composable components built during prep (RUBY B3). The goal names the
+  // outcome; the checklist is what's worth covering. Each rendered only when
+  // present so a no-prep call shows neither.
+  const components = setup.components ?? [];
+  const goal = components.find((c) => c.type === "goal");
+  if (goal && goal.type === "goal" && goal.text.trim()) {
+    parts.push(`## Goal\n${goal.text.trim()}`);
+  }
+  const checklist = components.find((c) => c.type === "checklist");
+  if (checklist && checklist.type === "checklist" && checklist.items.length) {
+    const lines = checklist.items
+      .map((it) => `- [${it.done ? "x" : " "}] ${it.text}`)
+      .join("\n");
+    parts.push(`## Checklist\n${lines}`);
+  }
+
   const contextBlock = formatContext(setup.context);
   if (contextBlock) {
     parts.push(`## Background context\n${contextBlock}`);

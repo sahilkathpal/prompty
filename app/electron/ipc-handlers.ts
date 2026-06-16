@@ -196,6 +196,12 @@ async function doStartSession(
   // The ephemeral per-call direction comes straight from the renderer at start
   // (RUBY B2 phase 2a) — nothing is read from disk. It is the whole brief.
   const setup = directionToSetup(opts.direction ?? "", opts.skill);
+  // Fold in the components armed during prep (RUBY B3 phase 3b), then clear them
+  // — they're consumed by this call and don't leak into the next one.
+  if (activePrepComponents.length > 0) {
+    setup.components = activePrepComponents;
+    activePrepComponents = [];
+  }
   activeSessionSetup = setup;
   statusLog = [];
 
