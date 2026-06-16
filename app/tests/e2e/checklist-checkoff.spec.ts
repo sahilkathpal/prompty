@@ -171,8 +171,22 @@ test("in-call check-off persists done state and renders post-call coverage", asy
         isFinal: true,
       }),
     );
-    // The mock consider() is async; give it a beat to call onItemCovered.
-    await page.waitForTimeout(1_500);
+    // Wait on the real condition rather than a fixed sleep: the mock consider()
+    // calls onItemCovered() and THEN onNudge() in the same body, so once the
+    // session has recorded a nudge the check-off has already landed. Polling
+    // session:state makes this deterministic under any machine load.
+    await page.waitForFunction(
+      async () => {
+        const s = await (
+          window as unknown as {
+            prompty: { invoke: (c: string, p?: unknown) => Promise<{ nudges?: unknown[] }> };
+          }
+        ).prompty.invoke("session:state");
+        return (s?.nudges?.length ?? 0) >= 1;
+      },
+      undefined,
+      { timeout: 15_000 },
+    );
 
     // ===== End the call =====
     await page.getByTestId("playground-end").click();
