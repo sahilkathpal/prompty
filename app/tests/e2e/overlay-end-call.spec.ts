@@ -125,3 +125,63 @@ test("the gem overlay can end the call from its expanded panel", async () => {
     await app.close();
   }
 });
+
+test("the End-call control stays reachable when the note history overflows", async () => {
+  const app = await launchApp();
+  try {
+    await waitForReady(app);
+    const res = await startSession(app);
+    expect(res.ok).toBe(true);
+    expect(await waitUntil(() => overlayVisible(app))).toBe(true);
+    const overlay = await getOverlayPage(app);
+
+    // Build a long note history the real way: each injected final utterance
+    // drives a mock-agent consider → one nudge → one history row. 14 rows make
+    // the scrollback taller than the window, reproducing the overflow.
+    await new Promise((r) => setTimeout(r, 1500)); // let the session reach "live"
+    for (let i = 0; i < 14; i++) {
+      await app.evaluate(
+        (t) =>
+          (
+            globalThis as unknown as {
+              __prompty_e2e: { injectUtterance: (u: unknown) => void };
+            }
+          ).__prompty_e2e.injectUtterance({
+            speaker: "them",
+            text: t,
+            startMs: 0,
+            endMs: 0,
+            isFinal: true,
+          }),
+        `Point ${i}: a reasonably long thing the other party said about the rollout.`,
+      );
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    // Let the last blooms dwell out so they don't cover the gem, then expand.
+    await new Promise((r) => setTimeout(r, 1500));
+    await overlay.getByTestId("gem").click();
+    await expect(overlay.getByTestId("gem-history")).toBeVisible({ timeout: 5_000 });
+    expect(
+      await waitUntil(
+        async () =>
+          (await overlay.getByTestId("gem-history").locator(".gem-history-item").count()) >= 12,
+      ),
+    ).toBe(true);
+
+    // The End footer must sit WITHIN the window, not clipped past the bottom
+    // (the bug: it spilled below and could only be ended from the main window).
+    const endBtn = overlay.getByTestId("gem-end");
+    await expect(endBtn).toBeVisible();
+    const box = await endBtn.boundingBox();
+    const vh = await overlay.evaluate(() => window.innerHeight);
+    expect(box).toBeTruthy();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(vh + 2);
+
+    // And it still actually ends the call.
+    await endBtn.click();
+    expect(await waitUntil(() => overlayVisible(app).then((v) => !v))).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
