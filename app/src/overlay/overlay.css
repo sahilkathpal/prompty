@@ -85,7 +85,7 @@ html, body, #root {
 
 .gem-note-tag {
   display: inline-block;
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -97,7 +97,7 @@ html, body, #root {
   margin-bottom: 8px;
 }
 .gem-note-q {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.45;
   color: #ffe9ee;
@@ -133,7 +133,7 @@ html, body, #root {
   -webkit-app-region: no-drag;
   margin-top: 2px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   color: rgba(255, 233, 238, 0.4);
   pointer-events: none;
@@ -175,7 +175,7 @@ html, body, #root {
   border-radius: 3px;
 }
 .gem-history-empty {
-  font-size: 12px;
+  font-size: 12px; /* --text-sm */
   color: #a08a90;
   text-align: center;
   padding: 10px 4px;
@@ -197,14 +197,14 @@ html, body, #root {
 }
 .gem-history-item:last-child { border-bottom: none; }
 .gem-history-time {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #d98a98;
 }
 .gem-history-text {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
   color: #ffe9ee;
 }
@@ -220,7 +220,7 @@ html, body, #root {
   appearance: none;
   width: 100%;
   padding: 8px 12px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: #ffe9ee;

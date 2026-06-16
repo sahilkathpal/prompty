@@ -167,7 +167,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 .gem-badge.saved {
