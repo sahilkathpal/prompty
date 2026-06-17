@@ -26,6 +26,9 @@ describe("buildSystemPrompt", () => {
     expect(p).toContain("## Direction\n");
     expect(p).toContain("Explore their ingestion pain before pitching");
     expect(p).toContain("sales discovery"); // discovery playbook
+    // The skill's frontmatter (title/description) must never leak into the prompt.
+    expect(p).not.toContain("title:");
+    expect(p).not.toContain("description:");
   });
 
   it("injects the memory block when memories are present, omits it otherwise", () => {

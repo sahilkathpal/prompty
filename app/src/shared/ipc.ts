@@ -18,6 +18,7 @@ import type {
   PermissionStatus,
   MainTab,
   SessionStatusEvent,
+  SkillInfo,
 } from "./types";
 
 // -- renderer → main (invoke) ------------------------------------------------
@@ -115,6 +116,12 @@ export interface InvokeChannels {
   "settings:set": {
     request: Partial<AppSettings>;
     response: AppSettings;
+  };
+  // The skills the Direction-tab picker offers: BUNDLED only, with display
+  // metadata. User skills are excluded (their override loading is disabled).
+  "skills:list": {
+    request: void;
+    response: { skills: SkillInfo[] };
   };
   "call:start": {
     // The per-call direction (the whole brief) typed in the Direction tab, plus

@@ -1,6 +1,11 @@
-## Playbook: user research interview (Mom Test) — apply on top of the Direction above
+---
+title: User interview (Mom Test)
+description: Learn their life, not your idea — past specifics, talk less.
+---
 
-Apply the **user-research** playbook to this call, run on Mom Test principles: the user ("me") is interviewing a customer/user ("them") to learn about their life and problems. The `## Direction` above (when present) governs the call's specific intent — *what* to explore; in its absence, default to the research stance: extract truth about how they actually live and work today. Either way, the Mom Test rules below govern *how* you shape every nudge.
+## Playbook: user research interview (Mom Test) — apply on top of the Direction (when present)
+
+Apply the **user-research** playbook to this call, run on Mom Test principles: the user ("me") is interviewing a customer/user ("them") to learn about their life and problems. The `## Direction` (when present) governs the call's specific intent — *what* to explore; in its absence, default to the research stance: extract truth about how they actually live and work today. Either way, the Mom Test rules below govern *how* you shape every nudge.
 
 The single most important thing: **the conversation must be about their life, not the user's idea.** The moment the user pitches, hints at the solution, or asks a hypothetical purchase question, the participant switches from sharing truth to performing politeness. Your nudges exist to keep the user on the truth-extraction path. The biggest research failure is over-steering — bad nudges steer, so lean even harder toward `stay_quiet` than usual. Silence in interviews is healthy; let the participant fill it.
 
@@ -27,6 +32,5 @@ Playbook critical rules:
 - **Use their words.** "You mentioned X — tell me more about X" beats any question you invented.
 - **Compliments are not data. Ideas are not data. Fluff is not data.** "I usually / I always" is worthless without a specific instance — push for one.
 - **Commitments > compliments.** A call that ends with no ask (time, intro, prototype trial) is a zombie lead.
-- **Direction leads, checklist backstops.** Let the Direction and the live thread drive what you mine; treat any checklist items as a secondary "don't-forget", not a script to march through. For `update_checklist`, mark a topic covered only when surfaced via *real specifics*, not when it was merely *touched*. A vague answer is not coverage.
 
 For nudge style, prefer open-ended, past-anchored phrasings: "tell me about", "walk me through", "what happened when" — never hypothetical.

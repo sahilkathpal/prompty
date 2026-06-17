@@ -25,6 +25,7 @@ type ChecklistItemR = { id: string; text: string; done: boolean };
 type PrepComp =
   | { type: "goal"; id: string; text: string }
   | { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] };
+type SkillOpt = { name: string; title: string; description: string };
 const TAB_LABELS: Record<Tab, string> = {
   direction: "Direction",
   memory: "Memory",
@@ -95,6 +96,8 @@ export default function App(): JSX.Element {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState("Alt+Shift+Space");
+  const [skills, setSkills] = useState<SkillOpt[]>([]);
+  const [skill, setSkill] = useState("");
   const [calls, setCalls] = useState<CallMeta[]>([]);
   const [openCall, setOpenCall] = useState<{ name: string; call: ParsedCall } | null>(null);
   const [editing, setEditing] = useState<{ name: string; draft: string } | null>(null);
@@ -195,9 +198,14 @@ export default function App(): JSX.Element {
     window.prompty
       .invoke("settings:get", undefined as never)
       .then((s) => {
-        const set = s as { hotkey?: string };
+        const set = s as { hotkey?: string; skill?: string };
         if (set.hotkey) setHotkey(set.hotkey);
+        if (typeof set.skill === "string") setSkill(set.skill);
       })
+      .catch(() => {});
+    window.prompty
+      .invoke("skills:list", undefined as never)
+      .then((r) => setSkills(r.skills))
       .catch(() => {});
     window.prompty
       .invoke("preflight:get", undefined as never)
@@ -372,7 +380,10 @@ export default function App(): JSX.Element {
       setError("Add a direction first — it's the brief your coach follows on the call.");
       return;
     }
-    const r = await window.prompty.invoke("call:start", { direction });
+    const r = await window.prompty.invoke("call:start", {
+      direction,
+      skill: skill || undefined,
+    });
     if (!r.ok) {
       const pf = await window.prompty
         .invoke("preflight:get", undefined as never)
@@ -380,7 +391,14 @@ export default function App(): JSX.Element {
       setError(pf?.message ?? r.error ?? "Couldn't start the call.");
       if (pf?.code === "mic") refreshMic();
     }
-  }, [direction, refreshMic]);
+  }, [direction, skill, refreshMic]);
+
+  // Sticky skill: a discrete pick, so persist it synchronously on change (no
+  // debounce — immune to the directionDraft quick-close race).
+  const pickSkill = useCallback((name: string) => {
+    setSkill(name);
+    void window.prompty.invoke("settings:set", { skill: name });
+  }, []);
 
   const end = useCallback(() => {
     void window.prompty.invoke("call:end", undefined as never);
@@ -635,6 +653,34 @@ export default function App(): JSX.Element {
               spellCheck={false}
               style={prepOpen ? { ...S.textarea, ...S.textareaTall } : S.textarea}
             />
+            <div style={S.skillRow}>
+              <label style={S.label} htmlFor="skill">
+                Skill
+              </label>
+              <select
+                id="skill"
+                data-testid="playground-skill"
+                value={skill}
+                onChange={(e) => pickSkill(e.target.value)}
+                disabled={isLive}
+                style={S.skillSelect}
+              >
+                <option value="">No skill</option>
+                {skills.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {(() => {
+              const sel = skills.find((s) => s.name === skill);
+              return sel?.description ? (
+                <div style={S.skillHint} data-testid="playground-skill-hint">
+                  {sel.description}
+                </div>
+              ) : null;
+            })()}
             <div style={S.row}>
               {!prepOpen && !isLive && (
                 <button style={S.btnGhost} data-testid="prep-open" onClick={openPrep}>
@@ -1092,6 +1138,17 @@ const S: Record<string, React.CSSProperties> = {
     boxSizing: "border-box",
   },
   row: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
+  skillRow: { display: "flex", alignItems: "center", gap: 10, marginTop: 12 },
+  skillSelect: {
+    flex: 1,
+    padding: "8px 10px",
+    fontSize: 13,
+    color: v("--text", "#e8e8ea"),
+    background: v("--surface-2", "#141418"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 8,
+  },
+  skillHint: { marginTop: 6, fontSize: 12, color: v("--muted-dim", "#6a6a72") },
   live: { marginTop: 12, fontSize: 13, color: v("--green", "#46c46a"), display: "flex", alignItems: "center", gap: 8 },
   ending: { marginTop: 12, fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },
   summarizing: { fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },

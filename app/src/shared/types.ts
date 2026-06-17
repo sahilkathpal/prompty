@@ -112,6 +112,10 @@ export interface AppSettings {
   // The working direction, persisted as a draft so a prepped brief survives
   // closing/reopening the window. Empty until the user types or preps one.
   directionDraft: string;
+  // The sticky in-call skill (folder name, e.g. "discovery"). Reusable
+  // methodology, so it persists across calls — unlike the per-call direction.
+  // Empty = "No skill" (base + direction only). Written synchronously on pick.
+  skill: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -123,7 +127,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   loginItemPrompted: false,
   lastTab: "prep",
   directionDraft: "",
+  skill: "",
 };
+
+/** Display metadata for a pickable skill — name (folder) + frontmatter title/description. */
+export interface SkillInfo {
+  name: string;
+  title: string;
+  description: string;
+}
 
 export type MediaPermissionStatus =
   | "not-determined"

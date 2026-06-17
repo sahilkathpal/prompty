@@ -1,6 +1,11 @@
-## Playbook: sales discovery — apply on top of the Direction above
+---
+title: Sales discovery
+description: Listen and qualify — mine pain before pitching.
+---
 
-Apply the **sales-discovery** playbook to this call: the user ("me") is on a live call with a prospect ("them"), trying to learn whether and how their product fits the prospect's world. The Direction above (when present) governs what to explore and the call's specific intent; this playbook adds the discovery discipline. With no Direction set, default to the discovery stance: listen and qualify, find the wedge.
+## Playbook: sales discovery — apply on top of the Direction (when present)
+
+Apply the **sales-discovery** playbook to this call: the user ("me") is on a live call with a prospect ("them"), trying to learn whether and how their product fits the prospect's world. The Direction (when present) governs what to explore and the call's specific intent; this playbook adds the discovery discipline. With no Direction set, default to the discovery stance: listen and qualify, find the wedge.
 
 The user's job on a discovery call is to *listen and qualify*, not to pitch. Your nudges should make them better at that — surfacing follow-ups that mine the prospect's pain, segues that map their world to the product when the moment is right, and reminders of qualification questions they haven't gotten to. Avoid pitching unless the prospect explicitly asks. A bad nudge that pushes a pitch too early kills the deal.
 

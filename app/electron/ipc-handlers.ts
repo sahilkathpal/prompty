@@ -29,6 +29,7 @@ import {
   deleteMemory,
 } from "../src/main-process/memory-store";
 import { openPrepAgent, type PrepAgent } from "../src/main-process/prep-agent";
+import { listBundledSkills } from "../src/main-process/prompts/loader";
 import type { PrepComponent } from "../src/main-process/types";
 import { debugDir, debugEnabled } from "../src/main-process/debug-logger";
 import type {
@@ -442,6 +443,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     broadcast("settings:changed", next);
     return next;
   });
+
+  handle("skills:list", () => ({ skills: listBundledSkills() }));
 
   handle("debug:reveal", async () => {
     const dir = debugDir();
