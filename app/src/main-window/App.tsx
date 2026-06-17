@@ -115,6 +115,9 @@ export default function App(): JSX.Element {
   const chatLogRef = useRef<HTMLDivElement>(null);
   // True while the current assistant turn is streaming into the last bubble.
   const streamingRef = useRef(false);
+  // Becomes true once the on-mount direction seed has run, so the debounced
+  // persist effect never writes the initial empty value over a saved draft.
+  const draftReady = useRef(false);
 
   const refreshCalls = useCallback(() => {
     window.prompty
@@ -165,19 +168,32 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    // Direction is ephemeral (RUBY B2 phase 2a): the editor starts empty every
-    // launch. The only seed is an already-live call's direction, so reopening
-    // the window mid-call still shows what's being coached.
+    // Seed the direction editor on mount: a live call's direction wins (so
+    // reopening the window mid-call still shows what's being coached); otherwise
+    // restore the persisted draft so a prepped brief survives closing the window.
     window.prompty
       .invoke("session:state", undefined as never)
-      .then((r) => {
+      .then(async (r) => {
         setSessionState(r.state);
         if (!seeded.current && r.setup?.direction) {
           setDirection(r.setup.direction);
           seeded.current = true;
         }
+        if (!seeded.current) {
+          try {
+            const s = await window.prompty.invoke("settings:get", undefined as never);
+            const draft = (s as { directionDraft?: string }).directionDraft;
+            if (!seeded.current && draft) {
+              setDirection(draft);
+              seeded.current = true;
+            }
+          } catch {}
+        }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        draftReady.current = true;
+      });
     window.prompty
       .invoke("settings:get", undefined as never)
       .then((s) => {
@@ -220,24 +236,30 @@ export default function App(): JSX.Element {
     // and the authoritative full message finalizes it.
     const offPrepDelta = window.prompty.on("prep:assistant-delta", (p) => {
       setPrepThinking(false);
+      // Flip streamingRef synchronously here, NOT inside the updater: React runs
+      // updaters at commit time, so if the ref were set there, a fast-arriving
+      // final prep:assistant could read it as still-false and append a second
+      // bubble instead of finalizing this one (the "reply twice" bug).
+      const continuing = streamingRef.current;
+      streamingRef.current = true;
       setPrepMessages((m) => {
         const last = m[m.length - 1];
-        if (streamingRef.current && last && last.role === "assistant") {
+        if (continuing && last && last.role === "assistant") {
           return [...m.slice(0, -1), { ...last, text: last.text + p.text }];
         }
-        streamingRef.current = true;
         return [...m, { role: "assistant", text: p.text }];
       });
     });
     const offPrepAsst = window.prompty.on("prep:assistant", (p) => {
+      const streaming = streamingRef.current;
+      streamingRef.current = false;
       setPrepMessages((m) => {
         const last = m[m.length - 1];
-        if (streamingRef.current && last && last.role === "assistant") {
+        if (streaming && last && last.role === "assistant") {
           return [...m.slice(0, -1), { ...last, text: p.text }];
         }
         return [...m, { role: "assistant", text: p.text }];
       });
-      streamingRef.current = false;
     });
     const offPrepDir = window.prompty.on("prep:direction", (p) => {
       // Ruby rewrote the shared working direction — reflect it live in the editor.
@@ -301,6 +323,17 @@ export default function App(): JSX.Element {
     const el = chatLogRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [prepMessages, prepThinking]);
+
+  // Persist the working direction as a draft (debounced) so it survives closing
+  // the window. Gated on draftReady so the initial empty render can't clobber a
+  // saved draft before it has loaded.
+  useEffect(() => {
+    if (!draftReady.current) return;
+    const id = setTimeout(() => {
+      void window.prompty.invoke("settings:set", { directionDraft: direction });
+    }, 400);
+    return () => clearTimeout(id);
+  }, [direction]);
 
   const addMemoryItem = useCallback(() => {
     const text = newMemory.trim();

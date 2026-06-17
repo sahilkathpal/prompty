@@ -124,6 +124,9 @@ export interface AppSettings {
   onboardingCompleted: boolean;
   loginItemPrompted: boolean;
   lastTab: MainTab;
+  // The working direction, persisted as a draft so a prepped brief survives
+  // closing/reopening the window. Empty until the user types or preps one.
+  directionDraft: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -134,6 +137,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   loginItemPrompted: false,
   lastTab: "prep",
+  directionDraft: "",
 };
 
 export type MediaPermissionStatus =

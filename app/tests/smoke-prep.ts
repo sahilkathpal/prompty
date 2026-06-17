@@ -19,6 +19,7 @@ async function main() {
 
   const assistantReplies: string[] = [];
   const directions: string[] = [];
+  const componentSets: unknown[][] = [];
   const errors: Error[] = [];
   let deltaCount = 0;
 
@@ -34,6 +35,10 @@ async function main() {
     onDirection: (direction) => {
       directions.push(direction);
       console.log(`[smoke-prep] DIRECTION (${direction.length} chars):\n${direction}\n`);
+    },
+    onComponents: (components) => {
+      componentSets.push(components);
+      console.log(`[smoke-prep] COMPONENTS: ${JSON.stringify(components)}`);
     },
     onError: (e) => {
       errors.push(e);
@@ -61,6 +66,7 @@ async function main() {
   console.log(`  assistant replies: ${assistantReplies.length}`);
   console.log(`  streamed deltas: ${deltaCount}`);
   console.log(`  direction rewrites: ${directions.length}`);
+  console.log(`  component updates: ${componentSets.length}`);
   console.log(`  errors: ${errors.length}`);
 
   const pass =
