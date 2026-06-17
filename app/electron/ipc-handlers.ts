@@ -107,7 +107,6 @@ let lastBroadcastState: SessionState | "idle" = "idle";
 function directionToSetup(direction: string, skill?: string): CallSetup {
   return {
     direction: direction.trim() || undefined,
-    context: {},
     skill: skill || undefined,
   };
 }

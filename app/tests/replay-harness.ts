@@ -197,7 +197,6 @@ function loadJsonl(file: string): Loaded {
   const start = events.find((e) => e.kind === "session-start");
   const setup: CallSetup = {
     direction: start?.direction,
-    context: { attendee: start?.attendee },
     skill: start?.skill,
   };
 
@@ -276,10 +275,6 @@ function printSetup(l: Loaded): void {
   console.log(`\n=== fixture: ${l.label} ===`);
   if (s.direction) console.log(`direction: ${s.direction}`);
   if (s.skill) console.log(`skill:     ${s.skill}`);
-  if (s.context.attendee?.name) {
-    const a = s.context.attendee;
-    console.log(`attendee:  ${a.name}${a.company ? ` (${a.company})` : ""}`);
-  }
   console.log(
     `steps: ${utterances} utterance(s), ${hotkeys} hotkey press(es), window: ${CONSIDER_WINDOW}`,
   );

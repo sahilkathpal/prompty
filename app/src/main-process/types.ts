@@ -3,8 +3,6 @@
 export type {
   Speaker,
   TranscriptUtterance,
-  CallContext,
-  CallContextAttendee,
   CallSetup,
   MemoryItem,
   PrepComponent,

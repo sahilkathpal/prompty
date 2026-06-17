@@ -22,7 +22,6 @@ const ITEM_LABEL = new Map(ITEMS.map((i) => [i.id, i.text]));
 const setup: CallSetup = {
   direction:
     "Discovery call about whether the prospect needs managed Kafka. Work through the checklist as the conversation covers each point.",
-  context: { attendee: { name: "Dana", company: "Acme" } },
   components: [
     { type: "goal", id: "g1", text: "Decide whether they're a fit for managed Kafka" },
     { type: "checklist", id: "cl1", title: "Cover", items: ITEMS.map((i) => ({ ...i })) },

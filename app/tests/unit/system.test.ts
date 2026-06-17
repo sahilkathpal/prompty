@@ -8,46 +8,39 @@ import type { CallSetup } from "../../src/shared/types";
 
 describe("buildSystemPrompt", () => {
   it("bare setup renders base only — no optional sections, no placeholders", () => {
-    const p = buildSystemPrompt({ context: {} });
+    const p = buildSystemPrompt({});
     expect(p).not.toContain("{{");
     expect(p).not.toContain("## Direction\n");
     expect(p).not.toContain("## Goal\n");
     expect(p).not.toContain("## Checklist\n");
-    expect(p).not.toContain("## Background context");
     expect(p).not.toContain("## Playbook:");
     expect(p).toContain("real-time call coach");
   });
 
-  it("renders direction + notes + skill playbook, with Direction before context", () => {
+  it("renders direction + skill playbook, with Direction before the playbook", () => {
     const setup: CallSetup = {
       direction: "Explore their ingestion pain before pitching; qualify fit.",
-      context: { manualNotes: "Skeptical CTO — mention SOC2." },
       skill: "discovery",
     };
     const p = buildSystemPrompt(setup);
     expect(p).toContain("## Direction\n");
     expect(p).toContain("Explore their ingestion pain before pitching");
-    expect(p).toContain("## Background context");
-    expect(p).toContain("Skeptical CTO — mention SOC2.");
     expect(p).toContain("sales discovery"); // discovery playbook
-    expect(p.indexOf("## Direction\n")).toBeLessThan(p.indexOf("## Background context"));
   });
 
   it("injects the memory block when memories are present, omits it otherwise", () => {
     const withMem = buildSystemPrompt({
-      context: {},
       memories: [{ id: "m1", text: "I dislike chatter.", createdAt: 0, source: "manual" }],
     });
     expect(withMem).toContain("## What Ruby knows about you");
     expect(withMem).toContain("- I dislike chatter.");
 
-    const noMem = buildSystemPrompt({ context: {}, memories: [] });
+    const noMem = buildSystemPrompt({ memories: [] });
     expect(noMem).not.toContain("## What Ruby knows about you");
   });
 
   it("renders Goal + Checklist sections only when those components exist", () => {
     const p = buildSystemPrompt({
-      context: {},
       components: [
         { type: "goal", id: "g1", text: "Decide whether to run a pilot." },
         {
@@ -67,7 +60,7 @@ describe("buildSystemPrompt", () => {
   });
 
   it("unknown skill appends no playbook and never throws", () => {
-    const p = buildSystemPrompt({ context: {}, skill: "no-such-skill" });
+    const p = buildSystemPrompt({ skill: "no-such-skill" });
     expect(p).not.toContain("## Playbook:");
     expect(p).toContain("real-time call coach");
   });

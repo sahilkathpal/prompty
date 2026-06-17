@@ -193,7 +193,6 @@ export async function startSession(
     debugLog?.write("session-start", {
       direction: setup.direction,
       skill: setup.skill,
-      attendee: setup.context.attendee,
       startedAt,
       // Resolved static prompt, logged once (fidelity "B").
       systemPrompt: buildSystemPrompt(setup),
@@ -494,7 +493,6 @@ export async function startSession(
           transcript,
           nudges,
           components: setup.components,
-          attendee: setup.context.attendee,
           startedAt,
           endedAt: Date.now(),
           summary: undefined,

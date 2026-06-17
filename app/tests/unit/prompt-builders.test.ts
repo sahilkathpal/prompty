@@ -15,7 +15,7 @@ const utt = (speaker: "me" | "them", text: string): TranscriptUtterance => ({
 });
 
 describe("answer.buildPrompt", () => {
-  const setup: CallSetup = { direction: "Probe Kafka pain", context: {} };
+  const setup: CallSetup = { direction: "Probe Kafka pain" };
 
   it("renders direction, transcript, recent nudges, and the memory section", () => {
     const p = buildAnswerPrompt({
@@ -65,14 +65,14 @@ describe("answer.cleanLine", () => {
 
 describe("running-summary.buildPrompt", () => {
   it("includes the direction section only when a direction is set", () => {
-    const withDir = buildSummaryPrompt({ direction: "Qualify fit", context: {} }, [
+    const withDir = buildSummaryPrompt({ direction: "Qualify fit" }, [
       utt("them", "We're scaling fast."),
     ]);
     expect(withDir).toContain("## Direction");
     expect(withDir).toContain("Qualify fit");
     expect(withDir).toContain("[them] We're scaling fast.");
 
-    const noDir = buildSummaryPrompt({ context: {} }, [utt("me", "Hi")]);
+    const noDir = buildSummaryPrompt({}, [utt("me", "Hi")]);
     expect(noDir).not.toContain("## Direction");
     expect(noDir).toContain("[me] Hi");
   });

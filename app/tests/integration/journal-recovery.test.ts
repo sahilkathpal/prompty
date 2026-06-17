@@ -19,7 +19,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const setup: CallSetup = { direction: "Discovery with Acme", context: { attendee: { name: "Dana" } } };
+const setup: CallSetup = { direction: "Discovery with Acme" };
 const utt = (text: string): TranscriptUtterance => ({
   speaker: "them",
   text,
@@ -43,7 +43,6 @@ describe("journal recovery", () => {
 
     const log = JSON.parse(fs.readFileSync(recovered[0], "utf8"));
     expect(log.direction).toBe("Discovery with Acme");
-    expect(log.attendee.name).toBe("Dana");
     expect(log.transcript.map((u: TranscriptUtterance) => u.text)).toEqual(["we run eight brokers"]);
     expect(log.nudges.map((n: Nudge) => n.text)).toEqual(["Ask about on-call load"]);
 

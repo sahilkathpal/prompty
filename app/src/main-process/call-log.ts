@@ -1,12 +1,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type {
-  CallContextAttendee,
-  Nudge,
-  PrepComponent,
-  TranscriptUtterance,
-} from "./types";
+import type { Nudge, PrepComponent, TranscriptUtterance } from "./types";
 import type { CallSummary } from "./summary";
 
 export interface CallLog {
@@ -25,7 +20,6 @@ export interface CallLog {
   /** Prep components (goal/checklist) used on the call, with checklist `done`
    *  reflecting what the coach marked covered (RUBY B3 phase 3c). */
   components?: PrepComponent[];
-  attendee?: CallContextAttendee;
   startedAt: number;
   endedAt: number;
   summary?: CallSummary;
@@ -70,12 +64,10 @@ export async function writeCallLog(
     process.env.PROMPTY_CALL_LOG_DIR ?? join(homedir(), ".prompty", "calls");
   mkdirSync(dir, { recursive: true });
   const stamp = new Date(log.endedAt).toISOString().replace(/[:.]/g, "-");
-  // Filename slug from the title (falls back to attendee, then "call") — no
-  // more "-unknown" tails.
+  // Filename slug from the title (falls back to "call") — no more "-unknown"
+  // tails.
   const label =
-    deriveCallTitle(log.title, log.summary?.title, log.direction) ||
-    log.attendee?.name ||
-    "";
+    deriveCallTitle(log.title, log.summary?.title, log.direction) || "";
   const suffix = opts.suffix ? `-${opts.suffix}` : "";
   const path = join(dir, `${stamp}-${slugify(label)}${suffix}.json`);
   writeFileSync(path, JSON.stringify(log, null, 2));

@@ -74,26 +74,11 @@ export interface ChecklistComponent {
 }
 export type PrepComponent = GoalComponent | ChecklistComponent;
 
-export interface CallContextAttendee {
-  name?: string;
-  email?: string;
-  company?: string;
-  bio?: string;
-  summary?: string;
-}
-
-export interface CallContext {
-  attendee?: CallContextAttendee;
-  attioNotes?: string[];
-  manualNotes?: string;
-}
-
 export interface CallSetup {
   // The whole coaching brief: a free-text direction describing what a good call
-  // looks like (RUBY_MVP §3/§4 — goal + checklist were cut). Optional only
-  // because a draft may not have one yet.
+  // looks like (RUBY_MVP §3). Optional only because a draft may not have one
+  // yet. Goal/checklist are layered on via `components`.
   direction?: string;
-  context: CallContext;
   // Optional named playbook layered on top of base + direction (e.g.
   // "discovery", "hiring", "user-interview"). Empty/absent = no skill.
   skill?: string;

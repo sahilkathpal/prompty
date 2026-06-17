@@ -15,14 +15,6 @@ import type {
 const setup: CallSetup = {
   direction:
     "Learn about the prospect's migration to Kafka and whether they have budget for managed streaming. Probe the migration timeline, team size, pain at current scale, and whether streaming has a dedicated budget line.",
-  context: {
-    attendee: {
-      name: "Alex Chen",
-      company: "Linear",
-      bio: "Staff engineer leading their data platform team.",
-    },
-    attioNotes: ["Mentioned in last call they were evaluating Confluent Cloud vs self-hosted."],
-  },
 };
 
 const windows: { trigger: "auto" | "hotkey"; utterances: TranscriptUtterance[] }[] = [

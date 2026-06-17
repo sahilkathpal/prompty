@@ -1,10 +1,10 @@
 // Smoke test for in-call system-prompt assembly — no claude, no electron.
 // Verifies conditional-section composition (base + optional skill fragment +
-// optional direction/notes) and skill-folder resolution.
+// optional direction) and skill-folder resolution.
 //
-// Goal/Checklist were cut from the MVP (RUBY_MVP §4): the direction is the
-// whole brief, and goal/checklist were removed from CallSetup. The assembled
-// prompt must never render a Goal or Checklist section.
+// Goal/Checklist are built during prep (RUBY B3) and folded onto the setup at
+// call start; they render only when those components are present. These
+// fixtures carry none, so neither section appears.
 
 import { buildSystemPrompt } from "../src/main-process/prompts/system";
 import { loadSkillFragment, listAvailableSkills } from "../src/main-process/prompts/loader";
@@ -18,7 +18,7 @@ function assert(cond: boolean, msg: string): void {
 }
 
 // 1) No skill, no prep: just base. No optional sections, no playbook, no throw.
-const bare: CallSetup = { context: {} };
+const bare: CallSetup = {};
 const bareP = buildSystemPrompt(bare);
 assert(!bareP.includes("{{"), "bare prompt still has {{placeholders}}");
 assert(
@@ -33,23 +33,17 @@ assert(
   !bareP.includes("## Checklist\n"),
   "bare prompt should omit the checklist section",
 );
-assert(
-  !bareP.includes("## Background context"),
-  "bare prompt should omit the context section",
-);
 assert(bareP.includes("real-time call coach"), "bare prompt should include the base role");
 assert(
   !bareP.includes("## Playbook:"),
   "no-skill prompt should append no playbook section",
 );
 
-// 2) Full + skill: direction + notes + the skill playbook. The MVP prompt has
-//    no Goal/Checklist sections (those fields are gone from CallSetup) — the
-//    direction is the whole brief.
+// 2) Direction + skill: the direction section plus the skill playbook. No
+//    components here, so no Goal/Checklist sections.
 const full: CallSetup = {
   direction:
     "Explore their ingestion pain before pitching; stay curious and qualify fit.",
-  context: { manualNotes: "Skeptical CTO — mention SOC2." },
   skill: "discovery",
 };
 const fullP = buildSystemPrompt(full);
@@ -61,25 +55,18 @@ assert(
   fullP.includes("Explore their ingestion pain before pitching"),
   "full prompt missing direction text",
 );
-assert(!fullP.includes("## Goal\n"), "MVP prompt should not render a Goal section");
+assert(!fullP.includes("## Goal\n"), "no-components prompt should not render a Goal section");
 assert(
   !fullP.includes("## Checklist\n"),
-  "MVP prompt should not render a Checklist section",
+  "no-components prompt should not render a Checklist section",
 );
-assert(fullP.includes("## Background context"), "full prompt missing context section");
-assert(fullP.includes("Skeptical CTO — mention SOC2."), "full prompt missing notes");
 assert(
   fullP.includes("sales discovery"),
   "discovery prompt should include the discovery playbook",
 );
-// Direction must render above the background context (priority order).
-assert(
-  fullP.indexOf("## Direction\n") < fullP.indexOf("## Background context"),
-  "Direction section should precede the Background context section",
-);
 
 // 3) Unknown skill appends no fragment (no throw, no leak).
-const unknown: CallSetup = { context: {}, skill: "no-such-skill" };
+const unknown: CallSetup = { skill: "no-such-skill" };
 const unknownP = buildSystemPrompt(unknown);
 assert(
   !unknownP.includes("## Playbook:"),

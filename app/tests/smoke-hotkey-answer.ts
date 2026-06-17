@@ -18,7 +18,6 @@ const MEMORY_TEXT = "Only surface a nudge when it's truly critical — I dislike
 const setup: CallSetup = {
   direction:
     "Learn whether the prospect needs managed Kafka — probe team size, current scale, and operational pain — and steer toward a follow-up.",
-  context: { attendee: { name: "Dana", company: "Acme" } },
   // RUBY B1 phase 1b: the hotkey one-shot must also see the user's memory. We
   // assert the real answer.ts prompt carries it (captured via onDebug).
   memories: [{ id: "m1", text: MEMORY_TEXT, createdAt: 0, source: "manual" }],

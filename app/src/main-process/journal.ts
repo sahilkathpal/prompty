@@ -47,7 +47,6 @@ interface HeaderLine {
   skill?: string;
   /** Legacy field — read-only, accepted from journals written before the rename. */
   mode?: string;
-  attendee?: CallLog["attendee"];
   startedAt: number;
 }
 
@@ -85,7 +84,6 @@ export function openJournal(
     t: "header",
     direction: setup.direction,
     skill: setup.skill,
-    attendee: setup.context.attendee,
     startedAt,
   };
   write(header);
@@ -164,7 +162,6 @@ export async function recoverOrphanedJournals(): Promise<string[]> {
             skill: header.skill ?? header.mode,
             transcript,
             nudges,
-            attendee: header.attendee,
             startedAt: header.startedAt,
             endedAt,
           },

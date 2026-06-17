@@ -46,7 +46,6 @@ type ParsedCall = {
   summary?: CallSummary;
   startedAt?: number;
   endedAt?: number;
-  attendee?: { name?: string; company?: string };
   components?: PrepComp[];
   summaryPending?: boolean;
   raw: string;
@@ -155,7 +154,6 @@ export default function App(): JSX.Element {
           summary,
           startedAt: obj.startedAt as number | undefined,
           endedAt: obj.endedAt as number | undefined,
-          attendee: obj.attendee as ParsedCall["attendee"],
           components: obj.components as PrepComp[] | undefined,
           summaryPending: obj.summaryPending as boolean | undefined,
           raw: JSON.stringify(obj, null, 2),
@@ -943,7 +941,7 @@ function checklistCoverage(components?: PrepComp[]): JSX.Element | null {
 }
 
 function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { title, summary, raw, attendee, startedAt, endedAt, summaryPending, components } =
+  const { title, summary, raw, startedAt, endedAt, summaryPending, components } =
     props.call;
   const coverage = checklistCoverage(components);
   if (!summary) {
@@ -965,7 +963,7 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       </div>
     );
   }
-  const name = title?.trim() || attendee?.name?.trim() || "Call";
+  const name = title?.trim() || "Call";
   const mins =
     startedAt && endedAt && endedAt > startedAt
       ? Math.max(1, Math.round((endedAt - startedAt) / 60000))

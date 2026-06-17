@@ -39,13 +39,8 @@ import { startSession } from "../src/main-process/coach-session";
 import type { CallSetup, TranscriptUtterance } from "../src/main-process/types";
 
 const setup: CallSetup = {
-  // Calls are direction-only — the direction is the whole coaching prompt
-  // (goal/checklist were cut from the MVP, RUBY_MVP §4).
   direction:
     "Find out whether the prospect needs managed Kafka: probe team size and current Kafka scale, and listen for operational pain.",
-  context: {
-    attendee: { name: "Test User", company: "Acme" },
-  },
 };
 
 function utt(speaker: "me" | "them", text: string): TranscriptUtterance {

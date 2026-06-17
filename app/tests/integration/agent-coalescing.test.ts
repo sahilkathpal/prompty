@@ -31,7 +31,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const setup: CallSetup = { direction: "x", context: {}, memories: [] };
+const setup: CallSetup = { direction: "x", memories: [] };
 const utt = (text: string): TranscriptUtterance => ({
   speaker: "them",
   text,

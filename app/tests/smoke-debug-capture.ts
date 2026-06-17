@@ -37,7 +37,6 @@ function assert(cond: boolean, msg: string): void {
 
 const setup: CallSetup = {
   direction: "Learn whether the prospect needs managed Kafka; probe team size and scale.",
-  context: { attendee: { name: "Test User", company: "Acme" } },
 };
 
 // Agent that, per consider(), reports a debug turn AND emits a nudge — exercises

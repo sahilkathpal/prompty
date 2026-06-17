@@ -60,7 +60,7 @@ export type DebugSessionKind = "prep" | "call";
 // not a typed wire contract). Expected payloads, for reference:
 //
 //   call sessions:
-//     session-start   { systemPrompt, goal, checklist, skill?, attendee?, startedAt }
+//     session-start   { systemPrompt, goal, checklist, skill?, startedAt }
 //     utterance       { speaker, text, startMs, endMs }
 //     interim         { speaker, text, startMs, endMs }
 //     agent-turn      { trigger: "auto"|"hotkey", context, rawModelResponse,
@@ -72,7 +72,7 @@ export type DebugSessionKind = "prep" | "call";
 //     session-end     { endedAt, summary? }
 //
 //   prep sessions:
-//     prep-start        { systemPrompt, event?, attendee?, seededFromPending }
+//     prep-start        { systemPrompt, event?, seededFromPending }
 //     prep-user-turn    { text, preamble? }
 //     prep-agent-turn   { rawModelResponse, toolCalls[], latencyMs }
 //     prep-state-change { state, source: "tool"|"rail" }
@@ -255,7 +255,7 @@ function formatEvent(e: Record<string, any>, t0: number): string {
 
 /**
  * Render a debug `.jsonl` into a human-readable, chronological Markdown doc:
- * a header (goal/skill/attendee or prep event + duration), the resolved system
+ * a header (goal/skill or prep event + duration), the resolved system
  * prompt (collapsed, logged once), then a timeline interleaving every event
  * with elapsed timestamps. Pure — exported so it can be unit-tested and re-run
  * over an existing log.
@@ -292,11 +292,6 @@ export function renderDebugMarkdown(jsonlPath: string): string {
       if (start.goal) lines.push(`**Goal:** ${oneLine(start.goal)}`);
       if (start.direction) lines.push(`**Direction:** ${oneLine(start.direction)}`);
       if (start.skill) lines.push(`**Skill:** ${start.skill}`);
-      if (start.attendee?.name) {
-        lines.push(
-          `**Attendee:** ${start.attendee.name}${start.attendee.company ? ` (${start.attendee.company})` : ""}`,
-        );
-      }
     }
   }
   if (t0) lines.push(`**Started:** ${new Date(t0).toISOString()}`);
