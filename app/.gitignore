@@ -6,6 +6,9 @@ release
 test-results
 playwright-report
 coverage
+# Debug screenshots written by gem.spec for human review — not assertion
+# baselines, rewritten every run.
+tests/e2e/__screens__
 
 # Stray tsc output in the app root (source lives in src/, build emits to dist/)
 /*.js
