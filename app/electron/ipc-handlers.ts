@@ -429,7 +429,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle("memory:list", () => ({ items: readMemory() }));
   handle("memory:add", (payload) => ({
-    item: addMemory(payload.text, "manual"),
+    item: addMemory(payload.text),
   }));
   handle("memory:update", (payload) => ({
     ok: updateMemory(payload.id, payload.text),

@@ -35,7 +35,6 @@ export function readMemory(): MemoryItem[] {
       id: i.id,
       text: i.text,
       createdAt: typeof i.createdAt === "number" ? i.createdAt : 0,
-      source: i.source === "suggested" ? "suggested" : "manual",
     }));
   } catch {
     return [];
@@ -49,17 +48,13 @@ function writeMemory(items: MemoryItem[]): void {
 }
 
 /** Append a new item. Empty/whitespace text is rejected (returns null). */
-export function addMemory(
-  text: string,
-  source: MemoryItem["source"] = "manual",
-): MemoryItem | null {
+export function addMemory(text: string): MemoryItem | null {
   const clean = text.trim();
   if (!clean) return null;
   const item: MemoryItem = {
     id: randomUUID(),
     text: clean,
     createdAt: Date.now(),
-    source,
   };
   const items = readMemory();
   items.push(item);

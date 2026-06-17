@@ -43,13 +43,11 @@ export interface TranscriptUtterance {
 // A single user-curated personalisation fact — how Ruby should coach *this*
 // user (e.g. "nudge me rarely", "keep questions short"). Global: every memory
 // applies to every call. Freeform natural language, edited/deleted one-by-one
-// from the Memory tab. `source` distinguishes hand-written items from ones Ruby
-// proposed and the user confirmed.
+// from the Memory tab.
 export interface MemoryItem {
   id: string;
   text: string;
   createdAt: number;
-  source: "manual" | "suggested";
 }
 
 // Composable prep components (RUBY B3): structured objects Ruby creates during

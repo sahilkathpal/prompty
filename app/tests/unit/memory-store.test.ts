@@ -63,8 +63,8 @@ describe("memory-store", () => {
     expect(memoryBlock([])).toBe("");
     expect(
       memoryBlock([
-        { id: "1", text: "a", createdAt: 0, source: "manual" },
-        { id: "2", text: "b", createdAt: 0, source: "manual" },
+        { id: "1", text: "a", createdAt: 0 },
+        { id: "2", text: "b", createdAt: 0 },
       ]),
     ).toBe("- a\n- b");
   });

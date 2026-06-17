@@ -25,6 +25,7 @@ import { z } from "zod";
 import { loadPrepPrompt } from "./prompts/prep";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { modelFor } from "./models";
+import { addMemory } from "./memory-store";
 import type { PrepComponent } from "./types";
 
 export type PrepEvents = {
@@ -113,6 +114,21 @@ export async function openPrepAgent(
           return { content: [{ type: "text", text: "checklist_set" }] };
         },
       ),
+      tool(
+        "write_memory",
+        "Save a durable preference about how Ruby should coach the user in FUTURE calls. Only call this after the user has agreed to remember it. The text is a standing instruction about Ruby's behaviour, not a fact about this call.",
+        {
+          text: z
+            .string()
+            .describe("The preference, in the user's own framing — one sentence."),
+        },
+        async (args) => {
+          // Global, persistent memory — unlike goal/checklist this isn't a per-call
+          // component, so there's no component to emit, just a write to the store.
+          addMemory(args.text);
+          return { content: [{ type: "text", text: "memory_saved" }] };
+        },
+      ),
     ],
   });
 
@@ -166,6 +182,7 @@ export async function openPrepAgent(
         "mcp__prompty-prep__update_direction",
         "mcp__prompty-prep__set_goal",
         "mcp__prompty-prep__set_checklist",
+        "mcp__prompty-prep__write_memory",
       ],
       maxTurns: 200,
       permissionMode: "bypassPermissions",
@@ -259,10 +276,16 @@ function upsertChecklist(
  *   session (no re-offer).
  * - A low-value message (mentions "casual" / "catch up") only updates the
  *   direction and offers nothing — the negative case.
+ * - A voiced nudging preference ("nudge me rarely", "don't interrupt me") OFFERS
+ *   to remember it; a following affirmative writes it to memory; a decline drops
+ *   it. This is a separate pending slot from the goal/checklist offer, so the two
+ *   consent flows don't collide.
  */
 const MOCK_AFFIRM = /\b(yes|yeah|yep|sure|please|ok|okay|go ahead|do it|sounds good)\b/i;
 const MOCK_DECLINE = /\b(no|nope|nah|skip|don't|do not|leave it)\b/i;
 const MOCK_LOW_VALUE = /\b(casual|catch[\s-]?up|catching up|chit[\s-]?chat|no agenda)\b/i;
+const MOCK_NUDGE_PREF =
+  /\b(nudge me|interrupt me|push me|stay quiet|don'?t interrupt|only when|remember (that|to))\b/i;
 
 function openMockPrepAgent(
   initialDirection: string,
@@ -272,12 +295,45 @@ function openMockPrepAgent(
   const components: PrepComponent[] = [];
   // The substantive focus awaiting a yes/no; null when nothing is pending.
   let pendingFocus: string | null = null;
+  // A voiced nudging preference awaiting a yes/no; null when nothing is pending.
+  let pendingMemory: string | null = null;
   // A verbal "no" turns off offers for the rest of the session.
   let declined = false;
 
   return {
     async send(message) {
       const focus = message.trim();
+
+      // Responding to a pending memory offer (takes precedence over a focus offer).
+      if (pendingMemory) {
+        if (MOCK_AFFIRM.test(focus)) {
+          addMemory(pendingMemory);
+          events.onAssistant(
+            `Got it — I'll keep that in mind from now on: ${pendingMemory}`,
+          );
+          pendingMemory = null;
+          events.onTurnDone?.();
+          return;
+        }
+        if (MOCK_DECLINE.test(focus)) {
+          pendingMemory = null;
+          events.onAssistant("Okay — I won't save that.");
+          events.onTurnDone?.();
+          return;
+        }
+        // Anything else: the offer lapses and this is a fresh turn.
+        pendingMemory = null;
+      }
+
+      // A voiced preference about how Ruby nudges → offer to remember it. Checked
+      // before the goal/checklist path so a behaviour preference doesn't get
+      // mistaken for a call focus.
+      if (MOCK_NUDGE_PREF.test(focus)) {
+        pendingMemory = focus;
+        events.onAssistant(`Want me to remember that for future calls — "${focus}"?`);
+        events.onTurnDone?.();
+        return;
+      }
 
       // Responding to a pending offer.
       if (pendingFocus) {

@@ -20,7 +20,7 @@ type CallMeta = {
   summaryPending?: boolean;
 };
 type Tab = "direction" | "memory" | "settings";
-type Mem = { id: string; text: string; createdAt: number; source: "manual" | "suggested" };
+type Mem = { id: string; text: string; createdAt: number };
 type ChecklistItemR = { id: string; text: string; done: boolean };
 type PrepComp =
   | { type: "goal"; id: string; text: string }
@@ -145,6 +145,12 @@ export default function App(): JSX.Element {
       .then((r) => setMemories(r.items))
       .catch(() => {});
   }, []);
+  // Refetch on entering the Memory tab so items added elsewhere (a post-call note,
+  // or another window) show without a relaunch — the cheap stand-in for a
+  // memory:updated broadcast.
+  useEffect(() => {
+    if (tab === "memory") refreshMemories();
+  }, [tab, refreshMemories]);
   const readCall = useCallback(async (name: string): Promise<ParsedCall | null> => {
     try {
       const r = await window.prompty.invoke("calls:read", { name });
@@ -851,11 +857,6 @@ export default function App(): JSX.Element {
                         ) : (
                           <>
                             <span style={S.memText}>{m.text}</span>
-                            {m.source === "suggested" && (
-                              <span style={S.memTag} title="Suggested by Ruby">
-                                suggested
-                              </span>
-                            )}
                             <button
                               style={S.renameBtn}
                               title="Edit"
@@ -989,8 +990,36 @@ function checklistCoverage(components?: PrepComp[]): JSX.Element | null {
 function CallCard(props: { call: ParsedCall }): JSX.Element {
   const { title, summary, raw, startedAt, endedAt, summaryPending, components } =
     props.call;
+  // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c). Hooks must
+  // run before the early returns below, so they live here regardless of summary.
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [noteSaved, setNoteSaved] = useState(false);
+  const saveNote = useCallback(() => {
+    const text = note.trim();
+    if (!text) return;
+    void window.prompty.invoke("memory:add", { text }).then((r) => {
+      if (r.item) {
+        setNote("");
+        setNoteOpen(false);
+        setNoteSaved(true);
+      }
+    });
+  }, [note]);
   const coverage = checklistCoverage(components);
-  if (!summary) {
+  // Legacy call logs carry an older summary schema ({goalRecap, items}) whose
+  // recap/insights/questionsNotAsked/stat are absent. Treat anything that isn't a
+  // current-shape summary as "no summary" so we render the raw-log fallback rather
+  // than crashing on `summary.insights.length`.
+  const sum =
+    summary &&
+    typeof summary.recap === "string" &&
+    Array.isArray(summary.insights) &&
+    Array.isArray(summary.questionsNotAsked) &&
+    summary.stat
+      ? summary
+      : null;
+  if (!sum) {
     if (summaryPending) {
       return (
         <div style={S.card2} data-testid="call-summarizing">
@@ -1023,16 +1052,16 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       {coverage}
       <section style={S.sec}>
         <div style={S.secHead}>Recap</div>
-        <p style={S.recap}>{summary.recap}</p>
+        <p style={S.recap}>{sum.recap}</p>
       </section>
 
       <section style={S.sec}>
         <div style={S.secHead}>Insights &amp; quotes</div>
-        {summary.insights.length === 0 ? (
+        {sum.insights.length === 0 ? (
           <div style={S.cardNote}>Nothing notable surfaced.</div>
         ) : (
           <ul style={S.insightList}>
-            {summary.insights.map((ins, i) => (
+            {sum.insights.map((ins, i) => (
               <li key={i} style={S.insight}>
                 <span style={ins.assisted ? S.checkOn : S.checkOff} aria-hidden>
                   {ins.assisted ? "✓" : "·"}
@@ -1049,11 +1078,11 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
 
       <section style={S.sec}>
         <div style={S.secHead}>Questions you didn't ask</div>
-        {summary.questionsNotAsked.length === 0 ? (
+        {sum.questionsNotAsked.length === 0 ? (
           <div style={S.cardNote}>You picked up everything Ruby surfaced.</div>
         ) : (
           <ul style={S.qList}>
-            {summary.questionsNotAsked.map((q, i) => (
+            {sum.questionsNotAsked.map((q, i) => (
               <li key={i} style={S.qItem}>{q.text}</li>
             ))}
           </ul>
@@ -1061,8 +1090,44 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       </section>
 
       <div style={S.stat} data-testid="call-stat">
-        Ruby surfaced {summary.stat.surfaced}, you used {summary.stat.used}.
+        Ruby surfaced {sum.stat.surfaced}, you used {sum.stat.used}.
       </div>
+
+      {noteSaved ? (
+        <div style={S.noteSaved} data-testid="nudge-note-saved">
+          Saved to memory.
+        </div>
+      ) : noteOpen ? (
+        <div style={S.noteRow}>
+          <textarea
+            style={S.noteInput}
+            data-testid="nudge-note-input"
+            placeholder="e.g. don't surface follow-up questions during the close"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveNote();
+            }}
+            autoFocus
+          />
+          <button
+            style={S.btnAccent}
+            data-testid="nudge-note-save"
+            onClick={saveNote}
+            disabled={!note.trim()}
+          >
+            Save to memory
+          </button>
+        </div>
+      ) : (
+        <button
+          style={S.noteToggle}
+          data-testid="nudge-note-open"
+          onClick={() => setNoteOpen(true)}
+        >
+          + Note something about how Ruby nudged
+        </button>
+      )}
     </div>
   );
 }
@@ -1291,17 +1356,6 @@ const S: Record<string, React.CSSProperties> = {
     outline: "none",
     fontFamily: "inherit",
   },
-  memTag: {
-    flexShrink: 0,
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    color: v("--gold", "#c98e2e"),
-    border: `1px solid ${v("--gold", "#c98e2e")}`,
-    borderRadius: 6,
-    padding: "2px 6px",
-  },
   list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 },
   callRow: {
     width: "100%",
@@ -1444,6 +1498,33 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: v("--muted", "#9a9aa2"),
   },
+  noteToggle: {
+    marginTop: 10,
+    padding: 0,
+    fontSize: 12,
+    color: v("--muted", "#9a9aa2"),
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    textAlign: "left",
+  },
+  noteRow: { display: "flex", gap: 10, marginTop: 10, alignItems: "flex-start" },
+  noteInput: {
+    flex: 1,
+    minHeight: 40,
+    padding: "10px 12px",
+    fontSize: 13,
+    lineHeight: 1.45,
+    color: v("--ink", "#211d15"),
+    background: v("--card", "#fff"),
+    border: `1px solid ${v("--border", "#2c2c34")}`,
+    borderRadius: 10,
+    outline: "none",
+    fontFamily: "inherit",
+    resize: "vertical",
+  },
+  noteSaved: { marginTop: 10, fontSize: 12, color: v("--muted", "#9a9aa2") },
   settingRow: {
     display: "flex",
     alignItems: "center",
