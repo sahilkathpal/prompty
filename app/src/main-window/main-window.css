@@ -150,13 +150,32 @@ html, body, #root {
 /* ── Chat section ────────────────────────────────────────────────────────────── */
 
 .home-chat-bg {
-  background-image: radial-gradient(circle, #c8c2b8 1px, transparent 1px);
-  background-size: 20px 20px;
+  position: relative;
+  overflow: hidden;
   margin: 0 -24px;
   padding: 0 24px;
 }
+.home-chat-bg::before,
+.home-chat-bg::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 10%;
+  pointer-events: none;
+  z-index: 2;
+}
+.home-chat-bg::before {
+  top: 0;
+  background: linear-gradient(to bottom, #f1eee9 0%, rgba(241, 238, 233, 0) 100%);
+}
+.home-chat-bg::after {
+  bottom: 0;
+  background: linear-gradient(to top, #f1eee9 0%, rgba(241, 238, 233, 0) 100%);
+}
 
 .home-chat-container {
+  position: relative;
+  z-index: 1;
   max-width: 600px;
   margin: 0 auto;
   padding: 100px 4px 100px;

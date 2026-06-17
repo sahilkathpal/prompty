@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Gem from "../shared/Gem";
 import RubyLogo from "./RubyLogo";
+import DiamondShader from "./DiamondShader";
 import "../shared/tokens.css";
 import "./main-window.css";
 
@@ -470,6 +471,7 @@ function HomeScreen(props: {
       <div className="home-body">
 
         <div className="home-chat-bg">
+        <DiamondShader />
         <div className="home-chat-container">
           <div className="home-logo"><RubyLogo size={52} /></div>
           <h2 className="home-section-heading">Your next call</h2>
