@@ -130,6 +130,26 @@ export async function getOverlayPage(app: ElectronApplication): Promise<Page> {
   return getWindow(app, "overlay");
 }
 
+/**
+ * Drive the prep suggest-then-create gate under the mock agent: send a
+ * substantive message (which makes Ruby OFFER a goal + checklist), wait for the
+ * offer, then confirm with "yes" so the components are actually created. The
+ * resulting goal is "Goal: M" and the checklist is "Cover M" / "Agree next
+ * steps". Use this anywhere a test needs armed components.
+ */
+export async function prepArmComponents(page: Page, message: string): Promise<void> {
+  await page.getByTestId("prep-input").fill(message);
+  await page.getByTestId("prep-send").click();
+  // Ruby offers first — wait for the offer turn before confirming.
+  await page
+    .getByTestId("prep-msg-assistant")
+    .filter({ hasText: "pin a goal" })
+    .first()
+    .waitFor({ timeout: 15_000 });
+  await page.getByTestId("prep-input").fill("yes");
+  await page.getByTestId("prep-send").click();
+}
+
 let nudgeSeq = 0;
 /** Push a nudge straight to the overlay via the test bridge. */
 export async function emitNudge(

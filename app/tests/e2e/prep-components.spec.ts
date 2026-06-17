@@ -8,12 +8,14 @@ import {
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
+import { prepArmComponents } from "./_helpers";
 
 // Independent verification of Phase 3a: composable components in prep.
-// Under PROMPTY_MOCK_AGENT=1 the prep agent is a deterministic mock: each user
-// message M produces a goal card "Goal: M" and a checklist titled "Cover" with
-// two items: "Cover M" and "Agree next steps". These render as EDITABLE cards
-// in the prep view. We drive the real built Electron app.
+// Under PROMPTY_MOCK_AGENT=1 the prep agent is a deterministic mock that mirrors
+// the suggest-then-create gate: a substantive message M makes Ruby OFFER a goal
+// + checklist (no cards yet); confirming with "yes" then creates a goal card
+// "Goal: M" and a checklist titled "Cover" with two items "Cover M" and "Agree
+// next steps". These render as EDITABLE cards. We drive the real built app.
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
@@ -110,9 +112,8 @@ test("prep components: goal + checklist render, edit, add, delete", async () => 
     await expect(prepOpen).toBeVisible();
     await prepOpen.click();
 
-    // ===== Criterion 1: send a message → components panel with goal+checklist =====
-    await page.getByTestId("prep-input").fill(MSG);
-    await page.getByTestId("prep-send").click();
+    // ===== Criterion 1: offer→confirm → components panel with goal+checklist =====
+    await prepArmComponents(page, MSG);
 
     const panel = page.getByTestId("prep-components");
     await expect(panel).toBeVisible({ timeout: 15_000 });

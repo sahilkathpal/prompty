@@ -8,6 +8,7 @@ import {
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
+import { prepArmComponents } from "./_helpers";
 
 // Independent verification of Phase 3b: components (goal/checklist) built during
 // prep are folded onto the call setup at start and rendered into the in-call
@@ -19,8 +20,9 @@ import fs from "node:fs/promises";
 // event's `systemPrompt` captured by the debug logger (requires PROMPTY_DEBUG=1)
 // — the actual model-facing prompt the app produced, not a re-derivation.
 //
-// Under PROMPTY_MOCK_AGENT=1 the mock prep agent, on user message M, arms a
-// goal "Goal: M" and a checklist with items "Cover M" and "Agree next steps".
+// Under PROMPTY_MOCK_AGENT=1 the mock prep agent offers a goal + checklist for
+// message M, then on a "yes" arms a goal "Goal: M" and a checklist with items
+// "Cover M" and "Agree next steps" (driven via prepArmComponents).
 
 const APP_ROOT = path.resolve(__dirname, "../..");
 
@@ -173,12 +175,11 @@ test("components inject into the in-call prompt, then are consumed on start", as
     await expect(textarea).toBeVisible();
     await textarea.fill(`Seed brief ${Date.now()}`);
 
-    // ===== Prep: send one message M, wait for the armed goal component =====
+    // ===== Prep: offer→confirm M, wait for the armed goal component =====
     const prepOpen = page.getByTestId("prep-open");
     await expect(prepOpen).toBeVisible();
     await prepOpen.click();
-    await page.getByTestId("prep-input").fill(M);
-    await page.getByTestId("prep-send").click();
+    await prepArmComponents(page, M);
     await expect(page.getByTestId("component-goal")).toBeVisible({
       timeout: 15_000,
     });

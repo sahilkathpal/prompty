@@ -247,29 +247,78 @@ function upsertChecklist(
 }
 
 /**
- * Deterministic mock for E2E/dev (PROMPTY_MOCK_AGENT=1): no model, no CLI. Each
- * send() echoes a canned reply, folds the message into the working direction,
- * and builds a goal + checklist from it — so the UI/IPC wiring (chat bubbles,
- * live direction edits, component cards) can be driven and asserted without a
- * real agent.
+ * Deterministic mock for E2E/dev (PROMPTY_MOCK_AGENT=1): no model, no CLI. It
+ * mirrors the real suggest-then-create gate so the consent flow can be driven
+ * and asserted without a model:
+ *
+ * - A substantive message M folds into the direction ("Focus: M") and, on a
+ *   normal call, makes the mock OFFER a goal + checklist — no components yet.
+ * - A following affirmative ("yes") then CREATES them from the remembered focus:
+ *   goal "Goal: M", checklist "Cover" with items "Cover M" / "Agree next steps".
+ * - An affirmative-less decline ("no") drops the offer and is sticky for the
+ *   session (no re-offer).
+ * - A low-value message (mentions "casual" / "catch up") only updates the
+ *   direction and offers nothing — the negative case.
  */
+const MOCK_AFFIRM = /\b(yes|yeah|yep|sure|please|ok|okay|go ahead|do it|sounds good)\b/i;
+const MOCK_DECLINE = /\b(no|nope|nah|skip|don't|do not|leave it)\b/i;
+const MOCK_LOW_VALUE = /\b(casual|catch[\s-]?up|catching up|chit[\s-]?chat|no agenda)\b/i;
+
 function openMockPrepAgent(
   initialDirection: string,
   events: PrepEvents,
 ): PrepAgent {
   let direction = initialDirection.trim();
   const components: PrepComponent[] = [];
+  // The substantive focus awaiting a yes/no; null when nothing is pending.
+  let pendingFocus: string | null = null;
+  // A verbal "no" turns off offers for the rest of the session.
+  let declined = false;
+
   return {
     async send(message) {
       const focus = message.trim();
-      direction = direction
-        ? `${direction}\nFocus: ${focus}`
-        : `Focus: ${focus}`;
+
+      // Responding to a pending offer.
+      if (pendingFocus) {
+        if (MOCK_AFFIRM.test(focus)) {
+          upsertGoal(components, `Goal: ${pendingFocus}`);
+          upsertChecklist(components, "Cover", [
+            `Cover ${pendingFocus}`,
+            "Agree next steps",
+          ]);
+          events.onComponents(components.map((c) => ({ ...c })));
+          events.onAssistant(`Pinned the goal and checklist for: ${pendingFocus}`);
+          pendingFocus = null;
+          events.onTurnDone?.();
+          return;
+        }
+        if (MOCK_DECLINE.test(focus)) {
+          pendingFocus = null;
+          declined = true;
+          events.onAssistant("No problem — leaving the goal and checklist out.");
+          events.onTurnDone?.();
+          return;
+        }
+        // Anything else: treat as a new substantive turn; the offer lapses.
+        pendingFocus = null;
+      }
+
+      direction = direction ? `${direction}\nFocus: ${focus}` : `Focus: ${focus}`;
       events.onDirection(direction);
-      upsertGoal(components, `Goal: ${focus}`);
-      upsertChecklist(components, "Cover", [`Cover ${focus}`, "Agree next steps"]);
-      events.onComponents(components.map((c) => ({ ...c })));
-      events.onAssistant(`Updated the working direction to focus on: ${focus}`);
+
+      // Low-value or already-declined: update the direction, offer nothing.
+      if (declined || MOCK_LOW_VALUE.test(focus)) {
+        events.onAssistant(`Updated the working direction to focus on: ${focus}`);
+        events.onTurnDone?.();
+        return;
+      }
+
+      // Otherwise: offer the goal + checklist (no components until confirmed).
+      pendingFocus = focus;
+      events.onAssistant(
+        `Updated the working direction to focus on: ${focus}. Want me to pin a goal and a checklist for this?`,
+      );
       events.onTurnDone?.();
     },
     async close() {
