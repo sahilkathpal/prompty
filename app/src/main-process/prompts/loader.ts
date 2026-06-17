@@ -26,23 +26,14 @@ const USER_SKILLS_DIR = join(USER_PROMPTS_DIR, "skills");
 export type Fragment = "in-call" | "prep";
 
 /**
- * Read the invariant in-call core.
- *
- * NOTE: the ~/.prompty user override is intentionally DISABLED while we finalise
- * the prompts — the repo is the single source of truth, so a stray
- * ~/.prompty/base.md can't silently shadow a repo edit. Re-enable by
- * uncommenting the USER_PROMPTS_DIR line below (and the matching one in
- * loadSkillFragment) when we want runtime overrides back.
+ * Read the invariant in-call core. Loaded only from the bundled repo copy —
+ * there is no user override, so a stray ~/.prompty/base.md can never silently
+ * shadow a repo edit. The repo is the single source of truth for the base.
  */
 export function loadBase(): string {
-  for (const path of [
-    // join(USER_PROMPTS_DIR, "base.md"),
-    join(BUNDLED_PROMPTS_DIR, "base.md"),
-  ]) {
-    const text = tryRead(path);
-    if (text != null) return text;
-  }
-  throw new Error("no base.md prompt found (bundled or user)");
+  const text = tryRead(join(BUNDLED_PROMPTS_DIR, "base.md"));
+  if (text == null) throw new Error("no bundled base.md prompt found");
+  return text;
 }
 
 /**
