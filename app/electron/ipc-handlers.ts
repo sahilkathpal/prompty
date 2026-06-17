@@ -408,7 +408,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("main:set-prep-layout", (payload) => {
     const win = getMainWindow();
     if (!win || win.isDestroyed()) return;
-    const [w, h] = payload.wide ? [1180, 760] : [900, 600];
+    const [w, h] = payload.wide ? [1521, 1014] : [900, 600];
     try {
       const [x, y] = win.getPosition();
       const [curW] = win.getSize();
