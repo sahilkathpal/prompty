@@ -55,6 +55,11 @@ import path from "node:path";
 // Keep replay output (journal + call log) out of the user's real ~/.prompty.
 process.env.PROMPTY_CALL_LOG_DIR ??= path.join(os.tmpdir(), "prompty-replay");
 
+// The harness drives utterances in directly with mockAudio (no sidecar), so the
+// Deepgram socket is never used — but startSession resolves the key eagerly.
+// Default the mock on so replay needs no DEEPGRAM_API_KEY (overridable).
+process.env.PROMPTY_MOCK_DEEPGRAM ??= "1";
+
 // Quiet production's internal console.log chatter so the timeline reads clean.
 // We only drop known-noisy prefixes; the harness surfaces nudges, quiet reasons
 // through its own callbacks. console.error is untouched, so
@@ -101,6 +106,13 @@ type Loaded = { setup: CallSetup; steps: Step[]; label: string };
 // ---- CLI options -------------------------------------------------------------
 interface Opts {
   parseOnly: boolean;
+  /**
+   * Gate mode (the `replay:real` lane): after replaying through the REAL agent,
+   * apply pass/fail heuristics — ≥1 nudge over the run, no malformed nudges, no
+   * errors — and exit non-zero on failure. A release sanity check, run on
+   * demand; consumes Claude quota.
+   */
+  assert: boolean;
   /** Replay only the first N utterances of each transcript (Infinity = all). */
   limit: number;
   /** Setup overrides — impose a skill/direction the transcript didn't store. */
@@ -110,13 +122,14 @@ interface Opts {
 }
 
 function parseArgs(argv: string[]): Opts {
-  const opts: Opts = { parseOnly: false, limit: Infinity, paths: [] };
+  const opts: Opts = { parseOnly: false, assert: false, limit: Infinity, paths: [] };
   // Pull the value of a flag given either `--flag value` or `--flag=value`.
   const val = (a: string, i: number): [string, number] =>
     a.includes("=") ? [a.slice(a.indexOf("=") + 1), i] : [argv[i + 1] ?? "", i + 1];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--parse-only") opts.parseOnly = true;
+    else if (a === "--assert") opts.assert = true;
     else if (a === "--limit" || a.startsWith("--limit=")) {
       const [v, ni] = val(a, i);
       opts.limit = Number(v) > 0 ? Number(v) : Infinity;
@@ -273,10 +286,17 @@ function printSetup(l: Loaded): void {
 }
 
 // ---- One transcript through the real session --------------------------------
+/** A nudge is malformed if it's empty or implausibly long for an in-call line. */
+function isBadNudge(n: Nudge): boolean {
+  const text = (n.text ?? "").trim();
+  if (!text) return true;
+  return text.split(/\s+/).length > 30;
+}
+
 async function replayOne(
   file: string,
   opts: Opts,
-): Promise<{ nudges: number; errors: number }> {
+): Promise<{ nudges: number; errors: number; bad: number }> {
   const loaded = applyOpts(load(file), opts);
   printSetup(loaded);
 
@@ -291,11 +311,18 @@ async function replayOne(
   // the await; we collect them, then print under the step that triggered them.
   let buffer: string[] = [];
   let errorCount = 0;
+  let badCount = 0;
 
   const handle = await startSession(loaded.setup, {
     mockAudio: true,
     debug: true,
-    onNudge: (n: Nudge) => buffer.push(`      💡 ${n.urgency}: ${n.text}`),
+    onNudge: (n: Nudge) => {
+      if (isBadNudge(n)) {
+        badCount++;
+        buffer.push(`      ⚠️  malformed nudge: ${JSON.stringify(n.text)}`);
+      }
+      buffer.push(`      💡 ${n.urgency}: ${n.text}`);
+    },
     onStayQuiet: (reason) => buffer.push(`      · quiet: ${reason}`),
     onError: (e) => {
       errorCount++;
@@ -348,10 +375,10 @@ async function replayOne(
   }
 
   console.log(
-    `\n[replay] ${loaded.label} — ${utterNo} turns, ${nudgeCount} nudge(s), ${errorCount} error(s).`,
+    `\n[replay] ${loaded.label} — ${utterNo} turns, ${nudgeCount} nudge(s), ${errorCount} error(s), ${badCount} malformed.`,
   );
   if (mdPath) console.log(`[replay] readable log → ${mdPath}`);
-  return { nudges: nudgeCount, errors: errorCount };
+  return { nudges: nudgeCount, errors: errorCount, bad: badCount };
 }
 
 async function main(): Promise<void> {
@@ -394,17 +421,36 @@ async function main(): Promise<void> {
 
   let totalNudges = 0;
   let totalErrors = 0;
+  let totalBad = 0;
   for (const file of files) {
-    const { nudges, errors } = await replayOne(file, opts);
+    const { nudges, errors, bad } = await replayOne(file, opts);
     totalNudges += nudges;
     totalErrors += errors;
+    totalBad += bad;
   }
 
   if (files.length > 1) {
     console.log(
-      `\n[replay] all done — ${files.length} transcript(s), ${totalNudges} nudge(s), ${totalErrors} error(s).`,
+      `\n[replay] all done — ${files.length} transcript(s), ${totalNudges} nudge(s), ${totalErrors} error(s), ${totalBad} malformed.`,
     );
   }
+
+  // --assert (the `replay:real` gate): turn the run into a pass/fail check.
+  if (opts.assert) {
+    const failures: string[] = [];
+    if (totalErrors > 0) failures.push(`${totalErrors} agent error(s)`);
+    if (totalBad > 0) failures.push(`${totalBad} malformed nudge(s)`);
+    if (totalNudges < 1) failures.push("no nudges surfaced over the whole run");
+    if (failures.length) {
+      console.error(`\n[replay] ASSERT FAIL — ${failures.join("; ")}`);
+      process.exit(1);
+    }
+    console.log(
+      `\n[replay] ASSERT PASS — ${totalNudges} nudge(s), 0 errors, 0 malformed across ${files.length} transcript(s).`,
+    );
+    process.exit(0);
+  }
+
   process.exit(totalErrors ? 1 : 0);
 }
 

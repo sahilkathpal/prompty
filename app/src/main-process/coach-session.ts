@@ -22,6 +22,7 @@ import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
 import { spawnSidecar, type SidecarHandle } from "./sidecar";
 import { startTranscription, type TranscriptionHandle } from "./deepgram";
+import { createMicSilenceDetector } from "./mic-silence";
 import type {
   CallSetup,
   Nudge,
@@ -253,24 +254,11 @@ export async function startSession(
   // carries a non-zero noise floor, so a sustained run of exactly-zero PCM at
   // the start of a session is an unambiguous signal that the sidecar isn't
   // getting real audio (permission not effective, wrong/muted input device).
-  const MIC_SILENCE_BYTES = 16_000 * 2 * 4; // ~4s of 16kHz mono Int16
   const MIC_SILENCE_REASON =
     "No audio is reaching the mic. Grant Microphone permission (System Settings → Privacy & Security) and restart. In dev, the packaged app captures audio more reliably than `npm run dev`.";
-  let micBytesSeen = 0;
-  let micNonZeroSeen = false;
-  let micSilent = false;
+  const micSilence = createMicSilenceDetector();
   const inspectMicChunk = (chunk: Buffer) => {
-    // Once any real audio has appeared, the mic is fine — stop inspecting.
-    if (micNonZeroSeen || micSilent) return;
-    for (let i = 0; i < chunk.length; i++) {
-      if (chunk[i] !== 0) {
-        micNonZeroSeen = true;
-        return;
-      }
-    }
-    micBytesSeen += chunk.length;
-    if (micBytesSeen >= MIC_SILENCE_BYTES) {
-      micSilent = true;
+    if (micSilence.inspect(chunk)) {
       console.error(`[coach-session] mic silent — ${MIC_SILENCE_REASON}`);
       emitStatus("mic-silent", false, MIC_SILENCE_REASON);
     }
@@ -281,7 +269,7 @@ export async function startSession(
     lastAudioAt = Date.now();
     // Keep the mic-silent warning sticky — frames are arriving, they're just
     // empty, so don't let the steady stream flip the dot back to "listening".
-    if (micSilent) return;
+    if (micSilence.isSilent()) return;
     const now = Date.now();
     if (currentStatus !== "listening" || now - lastPulseEmit >= 300) {
       lastPulseEmit = now;
@@ -398,7 +386,7 @@ export async function startSession(
           // error; incoming audio frames flip it back to "listening" on success.
           // "error" is only emitted after reconnect attempts are exhausted.
           if (s === "reconnecting") {
-            if (currentStatus !== "error" && !micSilent) {
+            if (currentStatus !== "error" && !micSilence.isSilent()) {
               emitStatus("reconnecting", false, "Reconnecting to transcription…");
             }
           } else if (s === "error") {

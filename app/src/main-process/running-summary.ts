@@ -40,7 +40,7 @@ export interface SummaryKeeper {
 // the in-call system prompt (see system.ts): an empty "(none)" placeholder would
 // mis-tell the summarizer there's nothing to track against. Goal/checklist were
 // cut from the MVP (RUBY_MVP §4); the direction is the whole brief.
-function buildPrompt(setup: CallSetup, transcript: TranscriptUtterance[]): string {
+export function buildPrompt(setup: CallSetup, transcript: TranscriptUtterance[]): string {
   const parts: string[] = [
     `You are keeping a running brief of a conversation that is STILL ONGOING. This brief is context for a real-time assistant helping the user — it is not shown to the user.`,
   ];

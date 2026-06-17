@@ -1,0 +1,14 @@
+{"kind":"session-start","direction":"Mom-test discovery: learn how this user actually handles meeting notes today. Dig into the last real instance, not hypotheticals; do not pitch.","skill":"user-interview","attendee":{"name":"Marcus","company":"Ravenna Design","bio":"Design lead, runs ~15 calls a week."}}
+{"kind":"utterance","speaker":"me","text":"Before we get into anything, can you walk me through your last few client calls this week?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Yeah — I had three yesterday. Back to back, which is honestly pretty normal.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"On the second one I completely forgot to follow up on a thing they asked about pricing.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"What happened with that?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"They emailed the next day asking, and I had to scramble because my notes were a mess.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"How do you take notes during a call right now?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"I type into a Google Doc, but if I'm talking I miss half of it. Sometimes I just don't.","startMs":0,"endMs":0}
+{"kind":"agent-turn","trigger":"hotkey"}
+{"kind":"utterance","speaker":"them","text":"Last month I lost a follow-up entirely and the client noticed. That stung.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"What did you do after that?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"I tried a recording tool for a week but stopped — too much cleanup afterward.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"What made the cleanup not worth it?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"It gave me a wall of transcript. I just want the three things I promised to do.","startMs":0,"endMs":0}

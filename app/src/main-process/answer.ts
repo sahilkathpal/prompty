@@ -40,7 +40,7 @@ Reply with exactly ONE thing the user can use next:
 
 Output only that single line. No preamble, no quotes, no explanation.`;
 
-function buildPrompt(input: AnswerInput): string {
+export function buildPrompt(input: AnswerInput): string {
   const { setup, summary, recent, recentNudges } = input;
   const transcriptBlock =
     recent.length === 0
@@ -70,7 +70,7 @@ ${nudgeBlock}
 What should the user say or ask right now? One line, ≤15 words.`;
 }
 
-function cleanLine(text: string): string {
+export function cleanLine(text: string): string {
   // First non-empty line, stripped of surrounding quotes / leading bullet.
   const line =
     text

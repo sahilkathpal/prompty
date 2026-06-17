@@ -39,6 +39,44 @@ export type StartTranscriptionOptions = {
 };
 
 /**
+ * Map a parsed Deepgram socket message to a TranscriptUtterance, or null when
+ * it carries no usable transcript (a non-"Results" message, or a "Results"
+ * message with an empty transcript). Pure — extracted so the message→utterance
+ * shape can be unit-tested without a live socket.
+ */
+export function parseDeepgramResult(
+  msg: unknown,
+  speaker: Speaker,
+): TranscriptUtterance | null {
+  const m = msg as {
+    type?: string;
+    is_final?: boolean;
+    start?: number;
+    duration?: number;
+    channel?: { alternatives?: { transcript?: string }[] };
+  };
+  if (m?.type !== "Results") return null;
+  const alt = m.channel?.alternatives?.[0];
+  if (!alt || !alt.transcript) return null;
+  const start = m.start ?? 0;
+  return {
+    speaker,
+    text: alt.transcript,
+    startMs: Math.round(start * 1000),
+    endMs: Math.round((start + (m.duration ?? 0)) * 1000),
+    isFinal: !!m.is_final,
+  };
+}
+
+/**
+ * Exponential reconnect backoff for attempt N (0-based), capped at
+ * RECONNECT_MAX_MS. Pure — the schedule is unit-tested directly.
+ */
+export function reconnectDelay(attempt: number): number {
+  return Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+}
+
+/**
  * Open two Deepgram streams (mic + tap) and pipe the provided PCM streams
  * into them. Final + interim transcripts are merged into a single
  * `onUtterance` callback, tagged by speaker. Mirrors the dual-stream merge
@@ -133,10 +171,7 @@ export function openDeepgramStream(
       return;
     }
     events.onStatus?.("reconnecting", speaker);
-    const delay = Math.min(
-      RECONNECT_MAX_MS,
-      RECONNECT_BASE_MS * 2 ** reconnectAttempts,
-    );
+    const delay = reconnectDelay(reconnectAttempts);
     reconnectAttempts++;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
@@ -170,15 +205,8 @@ export function openDeepgramStream(
           if (msg.type) console.log(`[dg ${speaker}] ${msg.type} ${JSON.stringify(msg).slice(0, 500)}`);
           return;
         }
-        const alt = msg.channel?.alternatives?.[0];
-        if (!alt || !alt.transcript) return;
-        events.onUtterance({
-          speaker,
-          text: alt.transcript,
-          startMs: Math.round((msg.start ?? 0) * 1000),
-          endMs: Math.round(((msg.start ?? 0) + (msg.duration ?? 0)) * 1000),
-          isFinal: !!msg.is_final,
-        });
+        const u = parseDeepgramResult(msg, speaker);
+        if (u) events.onUtterance(u);
       } catch (e) {
         events.onError(e as Error);
       }

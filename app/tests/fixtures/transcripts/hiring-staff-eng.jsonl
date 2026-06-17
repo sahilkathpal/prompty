@@ -1,0 +1,13 @@
+{"kind":"session-start","direction":"Assess this staff-engineer candidate for depth on distributed systems and for how they lead without authority. Probe specifics, not generalities; let them talk.","skill":"hiring","attendee":{"name":"Priya","company":"(candidate)","bio":"Staff engineer, 9 years, last at a payments company."}}
+{"kind":"utterance","speaker":"me","text":"Thanks for making the time, Priya. Want to start with what you're working on right now?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Sure. I lead the team that owns our ledger — the system of record for every money movement.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"Last year we re-architected it from a single Postgres to a sharded, event-sourced design.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"That's a big change. What forced it?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"We were hitting write-throughput limits during peak, and reconciliation was taking hours.","startMs":0,"endMs":0}
+{"kind":"agent-turn","trigger":"hotkey"}
+{"kind":"utterance","speaker":"them","text":"Honestly the hardest part wasn't the tech, it was getting three teams to agree on the event schema.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"How did you get them aligned?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"I wrote a one-page RFC, then spent two weeks doing 1:1s before ever calling a meeting.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"There was one tech lead who really pushed back — thought event sourcing was overkill.","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"me","text":"And how did that resolve?","startMs":0,"endMs":0}
+{"kind":"utterance","speaker":"them","text":"We prototyped both for two weeks and let the numbers decide. He ended up championing it.","startMs":0,"endMs":0}

@@ -61,7 +61,7 @@ export interface CallSummary {
   stat: { surfaced: number; used: number };
 }
 
-function fmtTime(ms: number, startedAt: number): string {
+export function fmtTime(ms: number, startedAt: number): string {
   // Nudge timestamps are wall-clock (Date.now()); render as mm:ss into the call.
   const rel = Math.max(0, Math.round((ms - startedAt) / 1000));
   const m = Math.floor(rel / 60);
@@ -69,7 +69,7 @@ function fmtTime(ms: number, startedAt: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function buildPrompt(
+export function buildPrompt(
   transcript: TranscriptUtterance[],
   nudges: Nudge[],
   startedAt: number,
@@ -133,7 +133,7 @@ Rules:
 - Be concrete and grounded in the transcript; invent nothing.`;
 }
 
-function extractJson(text: string): string | null {
+export function extractJson(text: string): string | null {
   const fence = text.match(/```json\s*([\s\S]*?)```/);
   if (fence) return fence[1].trim();
   const obj = text.match(/\{[\s\S]*\}/);
@@ -141,7 +141,7 @@ function extractJson(text: string): string | null {
 }
 
 /** Normalize + clamp a parsed payload so the renderer can trust its shape. */
-function sanitize(parsed: unknown, surfacedCount: number): CallSummary | null {
+export function sanitize(parsed: unknown, surfacedCount: number): CallSummary | null {
   const p = parsed as Partial<CallSummary> & Record<string, unknown>;
   if (typeof p.recap !== "string") return null;
   const insights: CallInsight[] = Array.isArray(p.insights)

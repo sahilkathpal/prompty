@@ -66,6 +66,52 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(FrameWriter.decode(bad))
     }
 
+    func testTapPCMRoundTrip() throws {
+        let payload = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        let decoded = FrameWriter.decode(FrameWriter.encode(tag: .tapPCM, payload: payload))
+        XCTAssertEqual(decoded?.tag, .tapPCM)
+        XCTAssertEqual(decoded?.payload, payload)
+    }
+
+    func testControlErrorFrameRoundTrip() throws {
+        let obj: [String: Any] = ["type": "error", "msg": "tap device lost"]
+        let payload = try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
+        let decoded = FrameWriter.decode(FrameWriter.encode(tag: .control, payload: payload))
+        XCTAssertEqual(decoded?.tag, .control)
+        let obj2 = try JSONSerialization.jsonObject(with: decoded!.payload) as? [String: String]
+        XCTAssertEqual(obj2?["type"], "error")
+        XCTAssertEqual(obj2?["msg"], "tap device lost")
+    }
+
+    // Mirrors the JS demuxer (tests/unit/sidecar-protocol.test.ts) on the other
+    // end of the wire: a consumer that buffers bytes and drains every complete
+    // frame must handle several frames arriving in one chunk AND a single frame
+    // split across chunk boundaries.
+    func testStreamingReassemblyAcrossChunks() {
+        let mic = FrameWriter.encode(tag: .micPCM, payload: Data([0x01, 0x02, 0x03]))
+        let tap = FrameWriter.encode(tag: .tapPCM, payload: Data([0xAA, 0xBB]))
+        let wire = mic + tap
+
+        // Feed the wire bytes one at a time; the drain loop should yield exactly
+        // the two frames, in order, and only once each is complete.
+        var buffer = Data()
+        var decoded: [(FrameTag, Data)] = []
+        for byte in wire {
+            buffer.append(byte)
+            while let frame = FrameWriter.decode(buffer) {
+                decoded.append((frame.tag, frame.payload))
+                buffer = buffer.subdata(in: frame.consumed..<buffer.count)
+            }
+        }
+
+        XCTAssertEqual(buffer.count, 0, "no partial bytes should remain")
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertEqual(decoded[0].0, .micPCM)
+        XCTAssertEqual(decoded[0].1, Data([0x01, 0x02, 0x03]))
+        XCTAssertEqual(decoded[1].0, .tapPCM)
+        XCTAssertEqual(decoded[1].1, Data([0xAA, 0xBB]))
+    }
+
     func testBigEndianLengthEncoding() {
         // 258 = 0x0102 → bytes 0x00 0x00 0x01 0x02
         let payload = Data(repeating: 0xCC, count: 258)

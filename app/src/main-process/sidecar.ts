@@ -14,10 +14,12 @@ import { Readable, PassThrough } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
 import { app } from "electron";
-
-const FRAME_TAG_CONTROL = 0x01;
-const FRAME_TAG_MIC = 0x02;
-const FRAME_TAG_TAP = 0x03;
+import {
+  createFrameParser,
+  FRAME_TAG_CONTROL,
+  FRAME_TAG_MIC,
+  FRAME_TAG_TAP,
+} from "./sidecar-protocol";
 
 export interface SidecarOptions {
   /** Bundle ID to target for the system-audio tap, e.g. "us.zoom.xos". */
@@ -117,16 +119,11 @@ export function spawnSidecar(opts: SidecarOptions = {}): SidecarHandle {
       }
     });
 
-    // Frame demux state.
-    let buffer: Buffer = Buffer.alloc(0);
+    // Frame demux — the parser buffers partial frames across chunks and hands
+    // back complete ones with their payloads already detached.
+    const parser = createFrameParser();
     proc.stdout?.on("data", (chunk: Buffer) => {
-      buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
-      while (buffer.length >= 5) {
-        const tag = buffer[0]!;
-        const len = buffer.readUInt32BE(1);
-        if (buffer.length < 5 + len) break;
-        const payload = buffer.subarray(5, 5 + len);
-        buffer = buffer.subarray(5 + len);
+      for (const { tag, payload } of parser.push(chunk)) {
         switch (tag) {
           case FRAME_TAG_CONTROL: {
             try {
@@ -143,11 +140,10 @@ export function spawnSidecar(opts: SidecarOptions = {}): SidecarHandle {
             break;
           }
           case FRAME_TAG_MIC:
-            // Copy to detach from the growing buffer.
-            micStream.write(Buffer.from(payload));
+            micStream.write(payload);
             break;
           case FRAME_TAG_TAP:
-            tapStream.write(Buffer.from(payload));
+            tapStream.write(payload);
             break;
           default:
             console.warn(`[sidecar] unknown frame tag 0x${tag.toString(16)}`);

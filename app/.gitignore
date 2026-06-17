@@ -5,6 +5,7 @@ release
 .DS_Store
 test-results
 playwright-report
+coverage
 
 # Stray tsc output in the app root (source lives in src/, build emits to dist/)
 /*.js

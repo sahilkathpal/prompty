@@ -96,6 +96,38 @@ struct StandaloneTests {
             check("BE byte 4", encoded[4] == 0x02)
         }
 
+        // 8. Control error frame round-trip (with a msg field).
+        do {
+            let obj: [String: Any] = ["type": "error", "msg": "tap device lost"]
+            let payload = try! JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
+            let d = FrameWriter.decode(FrameWriter.encode(tag: .control, payload: payload))
+            let rt = try! JSONSerialization.jsonObject(with: d!.payload) as? [String: String]
+            check("control error type", rt?["type"] == "error")
+            check("control error msg", rt?["msg"] == "tap device lost")
+        }
+
+        // 9. Streaming reassembly — mirrors the JS demuxer
+        //    (app/tests/unit/sidecar-protocol.test.ts) on the other end of the
+        //    wire: feed the bytes one at a time and a drain loop must yield each
+        //    whole frame exactly once, leaving no partial remainder.
+        do {
+            let mic = FrameWriter.encode(tag: .micPCM, payload: Data([0x01, 0x02, 0x03]))
+            let tap = FrameWriter.encode(tag: .tapPCM, payload: Data([0xAA, 0xBB]))
+            let wire = mic + tap
+            var buffer = Data()
+            var tags: [FrameTag] = []
+            for byte in wire {
+                buffer.append(byte)
+                while let frame = FrameWriter.decode(buffer) {
+                    tags.append(frame.tag)
+                    buffer = buffer.subdata(in: frame.consumed..<buffer.count)
+                }
+            }
+            check("streaming drains all bytes", buffer.count == 0)
+            check("streaming frame count", tags.count == 2)
+            check("streaming order", tags == [.micPCM, .tapPCM])
+        }
+
         FileHandle.standardOutput.write(Data("\n\(passed) passed, \(failed) failed\n".utf8))
         exit(failed == 0 ? 0 : 1)
     }
