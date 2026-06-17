@@ -240,8 +240,9 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
   const q = query({
     prompt: inputStream,
     options: {
-      // Nudges are short, structured outputs the user is actively waiting on
-      // after a hotkey — use the fastest model rather than the CLI default.
+      // The nudge taxonomy needs real judgment, so this role favours quality
+      // over raw speed (see models.ts); the coalescing queue + stay_quiet
+      // default bound the call volume. Overridable via PROMPTY_MODEL_NUDGE.
       model: modelFor("nudge"),
       systemPrompt: buildSystemPrompt(setup),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
