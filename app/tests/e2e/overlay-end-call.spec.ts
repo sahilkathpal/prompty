@@ -1,77 +1,26 @@
+import { test, expect, type ElectronApplication } from "@playwright/test";
 import {
-  test,
-  expect,
-  _electron as electron,
-  ElectronApplication,
-  Page,
-} from "@playwright/test";
-import path from "node:path";
-import os from "node:os";
-import fs from "node:fs/promises";
+  freshUserDataDir,
+  seedSettings,
+  launchApp as launchAppBase,
+  waitForReady,
+  getOverlayPage,
+  e2e,
+} from "./_helpers";
 
 // The gem overlay can end the call itself: click the gem to expand its panel,
 // then "End call" in the footer drives the same teardown as the tray / main
 // window. This runs against the BUILT app under real (non-headless) Electron.
 
-const APP_ROOT = path.resolve(__dirname, "../..");
-
-async function freshUserDataDir(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "prompty-e2e-overlayend-"));
-}
-async function freshCallLogDir(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "prompty-e2e-overlayend-calls-"));
-}
-
-async function seedSettings(userDataDir: string): Promise<void> {
-  await fs.mkdir(userDataDir, { recursive: true });
-  await fs.writeFile(
-    path.join(userDataDir, "prompty-settings.json"),
-    JSON.stringify({
-      panelPosition: null,
-      launchAtLogin: false,
-      hotkey: "Alt+Shift+Space",
-      onboardingCompleted: true,
-      loginItemPrompted: true,
-      lastTab: "in-call",
-    }),
-    "utf8",
-  );
-}
-
 async function launchApp(): Promise<ElectronApplication> {
-  const userDataDir = await freshUserDataDir();
-  const callLogDir = await freshCallLogDir();
-  await seedSettings(userDataDir);
-  return await electron.launch({
-    args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
-    env: {
-      ...process.env,
-      PROMPTY_E2E: "1",
-      PROMPTY_MOCK_AUDIO: "1",
-      PROMPTY_MOCK_DEEPGRAM: "1",
-      PROMPTY_MOCK_AGENT: "1",
-      PROMPTY_CALL_LOG_DIR: callLogDir,
-      NODE_ENV: "development",
-    },
-  });
+  const userDataDir = await freshUserDataDir("e2e-overlayend");
+  const callLogDir = await freshUserDataDir("e2e-overlayend-calls");
+  await seedSettings(userDataDir, { lastTab: "in-call" });
+  return launchAppBase(userDataDir, { env: { PROMPTY_CALL_LOG_DIR: callLogDir } });
 }
 
-async function waitForReady(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async ({ app: electronApp }) => {
-    if (!electronApp.isReady()) {
-      await new Promise<void>((resolve) => electronApp.once("ready", () => resolve()));
-    }
-  });
-}
-
-async function startSession(app: ElectronApplication): Promise<{ ok: boolean }> {
-  return (await app.evaluate(async () => {
-    const h = (globalThis as unknown as {
-      __prompty_e2e: { startSession: () => Promise<{ ok: boolean }> };
-    }).__prompty_e2e;
-    return h.startSession();
-  })) as { ok: boolean };
-}
+const startSession = (app: ElectronApplication): Promise<{ ok: boolean }> =>
+  e2e(app, "startSession");
 
 function overlayVisible(app: ElectronApplication): Promise<boolean> {
   return app.evaluate(({ BrowserWindow }) =>
@@ -79,16 +28,6 @@ function overlayVisible(app: ElectronApplication): Promise<boolean> {
       (w) => !w.isDestroyed() && w.isVisible() && w.webContents.getURL().includes("overlay"),
     ),
   );
-}
-
-async function getOverlayPage(app: ElectronApplication): Promise<Page> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const p = app.windows().find((pg) => pg.url().includes("overlay"));
-    if (p) return p;
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  throw new Error("overlay (gem) page not found");
 }
 
 async function waitUntil(fn: () => Promise<boolean>, ms = 8000): Promise<boolean> {

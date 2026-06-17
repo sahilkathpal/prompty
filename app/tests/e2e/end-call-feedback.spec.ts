@@ -1,13 +1,13 @@
+import { test, expect, type ElectronApplication } from "@playwright/test";
 import {
-  test,
-  expect,
-  _electron as electron,
-  ElectronApplication,
-  Page,
-} from "@playwright/test";
-import path from "node:path";
-import os from "node:os";
-import fs from "node:fs/promises";
+  freshUserDataDir,
+  seedSettings,
+  launchApp,
+  waitForReady,
+  openMainWindow,
+  getMainPage,
+  e2e,
+} from "./_helpers";
 
 // The post-call teardown (close agent + generate the summary) takes several
 // seconds, during which the session sits in the "ending" state. The main-window
@@ -16,83 +16,12 @@ import fs from "node:fs/promises";
 // mock end() flips through "ending" too fast to observe, so we drive the state
 // directly through the same broadcast path the real flow uses.
 
-const APP_ROOT = path.resolve(__dirname, "../..");
-
-async function freshUserDataDir(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "prompty-e2e-endfeedback-"));
-}
-
-async function seedSettings(userDataDir: string): Promise<void> {
-  await fs.mkdir(userDataDir, { recursive: true });
-  await fs.writeFile(
-    path.join(userDataDir, "prompty-settings.json"),
-    JSON.stringify({
-      panelPosition: null,
-      launchAtLogin: false,
-      hotkey: "Alt+Shift+Space",
-      onboardingCompleted: true,
-      loginItemPrompted: true,
-      lastTab: "in-call",
-    }),
-    "utf8",
-  );
-}
-
-async function launchApp(userDataDir: string): Promise<ElectronApplication> {
-  return await electron.launch({
-    args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
-    env: {
-      ...process.env,
-      PROMPTY_E2E: "1",
-      PROMPTY_MOCK_AUDIO: "1",
-      PROMPTY_MOCK_DEEPGRAM: "1",
-      PROMPTY_MOCK_AGENT: "1",
-      NODE_ENV: "development",
-    },
-  });
-}
-
-async function waitForReady(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async ({ app: electronApp }) => {
-    if (!electronApp.isReady()) {
-      await new Promise<void>((resolve) =>
-        electronApp.once("ready", () => resolve()),
-      );
-    }
-  });
-}
-
-async function openMainWindow(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async () => {
-    const h = (globalThis as unknown as {
-      __prompty_e2e: { openMainWindow: () => void };
-    }).__prompty_e2e;
-    h.openMainWindow();
-  });
-}
-
-async function getMainPage(app: ElectronApplication): Promise<Page> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const p = app.windows().find((pg) => pg.url().includes("main-window"));
-    if (p) return p;
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  throw new Error("main window page not found");
-}
-
-async function broadcastState(app: ElectronApplication, state: string): Promise<void> {
-  await app.evaluate(async (_electron, s) => {
-    const h = (globalThis as unknown as {
-      __prompty_e2e: { broadcastSessionState: (state: string) => boolean };
-    }).__prompty_e2e;
-    h.broadcastSessionState(s);
-  }, state);
-}
+const broadcastState = (app: ElectronApplication, state: string): Promise<void> =>
+  e2e(app, "broadcastSessionState", state);
 
 test("the main-window Start/End button reflects the 'ending' teardown state", async () => {
-  const dir = await freshUserDataDir();
-  await seedSettings(dir);
+  const dir = await freshUserDataDir("e2e-endfeedback");
+  await seedSettings(dir, { lastTab: "in-call" });
   const app = await launchApp(dir);
   try {
     await waitForReady(app);

@@ -1,13 +1,15 @@
-import {
-  test,
-  expect,
-  _electron as electron,
-  ElectronApplication,
-  Page,
-} from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs/promises";
+import {
+  freshUserDataDir,
+  seedSettings,
+  launchApp,
+  waitForReady,
+  showOverlay,
+  getOverlayPage,
+  emitNudge,
+} from "./_helpers";
 
 // Phase 3 verification (RUBY_MVP decision #14): the in-call overlay is "the
 // gem" — a small ruby anchor that blooms ONE ephemeral note beneath it, paces
@@ -15,7 +17,6 @@ import fs from "node:fs/promises";
 // teleprompter), and expands into a quiet scrollback history on click. This
 // runs against the BUILT app under real (non-headless) Electron.
 
-const APP_ROOT = path.resolve(__dirname, "../..");
 const SCREENS = path.join(__dirname, "__screens__");
 
 // Short bloom timings so the test doesn't wait the full multi-second holds.
@@ -25,98 +26,18 @@ const DWELL_MS = 600;
 const HIDE_MS = 1200;
 const STALE_MS = 10_000;
 
-async function freshUserDataDir(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "prompty-e2e-gem-"));
-}
+test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async () => {
+  const dir = await freshUserDataDir("e2e-gem");
+  await seedSettings(dir, { lastTab: "in-call" });
+  await fs.mkdir(SCREENS, { recursive: true });
 
-async function seedSettings(userDataDir: string): Promise<void> {
-  await fs.mkdir(userDataDir, { recursive: true });
-  await fs.writeFile(
-    path.join(userDataDir, "prompty-settings.json"),
-    JSON.stringify({
-      panelPosition: null,
-      launchAtLogin: false,
-      hotkey: "Alt+Shift+Space",
-      onboardingCompleted: true,
-      loginItemPrompted: true,
-      lastTab: "in-call",
-    }),
-    "utf8",
-  );
-}
-
-async function launchApp(userDataDir: string): Promise<ElectronApplication> {
-  return await electron.launch({
-    args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
+  const app = await launchApp(dir, {
     env: {
-      ...process.env,
-      PROMPTY_E2E: "1",
-      PROMPTY_MOCK_AUDIO: "1",
-      PROMPTY_MOCK_DEEPGRAM: "1",
-      PROMPTY_MOCK_AGENT: "1",
-      NODE_ENV: "development",
       PROMPTY_OVERLAY_DWELL_MS: String(DWELL_MS),
       PROMPTY_OVERLAY_HIDE_MS: String(HIDE_MS),
       PROMPTY_OVERLAY_STALE_MS: String(STALE_MS),
     },
   });
-}
-
-async function waitForReady(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async ({ app: electronApp }) => {
-    if (!electronApp.isReady()) {
-      await new Promise<void>((resolve) =>
-        electronApp.once("ready", () => resolve()),
-      );
-    }
-  });
-}
-
-async function showOverlay(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async () => {
-    const h = (globalThis as unknown as {
-      __prompty_e2e: { showOverlay: () => void };
-    }).__prompty_e2e;
-    h.showOverlay();
-  });
-}
-
-async function getOverlayPage(app: ElectronApplication): Promise<Page> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const p = app.windows().find((pg) => pg.url().includes("overlay"));
-    if (p) return p;
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  throw new Error("overlay (gem) page not found");
-}
-
-let nudgeSeq = 0;
-async function emitNudge(
-  app: ElectronApplication,
-  text: string,
-  urgency: "high" | "medium" = "medium",
-): Promise<void> {
-  const nudge = {
-    id: `e2e-${Date.now()}-${nudgeSeq++}`,
-    text,
-    urgency,
-    createdAt: Date.now(),
-  };
-  await app.evaluate(async (_electron, n) => {
-    const h = (globalThis as unknown as {
-      __prompty_e2e: { emitNudge: (n: unknown) => boolean };
-    }).__prompty_e2e;
-    h.emitNudge(n);
-  }, nudge);
-}
-
-test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async () => {
-  const dir = await freshUserDataDir();
-  await seedSettings(dir);
-  await fs.mkdir(SCREENS, { recursive: true });
-
-  const app = await launchApp(dir);
   try {
     await waitForReady(app);
     await showOverlay(app);
