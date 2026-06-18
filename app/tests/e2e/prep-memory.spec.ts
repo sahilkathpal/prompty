@@ -60,11 +60,10 @@ test("prep memory: offer→yes writes the item, offer→no writes nothing", asyn
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-    const prepOpen = page.getByTestId("prep-open");
-    await expect(prepOpen).toBeVisible();
-    await prepOpen.click();
+    // Enter prep from the home chat bar.
+    await page.getByTestId("home-direction").fill("Prep this call");
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-input")).toBeVisible({ timeout: 15_000 });
 
     // ===== Criterion 1: a voiced nudging preference is OFFERED, not written =====
     const PREF = "nudge me only when it's genuinely critical";

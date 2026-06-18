@@ -59,11 +59,9 @@ test("post-call card: transcript is collapsed, expands, labels speakers, drops i
     const page = await getMainPage(app);
     page.on("pageerror", (e) => errors.push(String(e.stack || e.message)));
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-    await page.getByText("Refresh").click();
-
-    const rows = page.locator(".pc-row");
+    // The home screen auto-loads the past-call list on mount (no Refresh button
+    // in the redesigned UI). Click the call row to open the post-call screen.
+    const rows = page.getByTestId("call-row");
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
     await rows.first().click();
 

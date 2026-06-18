@@ -124,8 +124,8 @@ test("Memory tab: full CRUD + persistence + relaunch", async () => {
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    // --- Criterion 1: Memory tab in nav, clicking opens the screen.
-    const memTab = page.getByTestId("tab-memory");
+    // --- Criterion 1: Memory icon in the header, clicking opens the screen.
+    const memTab = page.getByTestId("nav-memory");
     await expect(memTab).toBeVisible();
     await memTab.click();
     await expect(page.getByTestId("memory-input")).toBeVisible();
@@ -214,7 +214,7 @@ test("Memory tab: full CRUD + persistence + relaunch", async () => {
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    await page.getByTestId("tab-memory").click();
+    await page.getByTestId("nav-memory").click();
     await expect(page.getByTestId("memory-item")).toHaveCount(1);
     await expect(
       page.getByTestId("memory-item").first(),

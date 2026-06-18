@@ -104,13 +104,10 @@ test("prep components: goal + checklist render, edit, add, delete", async () => 
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-
-    // Open prep split view.
-    const prepOpen = page.getByTestId("prep-open");
-    await expect(prepOpen).toBeVisible();
-    await prepOpen.click();
+    // Enter prep from the home chat bar (split view).
+    await page.getByTestId("home-direction").fill("Prep this call");
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-direction")).toBeVisible({ timeout: 15_000 });
 
     // ===== Criterion 1: offer→confirm → components panel with goal+checklist =====
     await prepArmComponents(page, MSG);

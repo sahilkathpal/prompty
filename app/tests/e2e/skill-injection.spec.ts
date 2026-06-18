@@ -75,19 +75,22 @@ test("skill picker injects the playbook (no frontmatter leak) and persists acros
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const textarea = page.getByTestId("playground-direction");
-    await expect(textarea).toBeVisible();
-    await textarea.fill(`Seed brief ${Date.now()}`);
+    // Type the brief on the home chat bar and send → lands on the prep screen,
+    // where the skill/playbook picker lives.
+    const home = page.getByTestId("home-direction");
+    await expect(home).toBeVisible();
+    await home.fill(`Seed brief ${Date.now()}`);
+    await page.getByTestId("home-send").click();
 
-    // Pick the discovery skill from the dropdown, then start a call.
+    // Pick the discovery skill from the dropdown, then start the call from prep.
     const picker = page.getByTestId("playground-skill");
-    await expect(picker).toBeVisible();
+    await expect(picker).toBeVisible({ timeout: 15_000 });
     await picker.selectOption("discovery");
     // The selected skill's description hint should render.
     await expect(page.getByTestId("playground-skill-hint")).toContainText("mine pain");
 
-    await page.getByTestId("playground-start").click();
-    await expect(page.getByTestId("playground-end")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("prep-begin").click();
+    await expect(page.getByTestId("end-call")).toBeVisible({ timeout: 20_000 });
 
     // ===== Criterion 1 + 2: INJECTION + NO LEAK =====
     const first = await readNewSessionStartPrompt(debugLogDir, "");
@@ -97,8 +100,9 @@ test("skill picker injects the playbook (no frontmatter leak) and persists acros
     expect(first.systemPrompt).not.toContain("title:"); // frontmatter stripped
     expect(first.systemPrompt).not.toContain("description:");
 
-    await page.getByTestId("playground-end").click();
-    await expect(page.getByTestId("playground-start")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("end-call").click();
+    // Call ended — back on the home screen.
+    await expect(page.getByTestId("home-direction")).toBeVisible({ timeout: 30_000 });
 
     // The pick was persisted synchronously to settings (no debounce).
     const settings = JSON.parse(
@@ -115,8 +119,12 @@ test("skill picker injects the playbook (no frontmatter leak) and persists acros
     await waitForReady(app2);
     await openMainWindow(app2);
     const page2 = await getMainPage(app2);
+    // The picker lives in the prep panel now — open prep to confirm the
+    // restored value survived the restart.
+    await page2.getByTestId("home-direction").fill("Re-open prep");
+    await page2.getByTestId("home-send").click();
     const picker2 = page2.getByTestId("playground-skill");
-    await expect(picker2).toBeVisible();
+    await expect(picker2).toBeVisible({ timeout: 15_000 });
     await expect(picker2).toHaveValue("discovery");
   } finally {
     await app2.close();

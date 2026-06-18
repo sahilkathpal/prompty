@@ -778,16 +778,16 @@ function PrepScreen(props: {
       <div className="prep-body">
         <section className="prep-chat-col">
           <div className="prep-chat-toprow">
-            <button className="prep-back app-no-drag" onClick={onClose}>← Back</button>
+            <button className="prep-back app-no-drag" data-testid="prep-back" onClick={onClose}>← Back</button>
             <div className="prep-chat-label"><span className="prep-chat-dot" />Prep with Ruby</div>
           </div>
-          <div className="prep-chat-log" ref={chatLogRef}>
+          <div className="prep-chat-log" ref={chatLogRef} data-testid="prep-log">
             {prepMessages.length === 0 && !prepThinking
               ? <div className="prep-chat-empty">Tell Ruby about the call you're about to have.</div>
               : prepMessages.map((m, i) => (
-                <div key={i} className={m.role === "user" ? "prep-bubble-user" : "prep-bubble-asst"}>{m.text}</div>
+                <div key={i} data-testid={`prep-msg-${m.role}`} className={m.role === "user" ? "prep-bubble-user" : "prep-bubble-asst"}>{m.text}</div>
               ))}
-            {prepThinking && <div className="prep-bubble-asst prep-thinking">…</div>}
+            {prepThinking && <div className="prep-bubble-asst prep-thinking" data-testid="prep-thinking">…</div>}
           </div>
           {prepError && <div className="prep-chat-error">{prepError}</div>}
           <div className="prep-chat-input-row">
@@ -795,6 +795,7 @@ function PrepScreen(props: {
               <textarea
                 ref={prepInputRef}
                 className="prep-chat-input"
+                data-testid="prep-input"
                 value={prepInput}
                 rows={1}
                 placeholder="Message Ruby…  (Enter to send · Shift+Enter for new line)"
@@ -806,7 +807,7 @@ function PrepScreen(props: {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrep(); } }}
               />
-              <button className="prep-send-btn" onClick={sendPrep} disabled={!prepInput.trim() || prepThinking}>
+              <button className="prep-send-btn" data-testid="prep-send" onClick={sendPrep} disabled={!prepInput.trim() || prepThinking}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
               </button>
             </div>
@@ -882,7 +883,7 @@ function PrepScreen(props: {
           </div>
 
           {prepComponents.length > 0 && (
-            <div className="prep-components">
+            <div className="prep-components" data-testid="prep-components">
               {prepComponents.map((c) =>
                 c.type === "goal" ? (
                   <div key={c.id} className="prep-comp-block" data-testid="component-goal">
@@ -890,7 +891,7 @@ function PrepScreen(props: {
                       <span className="prep-comp-kind">Goal</span>
                       <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
                     </div>
-                    <textarea className="prep-comp-goal-input" value={c.text} rows={2}
+                    <textarea className="prep-comp-goal-input" data-testid="goal-input" value={c.text} rows={2}
                       placeholder="The one outcome that makes this call a success…"
                       onChange={(e) => editGoal(c.id, e.target.value)} />
                   </div>
@@ -902,15 +903,15 @@ function PrepScreen(props: {
                     </div>
                     <ul className="prep-comp-list">
                       {c.items.map((it) => (
-                        <li key={it.id} className="prep-comp-item">
+                        <li key={it.id} className="prep-comp-item" data-testid="checklist-item">
                           <span className="prep-comp-dot">○</span>
                           <input className="prep-comp-item-input" value={it.text}
                             onChange={(e) => editItem(c.id, it.id, e.target.value)} />
-                          <button className="prep-comp-del" onClick={() => deleteItem(c.id, it.id)}>✕</button>
+                          <button className="prep-comp-del" data-testid="checklist-item-delete" onClick={() => deleteItem(c.id, it.id)}>✕</button>
                         </li>
                       ))}
                     </ul>
-                    <button className="prep-add-item" onClick={() => addItem(c.id)}>+ Add item</button>
+                    <button className="prep-add-item" data-testid="checklist-add" onClick={() => addItem(c.id)}>+ Add item</button>
                   </div>
                 ),
               )}
@@ -964,10 +965,15 @@ function LiveScreen(props: {
           <span className="live-label">Live</span>
         </div>
         <div className="live-timer">{timer}</div>
-        <button className={`live-end-btn${isEnding ? " busy" : ""}`} onClick={onEnd} disabled={isEnding}>
+        <button className={`live-end-btn${isEnding ? " busy" : ""}`} data-testid="end-call" onClick={onEnd} disabled={isEnding}>
           {isEnding ? "Ending…" : "End session"}
         </button>
       </header>
+      {isEnding && (
+        <div className="live-ending-status" data-testid="playground-ending">
+          <span className="mw-spinner" aria-hidden /> Wrapping up — saving your call summary. This can take a few seconds.
+        </div>
+      )}
       <div className="live-body">
         <div className="live-left">
           {goal && (
@@ -1064,13 +1070,25 @@ function PostCallScreen(props: {
   const title = call?.title || call?.attendee?.name || "Call";
   const mins = call?.startedAt && call?.endedAt && call.endedAt > call.startedAt
     ? Math.max(1, Math.round((call.endedAt - call.startedAt) / 60000)) : null;
-  const summary = call?.summary;
+  // Legacy call logs carry an older summary schema ({goalRecap, items}) whose
+  // recap/insights/questionsNotAsked/stat are absent. Treat anything that isn't a
+  // current-shape summary as "no summary" so we render the raw-log fallback rather
+  // than crashing on `summary.insights.length`.
+  const rawSummary = call?.summary;
+  const summary =
+    rawSummary &&
+    typeof rawSummary.recap === "string" &&
+    Array.isArray(rawSummary.insights) &&
+    Array.isArray(rawSummary.questionsNotAsked) &&
+    rawSummary.stat
+      ? rawSummary
+      : undefined;
 
   return (
     <div className="pcs-root">
       <div className="app-dragbar" />
       <div className="pcs-toprow app-drag">
-        <button className="pcs-back app-no-drag" onClick={onBack}>← Back</button>
+        <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← Back</button>
       </div>
       <div className={`pcs-scroll-edge${scrolled ? " visible" : ""}`} />
       <div className="pcs-body" ref={scrollRef} onScroll={handleScroll}>
@@ -1088,13 +1106,14 @@ function PostCallScreen(props: {
           <>
             <div className="pcs-title">{title}</div>
             {mins && <div className="pcs-meta">{mins} min</div>}
+            <div className="pcs-meta">No summary card for this call — showing the raw log.</div>
             <ChecklistCoverage components={call.components} />
             <TranscriptSection transcript={call.transcript} />
             <pre className="pcs-raw">{call.raw}</pre>
           </>
         ) : (
           <>
-            <div className="pcs-hero">
+            <div className="pcs-hero" data-testid="call-card">
               {call.attendee?.company && (
                 <div className="pcs-hero-company">{call.attendee.company}</div>
               )}
@@ -1252,8 +1271,8 @@ function MemoryScreen(props: {
           <button className="mem-add-btn" data-testid="memory-add" onClick={addMemory} disabled={!newMemory.trim()}>Add</button>
         </div>
         {memories.length === 0
-          ? <div className="fullscreen-empty">No memories yet.</div>
-          : <ul className="mem-list">{memories.map((m) => {
+          ? <div className="fullscreen-empty" data-testid="memory-empty">No memories yet.</div>
+          : <ul className="mem-list" data-testid="memory-list">{memories.map((m) => {
             const isEdit = editingMem?.id === m.id;
             return (
               <li key={m.id} className="mem-item" data-testid="memory-item">
@@ -1267,7 +1286,7 @@ function MemoryScreen(props: {
                     <span className="mem-text">{m.text}</span>
                     {m.source === "suggested" && <span className="mem-tag">suggested</span>}
                     <button className="mem-action-btn" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>✎</button>
-                    <button className="mem-action-btn" onClick={() => deleteMemory(m.id)}>✕</button>
+                    <button className="mem-action-btn" data-testid="memory-delete" onClick={() => deleteMemory(m.id)}>✕</button>
                   </>
                 )}
               </li>

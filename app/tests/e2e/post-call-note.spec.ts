@@ -87,11 +87,8 @@ test("post-call note: save how Ruby nudged → memory item", async () => {
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    // Past Calls list is on the Direction tab; refresh + open the seeded row.
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-    await page.getByText("Refresh").click();
-    const firstRow = page.locator(".pc-row").first();
+    // The home screen auto-loads the past-call list; open the seeded row.
+    const firstRow = page.getByTestId("call-row").first();
     await expect(firstRow).toBeVisible({ timeout: 10_000 });
     await firstRow.click();
 
@@ -121,8 +118,10 @@ test("post-call note: save how Ruby nudged → memory item", async () => {
     const saved = items.find((x) => x.text === NOTE);
     expect(saved, "note persisted to memory").toBeTruthy();
 
-    // ===== Criterion 5: it shows up in the Memory tab =====
-    await page.getByTestId("tab-memory").click();
+    // ===== Criterion 5: it shows up on the Memory screen =====
+    // Back to home, then into Memory via the header icon.
+    await page.getByTestId("post-call-back").click();
+    await page.getByTestId("nav-memory").click();
     await expect(
       page.getByTestId("memory-item").filter({ hasText: NOTE }),
     ).toHaveCount(1, { timeout: 10_000 });

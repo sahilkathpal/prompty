@@ -71,20 +71,19 @@ test("legacy-summary call: open note then switch to it → raw-log fallback, no 
     const page = await getMainPage(app);
     page.on("pageerror", (e) => errors.push(String(e.stack || e.message)));
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-    await page.getByText("Refresh").click();
-
-    const rows = page.locator(".pc-row");
+    const rows = page.getByTestId("call-row");
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
 
-    // Open A, open its note box, then click the call below it (B, legacy summary).
+    // Open A (modern) — its note box opens. (In the redesigned UI a row opens a
+    // full-screen post-call view rather than an inline card, so we visit each
+    // call separately instead of expanding two at once.)
     await rows.first().click();
     await page.getByTestId("nudge-note-open").click();
     await expect(page.getByTestId("nudge-note-input")).toBeVisible();
-    await rows.nth(1).click();
+    await page.getByTestId("post-call-back").click();
 
-    // B renders the raw-log fallback rather than blanking the window.
+    // Open B (legacy summary) — renders the raw-log fallback, not a blank window.
+    await page.getByTestId("call-row").nth(1).click();
     await expect(page.locator("text=raw log")).toBeVisible({ timeout: 5_000 });
     expect(errors, "no uncaught render error").toEqual([]);
   } finally {

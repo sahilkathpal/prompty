@@ -136,28 +136,30 @@ test("ephemeral direction: empty on launch, reaches call, not persisted", async 
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const textarea = page.getByTestId("playground-direction");
-    await expect(textarea).toBeVisible();
+    const home = page.getByTestId("home-direction");
+    await expect(home).toBeVisible();
 
-    // --- Criterion 1: EMPTY ON LAUNCH
-    const initialValue = await textarea.inputValue();
-    console.log("LAUNCH-1 textarea value:", JSON.stringify(initialValue));
+    // --- Criterion 1: EMPTY ON LAUNCH (the home chat bar starts blank)
+    const initialValue = await home.inputValue();
+    console.log("LAUNCH-1 home bar value:", JSON.stringify(initialValue));
     expect(initialValue).toBe("");
 
-    // --- Criterion 2: DIRECTION REACHES THE CALL
-    await textarea.fill(UNIQUE_DIRECTION);
-    await page.getByTestId("playground-start").click();
+    // --- Criterion 2: DIRECTION REACHES THE CALL (home bar → prep → begin)
+    await home.fill(UNIQUE_DIRECTION);
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-begin")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("prep-begin").click();
 
-    // Wait for live state: Start button gone, End button present.
-    await expect(page.getByTestId("playground-end")).toBeVisible({
+    // Wait for live state: the End button is present on the live screen.
+    await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 15_000,
     });
 
     // End the call.
-    await page.getByTestId("playground-end").click();
+    await page.getByTestId("end-call").click();
 
-    // Wait for the call to finish (button returns to Start), then read the log.
-    await expect(page.getByTestId("playground-start")).toBeVisible({
+    // Wait for the call to finish (back on the home screen), then read the log.
+    await expect(page.getByTestId("home-direction")).toBeVisible({
       timeout: 30_000,
     });
 
@@ -175,12 +177,12 @@ test("ephemeral direction: empty on launch, reaches call, not persisted", async 
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const textarea = page.getByTestId("playground-direction");
-    await expect(textarea).toBeVisible();
+    const home = page.getByTestId("home-direction");
+    await expect(home).toBeVisible();
 
     // --- Criterion 3: NO PERSISTENCE ACROSS RELAUNCH
-    const relaunchValue = await textarea.inputValue();
-    console.log("LAUNCH-2 textarea value:", JSON.stringify(relaunchValue));
+    const relaunchValue = await home.inputValue();
+    console.log("LAUNCH-2 home bar value:", JSON.stringify(relaunchValue));
     expect(relaunchValue).toBe("");
   } finally {
     await app.close();

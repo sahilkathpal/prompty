@@ -228,8 +228,8 @@ test("BONUS: a memory item added through the real Memory tab UI reaches the prom
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    // Add via the real UI: Memory tab → input → add.
-    await page.getByTestId("tab-memory").click();
+    // Add via the real UI: Memory icon → input → add.
+    await page.getByTestId("nav-memory").click();
     await page.getByTestId("memory-input").fill(UI_TEXT);
     await page.getByTestId("memory-add").click();
     await expect(

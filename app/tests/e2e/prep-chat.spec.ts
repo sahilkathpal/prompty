@@ -132,26 +132,16 @@ test("prep chat: split-view, live direction rewrite, done retains, prep→call",
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    // Ensure we are on the Direction tab.
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
+    // Enter prep from the home chat bar (the typed brief seeds the direction).
+    await page.getByTestId("home-direction").fill(SEED_DIRECTION);
+    await page.getByTestId("home-send").click();
 
-    const textarea = page.getByTestId("playground-direction");
-    await expect(textarea).toBeVisible();
-
-    // Seed a starting direction so we can assert the rewrite is seeded from it.
-    await textarea.fill(SEED_DIRECTION);
-
-    // ===== Criterion 1: Prep button opens split view =====
-    const prepOpen = page.getByTestId("prep-open");
-    await expect(prepOpen).toBeVisible();
-    await prepOpen.click();
-
+    // ===== Criterion 1: split view — chat log + direction editor side by side ===
     const prepLog = page.getByTestId("prep-log");
-    await expect(prepLog).toBeVisible();
-    // Direction editor still visible alongside the chat panel (split view).
+    await expect(prepLog).toBeVisible({ timeout: 15_000 });
+    const textarea = page.getByTestId("prep-direction");
     await expect(textarea).toBeVisible();
-    console.log("CRIT1: prep-log visible AND playground-direction visible (split view)");
+    console.log("CRIT1: prep-log AND prep-direction visible (split view)");
 
     // ===== Criterion 2: send → user + assistant bubbles =====
     await page.getByTestId("prep-input").fill(PREP_MSG);
@@ -159,18 +149,17 @@ test("prep chat: split-view, live direction rewrite, done retains, prep→call",
 
     const userBubble = page.getByTestId("prep-msg-user");
     const asstBubble = page.getByTestId("prep-msg-assistant");
-    await expect(userBubble).toBeVisible({ timeout: 15_000 });
-    await expect(asstBubble).toBeVisible({ timeout: 15_000 });
-
-    const userText = (await userBubble.first().textContent()) ?? "";
-    const asstText = (await asstBubble.first().textContent()) ?? "";
-    console.log("CRIT2 user bubble:", JSON.stringify(userText));
+    await expect(userBubble.first()).toBeVisible({ timeout: 15_000 });
+    // The most recent assistant bubble is the response to PREP_MSG (an earlier
+    // bubble may answer the seed message that opened prep).
+    await expect(asstBubble.last()).toBeVisible({ timeout: 15_000 });
+    const asstText = (await asstBubble.last().textContent()) ?? "";
     console.log("CRIT2 assistant bubble:", JSON.stringify(asstText));
     expect(asstText).toContain(
       `Updated the working direction to focus on: ${PREP_MSG}`,
     );
 
-    // ===== Criterion 3: live direction rewrite =====
+    // ===== Criterion 3: live direction rewrite into the editor =====
     await expect
       .poll(async () => await textarea.inputValue(), { timeout: 15_000 })
       .toContain(`Focus: ${PREP_MSG}`);
@@ -178,20 +167,16 @@ test("prep chat: split-view, live direction rewrite, done retains, prep→call",
     console.log("CRIT3 editor value after live rewrite:", JSON.stringify(afterRewrite));
     expect(afterRewrite).toContain(`Focus: ${PREP_MSG}`);
 
-    // ===== Criterion 4: Done closes split view, retains direction =====
-    await page.getByTestId("prep-done").click();
-    await expect(prepLog).toHaveCount(0);
-    const afterDone = await textarea.inputValue();
-    console.log("CRIT4 editor value after Done:", JSON.stringify(afterDone));
-    expect(afterDone).toContain(`Focus: ${PREP_MSG}`);
-
-    // ===== Criterion 5: prep → call; CallLog direction carries the rewrite =====
-    await page.getByTestId("playground-start").click();
-    await expect(page.getByTestId("playground-end")).toBeVisible({
+    // ===== Criterion 4+5: start the call from prep; the rewritten direction is
+    // retained and carried into the CallLog. (The redesigned flow begins the call
+    // from the prep screen — there is no separate "Done"→home step beforehand,
+    // which would reset the direction.) =====
+    await page.getByTestId("prep-begin").click();
+    await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByTestId("playground-end").click();
-    await expect(page.getByTestId("playground-start")).toBeVisible({
+    await page.getByTestId("end-call").click();
+    await expect(page.getByTestId("home-direction")).toBeVisible({
       timeout: 30_000,
     });
 

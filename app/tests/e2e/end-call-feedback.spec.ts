@@ -28,35 +28,36 @@ test("the main-window Start/End button reflects the 'ending' teardown state", as
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    // App has mounted once the Direction box is present. Give the one-time
+    // App has mounted once the home chat bar is present. Give the one-time
     // initial session:state fetch (resolves to "idle") a beat to settle so it
     // can't race past a state we broadcast below.
-    await expect(page.getByTestId("playground-direction")).toBeVisible();
+    await expect(page.getByTestId("home-direction")).toBeVisible();
     await page.waitForTimeout(400);
 
-    // Idle: the primary CTA is "Start call".
-    await expect(page.getByTestId("playground-start")).toHaveText("Start call");
+    // Idle: we sit on the home screen.
+    await expect(page.getByTestId("home-direction")).toBeVisible();
 
-    // Live: the button becomes a usable "End call".
+    // Live: the session auto-navigates to the live screen with a usable
+    // "End session" button.
     await broadcastState(app, "live");
-    const endBtn = page.getByTestId("playground-end");
-    await expect(endBtn).toHaveText("End call");
+    const endBtn = page.getByTestId("end-call");
+    await expect(endBtn).toHaveText("End session");
     await expect(endBtn).toBeEnabled();
     await expect(page.getByTestId("playground-ending")).toHaveCount(0);
 
     // Ending: the button locks into a disabled "Ending…" and the wrap-up status
-    // line appears — so a second click can't re-fire end().
+    // banner appears — so a second click can't re-fire end().
     await broadcastState(app, "ending");
     await expect(endBtn).toHaveText("Ending…");
     await expect(endBtn).toBeDisabled();
     const status = page.getByTestId("playground-ending");
     await expect(status).toBeVisible();
     await expect(status).toContainText("Wrapping up");
-    await expect(status).toContainText("This can take a few seconds");
+    await expect(status).toContainText("few seconds");
 
-    // Back to idle: the CTA returns to "Start call" and the status line clears.
-    await broadcastState(app, "idle");
-    await expect(page.getByTestId("playground-start")).toHaveText("Start call");
+    // Ended: teardown done — back on the home screen and the status banner clears.
+    await broadcastState(app, "ended");
+    await expect(page.getByTestId("home-direction")).toBeVisible();
     await expect(page.getByTestId("playground-ending")).toHaveCount(0);
   } finally {
     await app.close();

@@ -166,19 +166,13 @@ test("components inject into the in-call prompt, then are consumed on start", as
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-
-    // A non-empty direction is needed for playground-start to fire. Seed one;
-    // the mock prep agent also rewrites the direction from M.
-    const textarea = page.getByTestId("playground-direction");
-    await expect(textarea).toBeVisible();
-    await textarea.fill(`Seed brief ${Date.now()}`);
+    // Enter prep from the home chat bar (the seed brief opens prep; the mock prep
+    // agent rewrites the direction from M).
+    await page.getByTestId("home-direction").fill(`Seed brief ${Date.now()}`);
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-direction")).toBeVisible({ timeout: 15_000 });
 
     // ===== Prep: offer→confirm M, wait for the armed goal component =====
-    const prepOpen = page.getByTestId("prep-open");
-    await expect(prepOpen).toBeVisible();
-    await prepOpen.click();
     await prepArmComponents(page, M);
     await expect(page.getByTestId("component-goal")).toBeVisible({
       timeout: 15_000,
@@ -188,9 +182,9 @@ test("components inject into the in-call prompt, then are consumed on start", as
       timeout: 15_000,
     });
 
-    // ===== Criterion 1: INJECTION — start a call, read session-start prompt ====
-    await page.getByTestId("playground-start").click();
-    await expect(page.getByTestId("playground-end")).toBeVisible({
+    // ===== Criterion 1: INJECTION — start the call from prep, read prompt ====
+    await page.getByTestId("prep-begin").click();
+    await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 20_000,
     });
 
@@ -209,20 +203,23 @@ test("components inject into the in-call prompt, then are consumed on start", as
     expect(first.systemPrompt).toContain("- [ ] Agree next steps");
 
     // ===== End the first call =====
-    await page.getByTestId("playground-end").click();
-    await expect(page.getByTestId("playground-start")).toBeVisible({
+    await page.getByTestId("end-call").click();
+    await expect(page.getByTestId("home-direction")).toBeVisible({
       timeout: 30_000,
     });
 
-    // ===== Criterion 2: CONSUMED ON START — second call WITHOUT re-prepping ====
-    // Starting the first call cleared the pending prep (Gap 2): the Direction
-    // editor is now empty and the armed components are gone. Re-seed only the
-    // direction (no re-prep) and start again — the second call must carry NO
-    // goal/checklist, proving the components were consumed, not persisted.
-    await expect(textarea).toHaveValue("");
-    await textarea.fill(`Second brief ${Date.now()}`);
-    await page.getByTestId("playground-start").click();
-    await expect(page.getByTestId("playground-end")).toBeVisible({
+    // ===== Criterion 2: CONSUMED ON START — second call WITHOUT re-arming ======
+    // Starting the first call cleared the pending prep (Gap 2). Enter prep again
+    // with a fresh brief but DON'T arm components, then start — the second call
+    // must carry NO goal/checklist, proving the components were consumed, not
+    // persisted. (The redesigned flow always routes through prep, and openPrep
+    // clears any pending components, so a fresh prep that arms nothing carries
+    // nothing.)
+    await page.getByTestId("home-direction").fill(`Second brief ${Date.now()}`);
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-begin")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("prep-begin").click();
+    await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 20_000,
     });
 
@@ -237,8 +234,8 @@ test("components inject into the in-call prompt, then are consumed on start", as
         second.systemPrompt.length,
     );
 
-    await page.getByTestId("playground-end").click();
-    await expect(page.getByTestId("playground-start")).toBeVisible({
+    await page.getByTestId("end-call").click();
+    await expect(page.getByTestId("home-direction")).toBeVisible({
       timeout: 30_000,
     });
   } finally {

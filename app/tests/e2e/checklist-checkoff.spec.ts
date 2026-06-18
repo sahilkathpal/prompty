@@ -47,23 +47,19 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-
-    // ===== Prep: offer→confirm M, wait for the armed checklist =====
-    const prepOpen = page.getByTestId("prep-open");
-    await expect(prepOpen).toBeVisible();
-    await prepOpen.click();
+    // ===== Prep: open from the home bar, offer→confirm M, wait for checklist ====
+    await page.getByTestId("home-direction").fill("Prep this call");
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-direction")).toBeVisible({ timeout: 15_000 });
     await prepArmComponents(page, M);
     await expect(page.getByTestId("component-checklist")).toBeVisible({
       timeout: 15_000,
     });
-    // Close prep — components stay armed; the mock direction is now in the editor.
-    await page.getByTestId("prep-done").click();
 
-    // ===== Start the call =====
-    await page.getByTestId("playground-start").click();
-    await expect(page.getByTestId("playground-end")).toBeVisible({
+    // ===== Start the call directly from prep (the armed components stay armed;
+    // closing prep back to home would clear them in the redesigned flow) =====
+    await page.getByTestId("prep-begin").click();
+    await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 20_000,
     });
 
@@ -99,8 +95,8 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     );
 
     // ===== End the call =====
-    await page.getByTestId("playground-end").click();
-    await expect(page.getByTestId("playground-start")).toBeVisible({
+    await page.getByTestId("end-call").click();
+    await expect(page.getByTestId("home-direction")).toBeVisible({
       timeout: 30_000,
     });
 
@@ -121,10 +117,8 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     expect(items[1]!.done, "items[1].done").toBe(false);
 
     // ===== Criterion 2: POST-CALL CARD coverage stat =====
-    // Past Calls list is on the Direction tab; refresh + open the newest row.
-    if (await directionTab.count()) await directionTab.click();
-    await page.getByText("Refresh").click();
-    const firstRow = page.locator(".pc-row").first();
+    // The home screen auto-loads the past-call list; open the newest row.
+    const firstRow = page.getByTestId("call-row").first();
     await expect(firstRow).toBeVisible({ timeout: 10_000 });
     await firstRow.click();
 

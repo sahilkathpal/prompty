@@ -32,13 +32,11 @@ test("prep low-value call: direction only, no goal/checklist offered or created"
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    const directionTab = page.getByTestId("tab-direction");
-    if (await directionTab.count()) await directionTab.click();
-
-    // Open prep split view.
-    const prepOpen = page.getByTestId("prep-open");
-    await expect(prepOpen).toBeVisible();
-    await prepOpen.click();
+    // Enter prep from the home chat bar (the seed direction is stored silently —
+    // the mock only responds to chat sends, so it triggers no offer).
+    await page.getByTestId("home-direction").fill("Prep this call");
+    await page.getByTestId("home-send").click();
+    await expect(page.getByTestId("prep-input")).toBeVisible({ timeout: 15_000 });
 
     // ===== Send the low-value message and wait for the assistant turn =====
     await page.getByTestId("prep-input").fill(MSG);
@@ -50,7 +48,7 @@ test("prep low-value call: direction only, no goal/checklist offered or created"
     console.log("NEG assistant bubble:", JSON.stringify(asstText));
 
     // ===== Criterion 1: the direction was still updated (prep functioned) =====
-    const textarea = page.getByTestId("playground-direction");
+    const textarea = page.getByTestId("prep-direction");
     await expect
       .poll(async () => await textarea.inputValue(), { timeout: 15_000 })
       .toContain(`Focus: ${MSG}`);
