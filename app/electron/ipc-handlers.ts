@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { findClaudeBinary } from "../src/main-process/claude-cli";
-import { closeOnboardingWindow } from "./onboarding-window";
+import { closeOnboardingWindow, getOnboardingWindow } from "./onboarding-window";
 import type { MediaPermissionStatus, PermissionStatus } from "../src/shared/types";
 import type {
   InvokeChannel,
@@ -553,8 +553,132 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     void shell.openExternal(payload.url);
   });
 
+  handle("onboarding:set-height", (payload) => {
+    const win = getOnboardingWindow();
+    if (!win || win.isDestroyed()) return;
+    const { workArea } = require("electron").screen.getPrimaryDisplay();
+    const maxH = Math.min(800, workArea.height - 32);
+    const clamped = Math.round(Math.max(200, Math.min(maxH, payload.height)));
+    const [w, h] = win.getSize();
+    if (clamped !== h) win.setSize(w, clamped, true);
+    // Show on first call so the window appears at the correct size
+    if (!win.isVisible()) win.show();
+  });
+
+  let pendingRubyMessage: { text: string | null } | null = null;
+
+  handle("onboarding:set-ruby-message", (payload) => {
+    pendingRubyMessage = { text: payload.text };
+    if (payload.text !== null) {
+      showOverlay();
+    }
+    const overlayWin = getOverlayWindow();
+    if (!overlayWin || overlayWin.isDestroyed()) return;
+    if (overlayWin.webContents.isLoading()) {
+      overlayWin.webContents.once("did-finish-load", () => {
+        if (pendingRubyMessage !== null) {
+          sendTo(getOverlayWindow(), "overlay:ruby-message", pendingRubyMessage);
+        }
+      });
+    } else {
+      sendTo(overlayWin, "overlay:ruby-message", { text: payload.text });
+    }
+  });
+
+  handle("onboarding:celebrate", async () => {
+    const { BrowserWindow: BW, screen } = require("electron") as typeof import("electron");
+    const imgB64 = (await fs.readFile("/Users/sj/Downloads/RubyBG2.png")).toString("base64");
+    const imgSrc = `data:image/png;base64,${imgB64}`;
+    const { workArea } = screen.getPrimaryDisplay();
+
+    // Get onboarding window center in screen coordinates
+    const obWin = getOnboardingWindow();
+    const [obX, obY] = obWin ? obWin.getPosition() : [workArea.x + workArea.width / 2, workArea.y + workArea.height / 2];
+    const [obW, obH] = obWin ? obWin.getSize() : [420, 500];
+    // Convert to canvas-relative coords (canvas covers workArea)
+    const originX = obX - workArea.x + obW / 2;
+    const originY = obY - workArea.y + obH / 2;
+
+    // Three burst origins: center, left-of-center, right-of-center
+    const origins = [
+      { x: originX, y: originY },
+      { x: originX - 80, y: originY + 40 },
+      { x: originX + 80, y: originY + 40 },
+    ];
+
+    const html = `<!DOCTYPE html><html><body style="margin:0;background:transparent;overflow:hidden">
+<canvas id="c" style="position:fixed;inset:0;display:block"></canvas>
+<script>
+const img = new Image();
+img.src = ${JSON.stringify(imgSrc)};
+img.onload = () => {
+  const canvas = document.getElementById('c');
+  canvas.width = ${workArea.width};
+  canvas.height = ${workArea.height};
+  const ctx = canvas.getContext('2d');
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const origins = ${JSON.stringify(origins)};
+  const particles = [];
+  function burst(origin) {
+    for (let i = 0; i < 45; i++) {
+      particles.push({
+        x: origin.x, y: origin.y,
+        vx: rand(-7, 7), vy: rand(-10, 1),
+        rotation: rand(0, Math.PI * 2),
+        vr: rand(-0.07, 0.07),
+        scale: rand(0.3, 0.75),
+        alpha: 1,
+        gravity: rand(0.06, 0.14),
+      });
+    }
+  }
+  burst(origins[0]);
+  setTimeout(() => burst(origins[1]), 400);
+  setTimeout(() => burst(origins[2]), 800);
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy;
+      p.vy += p.gravity;
+      p.vx *= 0.99;
+      p.rotation += p.vr;
+      p.alpha -= 0.005;
+      if (p.alpha <= 0) continue;
+      alive = true;
+      const w = img.width * p.scale, h = img.height * p.scale;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.alpha);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.drawImage(img, -w/2, -h/2, w, h);
+      ctx.restore();
+    }
+    if (alive) requestAnimationFrame(animate);
+  }
+  animate();
+};
+</script></body></html>`;
+    const win = new BW({
+      x: workArea.x, y: workArea.y,
+      width: workArea.width, height: workArea.height,
+      transparent: true, frame: false, focusable: false,
+      alwaysOnTop: true, skipTaskbar: true, hasShadow: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    win.setIgnoreMouseEvents(true);
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.setVisibleOnAllWorkspaces(true);
+    void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    win.showInactive();
+    setTimeout(() => { if (!win.isDestroyed()) win.close(); }, 6000);
+  });
+
   handle("onboarding:complete", () => {
+    pendingRubyMessage = null;
     updateSettings({ onboardingCompleted: true });
+    sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
+    hideOverlay();
     closeOnboardingWindow();
     deps.onOnboardingComplete?.();
     return { ok: true };

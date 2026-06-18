@@ -154,7 +154,8 @@ export interface GemProps {
   variant?: "mini" | "bare" | "pill";
   /** Pixel size of the gem svg (mini defaults 13, bare defaults 30). */
   size?: number;
-  /** For the pill: render the active waveform vs flat (defaults from state). */
+  /** For the pill: override whether the waveform animates (defaults from state). */
+  waveActive?: boolean;
   className?: string;
 }
 
@@ -162,6 +163,7 @@ export function Gem({
   state = "idle",
   variant = "bare",
   size,
+  waveActive: waveActiveProp,
   className,
 }: GemProps): JSX.Element {
   if (variant === "mini") {
@@ -185,7 +187,7 @@ export function Gem({
   }
 
   // variant === "pill": dark glass capsule with gem + middle indicator + grille.
-  const waveActive = state === "listening" || state === "worth-asking" || state === "saved";
+  const waveActive = waveActiveProp ?? (state === "listening" || state === "worth-asking" || state === "saved");
   const middle =
     state === "thinking" ? (
       <div className="gem-think">

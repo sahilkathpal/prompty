@@ -65,6 +65,7 @@ export default function App(): JSX.Element {
   const [history, setHistory] = useState<Nudge[]>([]);
   // Whether the gem is expanded into the scrollback history list.
   const [expanded, setExpanded] = useState(false);
+  const [rubyMessage, setRubyMessage] = useState<string | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -169,10 +170,15 @@ export default function App(): JSX.Element {
       }
     }, 200);
 
+    const offRuby = window.prompty.on("overlay:ruby-message", (p) => {
+      setRubyMessage(p.text);
+    });
+
     return () => {
       offState();
       offStatus();
       offNudge();
+      offRuby();
       clearInterval(tick);
     };
   }, [show, dwellMs, hideMs, staleMs]);
@@ -191,7 +197,7 @@ export default function App(): JSX.Element {
 
   useLayoutEffect(() => {
     fitHeight();
-  }, [bloom, expanded, history, status, fitHeight]);
+  }, [bloom, expanded, history, status, rubyMessage, fitHeight]);
 
   const toggleExpanded = useCallback(() => {
     setExpanded((cur) => !cur);
@@ -268,7 +274,9 @@ export default function App(): JSX.Element {
           ? "thinking"
           : status === "listening" || liveish
             ? "listening"
-            : "idle";
+            : rubyMessage
+              ? "listening"
+              : "idle";
 
   return (
     <div
@@ -294,9 +302,16 @@ export default function App(): JSX.Element {
             onMouseDown={onGemMouseDown}
             onClick={onGemClick}
           >
-            <Gem variant="pill" state={gemState} />
+            <Gem variant="pill" state={gemState} waveActive={!rubyMessage || sessionState !== "idle"} />
           </button>
         </div>
+
+        {/* Ruby onboarding speech bubble */}
+        {rubyMessage && !bloom && !expanded && (
+          <div className="gem-ruby-bubble" key={rubyMessage}>
+            <div className="gem-ruby-bubble-text">{rubyMessage}</div>
+          </div>
+        )}
 
         {/* Discoverability: a faint caret signals the gem expands (into the
             note history + End-call control) when notes are waiting and nothing

@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.10",
+    "canvas-confetti": "^1.9.4",
     "electron-store": "^8.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -47,6 +48,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20.12.7",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
@@ -54,7 +56,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "@vitest/coverage-v8": "^2.1.9",
     "concurrently": "^8.2.2",
-    "electron": "^31.3.1",
+    "electron": "^42.4.1",
     "electron-builder": "^24.13.3",
     "playwright": "^1.60.0",
     "tsx": "^4.19.2",
