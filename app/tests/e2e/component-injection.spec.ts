@@ -215,7 +215,12 @@ test("components inject into the in-call prompt, then are consumed on start", as
     });
 
     // ===== Criterion 2: CONSUMED ON START — second call WITHOUT re-prepping ====
-    // The Direction editor still holds text from the first prep, so start fires.
+    // Starting the first call cleared the pending prep (Gap 2): the Direction
+    // editor is now empty and the armed components are gone. Re-seed only the
+    // direction (no re-prep) and start again — the second call must carry NO
+    // goal/checklist, proving the components were consumed, not persisted.
+    await expect(textarea).toHaveValue("");
+    await textarea.fill(`Second brief ${Date.now()}`);
     await page.getByTestId("playground-start").click();
     await expect(page.getByTestId("playground-end")).toBeVisible({
       timeout: 20_000,

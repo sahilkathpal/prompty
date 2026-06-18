@@ -93,8 +93,16 @@ let activeSessionSetup: CallSetup | null = null;
 // The current prep chat session (RUBY B2 phase 2b). At most one at a time.
 let activePrep: PrepAgent | null = null;
 // Components (goal/checklist) armed by the current/last prep, awaiting the next
-// call start (RUBY B3). Folded onto the setup at call:start, then cleared.
-let activePrepComponents: PrepComponent[] = [];
+// call start (RUBY B3). Persisted alongside directionDraft (Gap 2) so a brief
+// prepped ahead of a call survives an app quit; folded onto the setup and then
+// cleared at call:start. Initialised from disk; mutate only via
+// setActivePrepComponents so the on-disk copy stays in sync.
+let activePrepComponents: PrepComponent[] = getSettings().prepComponents ?? [];
+
+function setActivePrepComponents(components: PrepComponent[]): void {
+  activePrepComponents = components;
+  updateSettings({ prepComponents: components });
+}
 // Buffer of session:status events for the active session — read by E2E.
 let statusLog: SessionStatusEvent[] = [];
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
@@ -196,12 +204,17 @@ async function doStartSession(
   // The ephemeral per-call direction comes straight from the renderer at start
   // (RUBY B2 phase 2a) — nothing is read from disk. It is the whole brief.
   const setup = directionToSetup(opts.direction ?? "", opts.skill);
-  // Fold in the components armed during prep (RUBY B3 phase 3b), then clear them
-  // — they're consumed by this call and don't leak into the next one.
+  // Fold in the components armed during prep (RUBY B3 phase 3b), then clear the
+  // whole pending prep — direction + components are per-call and consumed by this
+  // start, so they don't leak into the next call (Gap 2). Skill is sticky and is
+  // intentionally left untouched. The prep:components reset lets any open window
+  // drop its armed cards even when the call was started from the hotkey/tray.
   if (activePrepComponents.length > 0) {
     setup.components = activePrepComponents;
-    activePrepComponents = [];
   }
+  activePrepComponents = [];
+  updateSettings({ directionDraft: "", prepComponents: [] });
+  broadcast("prep:components", { components: [] });
   activeSessionSetup = setup;
   statusLog = [];
 
@@ -363,14 +376,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       await activePrep.close().catch(() => {});
       activePrep = null;
     }
-    activePrepComponents = [];
+    // A fresh prep overwrites the pending one (Gap 2): clear armed components now
+    // so a prep that ends without arming any leaves nothing stale behind.
+    setActivePrepComponents([]);
     try {
       activePrep = await openPrepAgent(payload?.direction ?? "", {
         onAssistantDelta: (text) => broadcast("prep:assistant-delta", { text }),
         onAssistant: (text) => broadcast("prep:assistant", { text }),
         onDirection: (direction) => broadcast("prep:direction", { direction }),
         onComponents: (components) => {
-          activePrepComponents = components;
+          setActivePrepComponents(components);
           broadcast("prep:components", { components });
         },
         onError: (e) => broadcast("prep:error", { message: e.message }),
@@ -423,7 +438,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle("prep:set-components", (payload) => {
     // User edited the cards — the renderer is the source of truth for edits.
-    activePrepComponents = payload.components;
+    setActivePrepComponents(payload.components);
     return { ok: true };
   });
 

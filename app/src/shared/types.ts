@@ -114,6 +114,10 @@ export interface AppSettings {
   // methodology, so it persists across calls — unlike the per-call direction.
   // Empty = "No skill" (base + direction only). Written synchronously on pick.
   skill: string;
+  // The goal/checklist armed during prep, persisted alongside directionDraft so a
+  // brief prepped ahead of a call survives an app quit (Gap 2). Together with
+  // directionDraft this is the one pending prep; both are cleared at call start.
+  prepComponents: PrepComponent[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -126,6 +130,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastTab: "prep",
   directionDraft: "",
   skill: "",
+  prepComponents: [],
 };
 
 /** Display metadata for a pickable skill — name (folder) + frontmatter title/description. */

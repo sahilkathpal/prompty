@@ -42,12 +42,15 @@ type CallSummary = {
   questionsNotAsked: { text: string }[];
   stat: { surfaced: number; used: number };
 };
+// A finalized transcript line, as persisted on the call log by call-log.ts.
+type Utterance = { speaker: "me" | "them"; text: string; startMs: number };
 type ParsedCall = {
   title?: string;
   summary?: CallSummary;
   startedAt?: number;
   endedAt?: number;
   components?: PrepComp[];
+  transcript?: Utterance[];
   summaryPending?: boolean;
   raw: string;
 };
@@ -158,12 +161,26 @@ export default function App(): JSX.Element {
       try {
         const obj = JSON.parse(r.content) as Record<string, unknown>;
         const summary = obj.summary as CallSummary | undefined;
+        // Keep only finalized lines — interim Deepgram results would duplicate
+        // utterances as they get revised. Absent on logs that predate transcript
+        // capture, hence the defensive guard.
+        const rawTranscript = Array.isArray(obj.transcript)
+          ? (obj.transcript as Array<Record<string, unknown>>)
+          : [];
+        const transcript: Utterance[] = rawTranscript
+          .filter((u) => u.isFinal !== false && typeof u.text === "string")
+          .map((u) => ({
+            speaker: u.speaker === "me" ? "me" : "them",
+            text: u.text as string,
+            startMs: typeof u.startMs === "number" ? u.startMs : 0,
+          }));
         parsed = {
           title: (obj.title as string | undefined) ?? summary?.title,
           summary,
           startedAt: obj.startedAt as number | undefined,
           endedAt: obj.endedAt as number | undefined,
           components: obj.components as PrepComp[] | undefined,
+          transcript,
           summaryPending: obj.summaryPending as boolean | undefined,
           raw: JSON.stringify(obj, null, 2),
         };
@@ -204,9 +221,12 @@ export default function App(): JSX.Element {
     window.prompty
       .invoke("settings:get", undefined as never)
       .then((s) => {
-        const set = s as { hotkey?: string; skill?: string };
+        const set = s as { hotkey?: string; skill?: string; prepComponents?: PrepComp[] };
         if (set.hotkey) setHotkey(set.hotkey);
         if (typeof set.skill === "string") setSkill(set.skill);
+        // Restore a brief prepped before an app restart (Gap 2). Persisted
+        // components are [] during/after a call, so this is safe mid-session.
+        if (Array.isArray(set.prepComponents)) setPrepComponents(set.prepComponents);
       })
       .catch(() => {});
     window.prompty
@@ -396,7 +416,14 @@ export default function App(): JSX.Element {
         .catch(() => null);
       setError(pf?.message ?? r.error ?? "Couldn't start the call.");
       if (pf?.code === "mic") refreshMic();
+      return;
     }
+    // The brief was consumed by this call — clear the pending prep so it doesn't
+    // carry into the next one (Gap 2). The main process clears the persisted copy
+    // (directionDraft + prepComponents); this clears the live editor state to
+    // match. Skill is sticky and deliberately left as-is.
+    setDirection("");
+    setPrepComponents([]);
   }, [direction, skill, refreshMic]);
 
   // Sticky skill: a discrete pick, so persist it synchronously on change (no
@@ -987,8 +1014,50 @@ function checklistCoverage(components?: PrepComp[]): JSX.Element | null {
   );
 }
 
+// mm:ss into the call, measured from the first utterance so 0:00 is the call's
+// open — robust whether startMs is wall-clock or stream-relative.
+function intoCall(startMs: number, baseMs: number): string {
+  const s = Math.max(0, Math.round((startMs - baseMs) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// Collapsible full transcript, collapsed by default — the summary is the
+// headline; the transcript is on-demand. Self-contained (its own open state) so
+// it can drop into the summary card, the summarizing card, or the raw fallback.
+// Renders nothing for logs that predate transcript capture.
+function TranscriptSection(props: { transcript?: Utterance[] }): JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  const lines = props.transcript ?? [];
+  if (lines.length === 0) return null;
+  const baseMs = lines[0].startMs;
+  return (
+    <section style={S.sec} data-testid="call-transcript">
+      <button
+        style={S.transcriptToggle}
+        data-testid="call-transcript-toggle"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? "▾" : "▸"} Transcript · {lines.length} lines
+      </button>
+      {open && (
+        <div style={S.transcriptBody}>
+          {lines.map((u, i) => (
+            <div key={i} style={S.uttRow}>
+              <span style={S.uttTime}>{intoCall(u.startMs, baseMs)}</span>
+              <span style={u.speaker === "me" ? S.uttMe : S.uttThem}>
+                {u.speaker === "me" ? "You" : "Them"}
+              </span>
+              <span style={S.uttText}>{u.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { title, summary, raw, startedAt, endedAt, summaryPending, components } =
+  const { title, summary, raw, startedAt, endedAt, summaryPending, components, transcript } =
     props.call;
   // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c). Hooks must
   // run before the early returns below, so they live here regardless of summary.
@@ -1027,6 +1096,7 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
           <div style={S.summarizing}>
             <span className="mw-spinner" aria-hidden /> Summarizing this call…
           </div>
+          <TranscriptSection transcript={transcript} />
         </div>
       );
     }
@@ -1034,6 +1104,7 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       <div style={S.card2}>
         {coverage}
         <div style={S.cardNote}>No summary card for this call — showing the raw log.</div>
+        <TranscriptSection transcript={transcript} />
         <pre style={S.pre}>{raw}</pre>
       </div>
     );
@@ -1092,6 +1163,8 @@ function CallCard(props: { call: ParsedCall }): JSX.Element {
       <div style={S.stat} data-testid="call-stat">
         Ruby surfaced {sum.stat.surfaced}, you used {sum.stat.used}.
       </div>
+
+      <TranscriptSection transcript={transcript} />
 
       {noteSaved ? (
         <div style={S.noteSaved} data-testid="nudge-note-saved">
@@ -1491,6 +1564,37 @@ const S: Record<string, React.CSSProperties> = {
   qList: { listStyle: "disc", margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 },
   qItem: { fontSize: 13, lineHeight: 1.5, color: v("--text", "#e8e8ea") },
   cardNote: { fontSize: 13, color: v("--muted-dim", "#6a6a72") },
+  transcriptToggle: {
+    padding: 0,
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0.13em",
+    textTransform: "uppercase",
+    color: v("--ruby", "#d61f47"),
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+  },
+  transcriptBody: {
+    marginTop: 10,
+    maxHeight: 280,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: 7,
+    paddingRight: 6,
+  },
+  uttRow: { display: "flex", gap: 8, fontSize: 13, lineHeight: 1.5, alignItems: "baseline" },
+  uttTime: {
+    flexShrink: 0,
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+    color: v("--ink-faint", "#a39a82"),
+    minWidth: 34,
+  },
+  uttMe: { flexShrink: 0, fontWeight: 700, color: v("--ruby", "#d61f47"), minWidth: 38 },
+  uttThem: { flexShrink: 0, fontWeight: 700, color: v("--muted", "#6e6757"), minWidth: 38 },
+  uttText: { color: v("--text", "#211d15") },
   stat: {
     marginTop: 4,
     paddingTop: 12,
