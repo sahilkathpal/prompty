@@ -178,6 +178,11 @@ export async function openPrepAgent(
       includePartialMessages: true,
       cwd: agentCwd(),
       mcpServers: { "prompty-prep": mcp },
+      // Only our MCP prep tools — no claude_code built-ins. Without this the agent
+      // inherits the full preset, which defers MCP tools behind ToolSearch (see the
+      // detailed note in agent.ts) and hands a chat agent needless filesystem/shell
+      // access.
+      tools: [],
       allowedTools: [
         "mcp__prompty-prep__update_direction",
         "mcp__prompty-prep__set_goal",

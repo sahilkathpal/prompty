@@ -249,12 +249,21 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       // Keep the CLI's workspace scan out of the user's protected folders.
       cwd: agentCwd(),
       mcpServers: { "prompty-nudges": mcp },
+      // Restrict to ONLY our MCP nudge tools. Without this the agent inherits the
+      // full claude_code built-in preset (Bash/Read/ToolSearch/…), which in recent
+      // CLIs makes MCP tools *deferred* — the model must ToolSearch them into
+      // context before each use, and over a long, per-turn-interrupted session it
+      // loses them, then falls back to emitting decisions as inert text (which the
+      // user never sees) and misreads the failure as a "permission" problem. An
+      // empty `tools` removes all built-ins so emit_nudge/stay_quiet/mark_covered
+      // are the only tools — directly callable, no deferral. (Also correct on
+      // principle: a coaching agent has no business with filesystem/shell tools.)
+      tools: [],
       allowedTools: [
         "mcp__prompty-nudges__emit_nudge",
         "mcp__prompty-nudges__stay_quiet",
         "mcp__prompty-nudges__mark_covered",
       ],
-      // `tools` is not in current SDK options shape; allowedTools is the gate.
       maxTurns: 200,
       permissionMode: "bypassPermissions",
     },

@@ -112,6 +112,10 @@ export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
         pathToClaudeCodeExecutable: resolveClaudeCli(),
         // Keep the CLI's workspace scan out of the user's protected folders.
         cwd: agentCwd(),
+        // This one-shot answers in plain text and uses no tools — disable the
+        // claude_code built-in preset so it can't burn its single turn on a
+        // ToolSearch/built-in instead of answering (and gets no filesystem access).
+        tools: [],
         maxTurns: 1,
         permissionMode: "bypassPermissions",
       },
