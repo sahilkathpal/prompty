@@ -848,6 +848,8 @@ function PostCallScreen(props: {
   const [call, setCall] = useState<ParsedCall | null>(null);
   const [loading, setLoading] = useState(true);
   const [suggestSaved, setSuggestSaved] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -861,6 +863,10 @@ function PostCallScreen(props: {
     });
   };
 
+  const handleScroll = () => {
+    setScrolled((scrollRef.current?.scrollTop ?? 0) > 2);
+  };
+
   const title = call?.title || call?.attendee?.name || "Call";
   const mins = call?.startedAt && call?.endedAt && call.endedAt > call.startedAt
     ? Math.max(1, Math.round((call.endedAt - call.startedAt) / 60000)) : null;
@@ -869,10 +875,11 @@ function PostCallScreen(props: {
   return (
     <div className="pcs-root">
       <div className="app-dragbar" />
-      <div className="pcs-body">
-        <div className="pcs-toprow app-drag">
-          <button className="pcs-back app-no-drag" onClick={onBack}>← Back</button>
-        </div>
+      <div className="pcs-toprow app-drag">
+        <button className="pcs-back app-no-drag" onClick={onBack}>← Back</button>
+      </div>
+      <div className={`pcs-scroll-edge${scrolled ? " visible" : ""}`} />
+      <div className="pcs-body" ref={scrollRef} onScroll={handleScroll}>
         {loading ? (
           <div className="pcs-loading">Loading…</div>
         ) : !call ? (
