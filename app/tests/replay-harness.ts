@@ -118,6 +118,9 @@ interface Opts {
   /** Setup overrides — impose a skill/direction the transcript didn't store. */
   skill?: string;
   direction?: string;
+  /** Impose goal/checklist components (a JSON PrepComponent[]) the recording
+   *  didn't store as structured data — for iterating on checklist behavior. */
+  components?: CallSetup["components"];
   paths: string[];
 }
 
@@ -150,6 +153,14 @@ function parseArgs(argv: string[]): Opts {
       const [v, ni] = val(a, i);
       opts.direction = v;
       i = ni;
+    } else if (a === "--components-file" || a.startsWith("--components-file=")) {
+      const [v, ni] = val(a, i);
+      try {
+        opts.components = JSON.parse(fs.readFileSync(v, "utf8"));
+      } catch {
+        console.error(`[replay] --components-file: cannot read/parse ${v}`);
+      }
+      i = ni;
     } else if (a.startsWith("--")) {
       console.error(`[replay] ignoring unknown flag: ${a}`);
     } else {
@@ -164,6 +175,7 @@ function applyOpts(l: Loaded, o: Opts): Loaded {
   const setup: CallSetup = { ...l.setup };
   if (o.skill !== undefined) setup.skill = o.skill;
   if (o.direction !== undefined) setup.direction = o.direction;
+  if (o.components !== undefined) setup.components = o.components;
 
   let steps = l.steps;
   if (Number.isFinite(o.limit)) {

@@ -57,6 +57,39 @@ export type Agent = {
   close(): Promise<void>;
 };
 
+/**
+ * Live checklist coverage, rebuilt from `setup.components` each turn. The static
+ * system prompt freezes the checklist at session start, so this is the ONLY way
+ * the agent sees ticks land mid-call (mark_covered mutates setup.components in
+ * place — see coach-session.markChecklistItemCovered — and that same array is
+ * read here). Empty string when there's no checklist, so the turn message omits
+ * the block entirely. Ids are included so mark_covered can target the right item.
+ */
+// What the agent has already surfaced this call, fed back into each turn so it
+// can see its own prior nudges — the per-turn interrupt means the session can't
+// be relied on to remember them. This is information, not a ban: base.md keeps
+// the repeat judgment with the model (repeat only on a fresh reason). Empty
+// string when nothing surfaced yet, so the turn message omits the block.
+function recentNudgesBlock(nudges: string[]): string {
+  if (nudges.length === 0) return "";
+  // Cap to the most recent few — a call surfaces a handful; this bounds context.
+  const recent = nudges.slice(-8);
+  const lines = recent.map((n) => `- ${n}`);
+  return `--- already surfaced this call (repeat one only if the live conversation gives a fresh reason) ---\n${lines.join("\n")}`;
+}
+
+export function checklistStateBlock(setup: CallSetup): string {
+  const checklist = setup.components?.find((c) => c.type === "checklist");
+  if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) {
+    return "";
+  }
+  const open = checklist.items.filter((it) => !it.done).length;
+  const lines = checklist.items.map(
+    (it) => `- [${it.done ? "x" : " "}] ${it.text} (id: ${it.id})`,
+  );
+  return `--- checklist coverage (${open} still open; mark_covered before deciding) ---\n${lines.join("\n")}`;
+}
+
 export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<Agent> {
   const { query, tool, createSdkMcpServer } = await loadSdk();
   const decisionCounters = { nudge: 0, quiet: 0 };
@@ -115,6 +148,9 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
     interruptQuery();
   };
 
+  // Texts of nudges surfaced this call, fed back per turn (see recentNudgesBlock).
+  const surfacedNudges: string[] = [];
+
   const mcp = createSdkMcpServer({
     name: "prompty-nudges",
     version: "0.1.0",
@@ -147,6 +183,7 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
             urgency: args.urgency,
             createdAt: Date.now(),
           });
+          surfacedNudges.push(args.text);
           finishTurnEarly();
           return { content: [{ type: "text", text: "nudge_emitted" }] };
         },
@@ -347,7 +384,16 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       turnCount++;
       considerStart = t0;
       considerTrigger = trigger;
-      const userMsg = `${triggerLine}\n\n--- transcript ---\n${transcriptBlock}\n--- end ---`;
+      const coverageBlock = checklistStateBlock(setup);
+      const nudgesBlock = recentNudgesBlock(surfacedNudges);
+      const userMsg = [
+        triggerLine,
+        coverageBlock,
+        nudgesBlock,
+        `--- transcript ---\n${transcriptBlock}\n--- end ---`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       if (events.onDebug) {
         dbgTurn = {
           trigger,
