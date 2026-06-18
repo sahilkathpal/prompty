@@ -43,6 +43,14 @@ export type PrepEvents = {
 };
 
 export type PrepAgent = {
+  /**
+   * Emit the opening turn: Ruby reflects the seed brief back and asks whether to
+   * flesh it out or go. Special-cased — it does NOT fold the brief into the
+   * direction or offer components (that's send()'s job on later turns). When the
+   * session resumes a prep that already has components, the opening acknowledges
+   * them instead of asking the bare fork.
+   */
+  open(): Promise<void>;
   send(message: string): Promise<void>;
   close(): Promise<void>;
 };
@@ -55,17 +63,19 @@ export type PrepAgent = {
 export async function openPrepAgent(
   initialDirection: string,
   events: PrepEvents,
+  existingComponents: PrepComponent[] = [],
 ): Promise<PrepAgent> {
   if (process.env.PROMPTY_MOCK_AGENT === "1") {
-    return openMockPrepAgent(initialDirection, events);
+    return openMockPrepAgent(initialDirection, events, existingComponents);
   }
 
   const { query, tool, createSdkMcpServer } = await loadSdk();
 
   // Live component set (goal/checklist) built across the conversation. Tools
   // mutate it and emit the whole list, mirroring update_direction's full-replace
-  // contract so the renderer never has to reconcile deltas.
-  const components: PrepComponent[] = [];
+  // contract so the renderer never has to reconcile deltas. Seeded from any
+  // components carried in from a resumed prep so the agent can reference them.
+  const components: PrepComponent[] = existingComponents.map((c) => ({ ...c }));
   const emitComponents = () => events.onComponents(components.map((c) => ({ ...c })));
 
   const mcp = createSdkMcpServer({
@@ -171,7 +181,7 @@ export async function openPrepAgent(
     prompt: inputStream,
     options: {
       model: modelFor("hotkey"),
-      systemPrompt: loadPrepPrompt(initialDirection),
+      systemPrompt: loadPrepPrompt(initialDirection, components),
       pathToClaudeCodeExecutable: resolveClaudeCli(),
       // Stream partial assistant text so the chat updates as it generates
       // rather than only when the whole turn (incl. tool calls) finishes.
@@ -229,6 +239,15 @@ export async function openPrepAgent(
   })();
 
   return {
+    async open() {
+      // Kick the opening turn: the seed brief is the agent's first user message,
+      // and prep.md instructs it to reflect the brief back and ask the
+      // flesh-out-or-go fork (no direction rewrite, no component offer on turn 1;
+      // acknowledge any already-pinned components on resume).
+      const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
+      pushUserMessage?.(initialDirection.trim() || "Let's prep this call.");
+      await turnDone;
+    },
     async send(message) {
       const turnDone = new Promise<void>((r) => turnDoneWaiters.push(r));
       pushUserMessage?.(message);
@@ -295,9 +314,10 @@ const MOCK_NUDGE_PREF =
 function openMockPrepAgent(
   initialDirection: string,
   events: PrepEvents,
+  existingComponents: PrepComponent[] = [],
 ): PrepAgent {
   let direction = initialDirection.trim();
-  const components: PrepComponent[] = [];
+  const components: PrepComponent[] = existingComponents.map((c) => ({ ...c }));
   // The substantive focus awaiting a yes/no; null when nothing is pending.
   let pendingFocus: string | null = null;
   // A voiced nudging preference awaiting a yes/no; null when nothing is pending.
@@ -380,6 +400,23 @@ function openMockPrepAgent(
       events.onAssistant(
         `Updated the working direction to focus on: ${focus}. Want me to pin a goal and a checklist for this?`,
       );
+      events.onTurnDone?.();
+    },
+    async open() {
+      // The opening turn: reflect the seed brief and ask the flesh-out-or-go fork.
+      // Deterministic. No direction fold, no component offer (that's send()). When
+      // resuming a prep that already has components, acknowledge them instead.
+      const brief = direction.trim();
+      if (components.length > 0) {
+        const kinds = components.map((c) => (c.type === "goal" ? "goal" : "checklist")).join(" + ");
+        events.onAssistant(
+          `Your prep is still here${brief ? ` for "${brief}"` : ""} — ${kinds} pinned. Want to tweak anything, or hit Start when you're ready?`,
+        );
+      } else {
+        events.onAssistant(
+          `Here's what I've got${brief ? `: "${brief}"` : ""}. Want to flesh this out, or hit Start when you're ready?`,
+        );
+      }
       events.onTurnDone?.();
     },
     async close() {

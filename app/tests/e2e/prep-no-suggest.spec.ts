@@ -42,7 +42,9 @@ test("prep low-value call: direction only, no goal/checklist offered or created"
     await page.getByTestId("prep-input").fill(MSG);
     await page.getByTestId("prep-send").click();
 
-    const asst = page.getByTestId("prep-msg-assistant").first();
+    // The most recent assistant bubble is the response to MSG (an earlier bubble
+    // is the opening flesh-out-or-go fork that fires when prep starts).
+    const asst = page.getByTestId("prep-msg-assistant").last();
     await expect(asst).toBeVisible({ timeout: 15_000 });
     const asstText = (await asst.textContent()) ?? "";
     console.log("NEG assistant bubble:", JSON.stringify(asstText));

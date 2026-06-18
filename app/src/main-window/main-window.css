@@ -1042,6 +1042,28 @@ html, body, #root {
 .pcs-note-cancel { font-family: inherit; font-size: 13px; font-weight: 500; color: #888078; background: transparent; border: none; cursor: pointer; padding: 8px 10px; }
 .pcs-note-cancel:hover { color: #1a1814; }
 
+/* Home — pending-prep "Pinned" line (shown only when a goal/checklist is attached) */
+.home-pinned {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #888078;
+}
+.home-pinned-text { color: #888078; }
+.home-pinned-clear {
+  font-family: inherit;
+  font-size: 12.5px;
+  color: #ED0C48;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.home-pinned-clear:hover { text-decoration: underline; text-underline-offset: 2px; }
+
 /* Live — teardown ("ending") status banner */
 .live-ending-status {
   flex-shrink: 0;

@@ -376,20 +376,34 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       await activePrep.close().catch(() => {});
       activePrep = null;
     }
-    // A fresh prep overwrites the pending one (Gap 2): clear armed components now
-    // so a prep that ends without arming any leaves nothing stale behind.
-    setActivePrepComponents([]);
+    // The pending prep (direction + components) is ONE artifact that survives until
+    // a call consumes it or the user explicitly discards it — entering prep no
+    // longer clears it. Carry the armed components into the new session so the
+    // opening turn can acknowledge them (resume), and so they aren't dropped.
+    const carried = activePrepComponents.map((c) => ({ ...c }));
     try {
-      activePrep = await openPrepAgent(payload?.direction ?? "", {
-        onAssistantDelta: (text) => broadcast("prep:assistant-delta", { text }),
-        onAssistant: (text) => broadcast("prep:assistant", { text }),
-        onDirection: (direction) => broadcast("prep:direction", { direction }),
-        onComponents: (components) => {
-          setActivePrepComponents(components);
-          broadcast("prep:components", { components });
+      activePrep = await openPrepAgent(
+        payload?.direction ?? "",
+        {
+          onAssistantDelta: (text) => broadcast("prep:assistant-delta", { text }),
+          onAssistant: (text) => broadcast("prep:assistant", { text }),
+          onDirection: (direction) => broadcast("prep:direction", { direction }),
+          onComponents: (components) => {
+            setActivePrepComponents(components);
+            broadcast("prep:components", { components });
+          },
+          onError: (e) => broadcast("prep:error", { message: e.message }),
         },
-        onError: (e) => broadcast("prep:error", { message: e.message }),
-      });
+        carried,
+      );
+      // Fire the opening turn (reflect the brief + ask flesh-out-or-go). Don't
+      // block the handler on it — it streams in through the same broadcasts as any
+      // turn, after the renderer has shown the seed as the first user bubble.
+      broadcast("prep:thinking", { thinking: true });
+      void activePrep
+        .open()
+        .catch((e) => broadcast("prep:error", { message: (e as Error).message }))
+        .finally(() => broadcast("prep:thinking", { thinking: false }));
       return { ok: true };
     } catch (e) {
       console.error("[ipc] prep:start failed:", (e as Error).message);

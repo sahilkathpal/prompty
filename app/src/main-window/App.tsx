@@ -270,20 +270,30 @@ export default function App(): JSX.Element {
 
   // ── Prep ────────────────────────────────────────────────────────────────────
 
-  const openPrep = useCallback(async (initialMessage: string) => {
+  // Enter prep on the CURRENT working direction (the home bar is bound to it).
+  // Navigation only — the pending prep (direction + components) is left intact;
+  // it's cleared only on call start or an explicit discard. The brief is shown as
+  // the opening user bubble before prep:start so the agent's opening turn (which
+  // streams in via broadcast) appends after it.
+  const enterPrep = useCallback(async () => {
+    const brief = direction.trim();
+    if (!brief) return;
     setPrepError(null);
-    setPrepMessages([]);
-    setPrepComponents([]);
+    setPrepMessages([{ role: "user", text: brief }]);
     streamingRef.current = false;
-    setDirection(initialMessage);
-    const r = await window.prompty.invoke("prep:start", { direction: initialMessage });
-    if (r.ok) {
-      setPrepMessages([{ role: "user", text: initialMessage }]);
-      void window.prompty.invoke("main:set-prep-layout", { wide: true });
-      setScreen({ id: "prep" });
-    } else {
-      setPrepError("Couldn't start prep — is Claude Code installed?");
-    }
+    void window.prompty.invoke("main:set-prep-layout", { wide: true });
+    setScreen({ id: "prep" });
+    const r = await window.prompty.invoke("prep:start", { direction: brief });
+    if (!r.ok) setPrepError("Couldn't start prep — is Claude Code installed?");
+  }, [direction]);
+
+  // "Start fresh" — discard the whole pending prep (direction + components),
+  // state and persisted, returning home to a clean slate.
+  const discardPrep = useCallback(() => {
+    setDirection("");
+    setPrepComponents([]);
+    void window.prompty.invoke("prep:set-components", { components: [] as never });
+    void window.prompty.invoke("settings:set", { directionDraft: "" });
   }, []);
 
   const sendPrep = useCallback(() => {
@@ -538,7 +548,11 @@ export default function App(): JSX.Element {
       isLive={isLive}
       isEnding={isEnding}
       error={error}
-      onSend={openPrep}
+      direction={direction}
+      setDirection={setDirection}
+      components={prepComponents}
+      onSend={enterPrep}
+      onDiscard={discardPrep}
       onViewCall={(name) => setScreen({ id: "post-call", callName: name })}
       onMemory={() => setScreen({ id: "memory" })}
       onSettings={() => setScreen({ id: "settings" })}
@@ -554,26 +568,32 @@ function HomeScreen(props: {
   isLive: boolean;
   isEnding: boolean;
   error: string | null;
-  onSend: (message: string) => void;
+  direction: string;
+  setDirection: (d: string) => void;
+  components: PrepComp[];
+  onSend: () => void;
+  onDiscard: () => void;
   onViewCall: (name: string) => void;
   onMemory: () => void;
   onSettings: () => void;
   onEndCall: () => void;
 }): JSX.Element {
-  const { calls, isLive, isEnding, error, onSend, onViewCall, onMemory, onSettings, onEndCall } = props;
-  const [input, setInput] = useState("");
+  const { calls, isLive, isEnding, error, direction, setDirection, components, onSend, onDiscard, onViewCall, onMemory, onSettings, onEndCall } = props;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // The home bar IS the working direction — send enters prep without clearing it.
   const handleSend = () => {
-    const msg = input.trim();
-    if (!msg) return;
-    setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
-    onSend(msg);
+    if (!direction.trim()) return;
+    onSend();
   };
 
   const groups = groupCallsByDay(calls);
+  const goal = components.find((c) => c.type === "goal");
+  const checklist = components.find((c) => c.type === "checklist") as
+    | { items: ChecklistItemR[] }
+    | undefined;
+  const checklistCount = checklist?.items.length ?? 0;
 
   return (
     <div className="home-root">
@@ -626,11 +646,11 @@ function HomeScreen(props: {
               ref={textareaRef}
               className="home-bar-input"
               data-testid="home-direction"
-              value={input}
+              value={direction}
               rows={2}
               placeholder="Who's this call with? What's it about?"
               onChange={(e) => {
-                setInput(e.target.value);
+                setDirection(e.target.value);
                 const el = e.target;
                 el.style.height = "auto";
                 el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
@@ -645,7 +665,7 @@ function HomeScreen(props: {
               className="home-bar-send"
               data-testid="home-send"
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!direction.trim()}
               aria-label="Send"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -654,6 +674,20 @@ function HomeScreen(props: {
             </button>
             </div>
           </div>
+
+          {components.length > 0 && (
+            <div className="home-pinned" data-testid="home-pinned">
+              <span className="home-pinned-text">
+                Pinned:
+                {goal ? " a goal" : ""}
+                {goal && checklistCount ? " ·" : ""}
+                {checklistCount ? ` ${checklistCount} checklist item${checklistCount === 1 ? "" : "s"}` : ""}
+              </span>
+              <button className="home-pinned-clear" data-testid="home-start-fresh" onClick={onDiscard}>
+                Start fresh
+              </button>
+            </div>
+          )}
         </div>
         </div>
 
@@ -683,7 +717,7 @@ function HomeScreen(props: {
                         >
                           <span className={`home-call-dot${prepped ? " prepped" : ""}`} />
                           <span className="home-call-title">{c.title || "Untitled call"}</span>
-                          <span className="home-call-time">{fmtClock(when)}</span>
+                          <span className="home-call-time">{c.summaryPending ? "Summarizing…" : fmtClock(when)}</span>
                         </button>
                       </li>
                     );
@@ -1098,7 +1132,7 @@ function PostCallScreen(props: {
           <div className="pcs-loading">Couldn't load this call.</div>
         ) : call.summaryPending ? (
           <div data-testid="call-summarizing">
-            <div className="pcs-loading"><span className="mw-spinner" /> Summarizing…</div>
+            <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
             <ChecklistCoverage components={call.components} />
             <TranscriptSection transcript={call.transcript} />
           </div>
@@ -1285,8 +1319,8 @@ function MemoryScreen(props: {
                   <>
                     <span className="mem-text">{m.text}</span>
                     {m.source === "suggested" && <span className="mem-tag">suggested</span>}
-                    <button className="mem-action-btn" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>✎</button>
-                    <button className="mem-action-btn" data-testid="memory-delete" onClick={() => deleteMemory(m.id)}>✕</button>
+                    <button className="mem-action-btn" aria-label="Edit memory" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>✎</button>
+                    <button className="mem-action-btn" data-testid="memory-delete" aria-label="Delete memory" onClick={() => deleteMemory(m.id)}>✕</button>
                   </>
                 )}
               </li>

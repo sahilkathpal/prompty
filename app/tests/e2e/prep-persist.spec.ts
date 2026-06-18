@@ -63,12 +63,11 @@ test("prepped brief (direction + components) survives an app restart, then clear
     await openMainWindow(app);
     const page = await getMainPage(app);
 
-    // The prepped brief is restored from disk into app state on mount. NOTE
-    // (design-merge): the redesigned flow renders the prep components only on the
-    // prep screen, reached via openPrep() — which clears the pending components
-    // and overwrites the direction with the freshly-typed home message. So the
-    // restored brief has no UI surface in the new flow; we assert it survived the
-    // restart at the persistence layer (the real contract) instead of via the UI.
+    // The prepped brief is restored from disk AND surfaced on the home screen:
+    // the bar shows the direction and the "Pinned" line summarises the components.
+    await expect(page.getByTestId("home-direction")).toHaveValue(DIR, { timeout: 10_000 });
+    await expect(page.getByTestId("home-pinned")).toBeVisible();
+    // ...and the persistence layer agrees.
     await expect
       .poll(
         async () => {
@@ -78,11 +77,22 @@ test("prepped brief (direction + components) survives an app restart, then clear
         { timeout: 10_000 },
       )
       .toEqual({ dir: DIR, n: 2 });
-    console.log("RESTART: brief survived relaunch on disk");
+    console.log("RESTART: brief restored to the home bar + pinned line, and on disk");
 
-    // ===== Start a call — the persisted copy is consumed and cleared =====
-    await page.getByTestId("home-direction").fill(DIR);
+    // ===== Resume into prep — the restored components actually reach the agent ==
+    // The bar already holds the restored direction; send straight into prep.
     await page.getByTestId("home-send").click();
+    // Entering prep does NOT wipe the restored prep: both cards re-render...
+    await expect(page.getByTestId("component-goal")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("component-checklist")).toBeVisible({ timeout: 15_000 });
+    // ...and the components reached the agent — they're carried into prep:start →
+    // openPrepAgent, so the opening turn fires the RESUME variant that acknowledges
+    // the pinned prep (proves the disk→main-process→agent hop end to end).
+    await expect(
+      page.getByTestId("prep-msg-assistant").filter({ hasText: "pinned" }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // ===== Start the call — the pending prep is consumed =====
     await expect(page.getByTestId("prep-begin")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("prep-begin").click();
     await expect(page.getByTestId("end-call")).toBeVisible({ timeout: 20_000 });
