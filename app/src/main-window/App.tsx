@@ -1,14 +1,10 @@
-// Prompty — Playground home (prompt-playground branch).
-//
-// Two tabs: Direction (the whole coaching prompt, with the minimal base.md) +
-// past calls; and Settings (mic, Google, Claude, debug, hotkey). No onboarding,
-// calendar, prep, skills, goal, or checklist — those are earned features, added
-// back to production only once proven useful. Starting a call goes straight to a
-// direction-only session (no prep).
-
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Gem from "../shared/Gem";
+import RubyLogo from "./RubyLogo";
 import "../shared/tokens.css";
+import "./main-window.css";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type SessionState = "idle" | "starting" | "live" | "ending" | "ended" | "error";
 type CallMeta = {
@@ -19,21 +15,13 @@ type CallMeta = {
   endedAt?: number;
   summaryPending?: boolean;
 };
-type Tab = "direction" | "memory" | "settings";
-type Mem = { id: string; text: string; createdAt: number };
+type Mem = { id: string; text: string; createdAt: number; source?: "manual" | "suggested" };
+type SkillOpt = { name: string; title: string; description: string };
+type Utterance = { speaker: "me" | "them"; text: string; startMs: number };
 type ChecklistItemR = { id: string; text: string; done: boolean };
 type PrepComp =
   | { type: "goal"; id: string; text: string }
   | { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] };
-type SkillOpt = { name: string; title: string; description: string };
-const TAB_LABELS: Record<Tab, string> = {
-  direction: "Direction",
-  memory: "Memory",
-  settings: "Settings",
-};
-
-// The post-call card (RUBY_MVP decision #9), as written onto the call log JSON
-// by summary.ts. Optional fields are defensive — older logs predate this shape.
 type CallInsight = { text: string; assisted?: boolean; via?: string };
 type CallSummary = {
   title?: string;
@@ -42,34 +30,27 @@ type CallSummary = {
   questionsNotAsked: { text: string }[];
   stat: { surfaced: number; used: number };
 };
-// A finalized transcript line, as persisted on the call log by call-log.ts.
-type Utterance = { speaker: "me" | "them"; text: string; startMs: number };
 type ParsedCall = {
   title?: string;
   summary?: CallSummary;
   startedAt?: number;
   endedAt?: number;
+  attendee?: { name?: string; company?: string };
   components?: PrepComp[];
   transcript?: Utterance[];
   summaryPending?: boolean;
   raw: string;
 };
+type Screen =
+  | { id: "home" }
+  | { id: "prep" }
+  | { id: "live" }
+  | { id: "post-call"; callName: string }
+  | { id: "memory" }
+  | { id: "settings" };
 
-// ---- Past-calls list formatting -------------------------------------------
-function sameDay(a: Date, b: Date): boolean {
-  return a.toDateString() === b.toDateString();
-}
-function dayLabel(ms: number): string {
-  const d = new Date(ms);
-  const now = new Date();
-  if (sameDay(d, now)) return "Today";
-  const y = new Date(now);
-  y.setDate(now.getDate() - 1);
-  if (sameDay(d, y)) return "Yesterday";
-  const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
-  if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
-  return d.toLocaleDateString([], opts);
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
@@ -77,11 +58,23 @@ function fmtDur(start?: number, end?: number): string | null {
   if (!start || !end || end <= start) return null;
   return `${Math.max(1, Math.round((end - start) / 60000))} min`;
 }
-// Calls arrive newest-first; collapse consecutive same-day runs into groups.
-function groupByDay(calls: CallMeta[]): { label: string; items: CallMeta[] }[] {
+
+function dayGroupLabel(ms: number): string {
+  const d = new Date(ms);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  const opts: Intl.DateTimeFormatOptions = { weekday: "long", month: "short", day: "numeric" };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString([], opts).toUpperCase();
+}
+
+function groupCallsByDay(calls: CallMeta[]): { label: string; items: CallMeta[] }[] {
   const groups: { label: string; items: CallMeta[] }[] = [];
   for (const c of calls) {
-    const label = dayLabel(c.startedAt ?? c.mtimeMs);
+    const label = dayGroupLabel(c.startedAt ?? c.mtimeMs);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.items.push(c);
     else groups.push({ label, items: [c] });
@@ -89,27 +82,91 @@ function groupByDay(calls: CallMeta[]): { label: string; items: CallMeta[] }[] {
   return groups;
 }
 
-const v = (name: string, fallback: string) => `var(${name}, ${fallback})`;
-const MIC_SETTINGS_URL =
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+// mm:ss into the call, measured from the first utterance so 0:00 is the call's
+// open — robust whether startMs is wall-clock or stream-relative.
+function intoCall(startMs: number, baseMs: number): string {
+  const s = Math.max(0, Math.round((startMs - baseMs) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// Per-item checklist coverage, shown on the post-call screen below the headline
+// stat. Renders nothing when the call carried no checklist.
+function ChecklistCoverage(props: { components?: PrepComp[] }): JSX.Element | null {
+  const checklist = props.components?.find((c) => c.type === "checklist");
+  if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) return null;
+  const total = checklist.items.length;
+  const covered = checklist.items.filter((it) => it.done).length;
+  return (
+    <div className="pcs-section" data-testid="call-checklist">
+      <div className="pcs-section-label" data-testid="call-checklist-stat">
+        Checklist · covered {covered}/{total}
+      </div>
+      <ul className="pcs-coverage-list">
+        {checklist.items.map((it) => (
+          <li key={it.id} className={`pcs-coverage-item${it.done ? " done" : ""}`}>
+            <span className="pcs-coverage-glyph" aria-hidden>{it.done ? "✓" : "○"}</span>
+            <span>{it.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Collapsible full transcript, collapsed by default — the summary is the
+// headline; the transcript is on-demand. Renders nothing for logs that predate
+// transcript capture.
+function TranscriptSection(props: { transcript?: Utterance[] }): JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  const lines = props.transcript ?? [];
+  if (lines.length === 0) return null;
+  const baseMs = lines[0].startMs;
+  return (
+    <div className="pcs-section" data-testid="call-transcript">
+      <button
+        className="pcs-transcript-toggle"
+        data-testid="call-transcript-toggle"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? "▾" : "▸"} Transcript · {lines.length} lines
+      </button>
+      {open && (
+        <div className="pcs-transcript-body">
+          {lines.map((u, i) => (
+            <div key={i} className="pcs-utt-row">
+              <span className="pcs-utt-time">{intoCall(u.startMs, baseMs)}</span>
+              <span className={u.speaker === "me" ? "pcs-utt-me" : "pcs-utt-them"}>
+                {u.speaker === "me" ? "You" : "Them"}
+              </span>
+              <span className="pcs-utt-text">{u.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App(): JSX.Element {
-  const [tab, setTab] = useState<Tab>("direction");
+  const [screen, setScreen] = useState<Screen>({ id: "home" });
+
+  // Shared state
   const [direction, setDirection] = useState("");
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState("Alt+Shift+Space");
+  const [calls, setCalls] = useState<CallMeta[]>([]);
   const [skills, setSkills] = useState<SkillOpt[]>([]);
   const [skill, setSkill] = useState("");
-  const [calls, setCalls] = useState<CallMeta[]>([]);
-  const [openCall, setOpenCall] = useState<{ name: string; call: ParsedCall } | null>(null);
-  const [editing, setEditing] = useState<{ name: string; draft: string } | null>(null);
   const [micStatus, setMicStatus] = useState<string | null>(null);
   const [claude, setClaude] = useState<{ found: boolean; path: string | null } | null>(null);
   const [memories, setMemories] = useState<Mem[]>([]);
   const [newMemory, setNewMemory] = useState("");
   const [editingMem, setEditingMem] = useState<{ id: string; draft: string } | null>(null);
-  const [prepOpen, setPrepOpen] = useState(false);
+
+  // Prep state
   const [prepMessages, setPrepMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [prepInput, setPrepInput] = useState("");
   const [prepThinking, setPrepThinking] = useState(false);
@@ -118,42 +175,32 @@ export default function App(): JSX.Element {
   const seeded = useRef(false);
   const prepInputRef = useRef<HTMLTextAreaElement>(null);
   const chatLogRef = useRef<HTMLDivElement>(null);
-  // True while the current assistant turn is streaming into the last bubble.
   const streamingRef = useRef(false);
   // Becomes true once the on-mount direction seed has run, so the debounced
   // persist effect never writes the initial empty value over a saved draft.
   const draftReady = useRef(false);
 
+  // Live timer
+  const liveStartRef = useRef<number>(0);
+  const [liveSeconds, setLiveSeconds] = useState(0);
+  const isLive = sessionState === "starting" || sessionState === "live" || sessionState === "ending";
+  const isEnding = sessionState === "ending";
+
+  // ── Refreshers ──────────────────────────────────────────────────────────────
+
   const refreshCalls = useCallback(() => {
-    window.prompty
-      .invoke("calls:list", undefined as never)
-      .then((r) => setCalls(r.files))
-      .catch(() => {});
+    window.prompty.invoke("calls:list", undefined as never).then((r) => setCalls(r.files)).catch(() => {});
   }, []);
   const refreshMic = useCallback(() => {
-    window.prompty
-      .invoke("onboarding:permission-status", undefined as never)
-      .then((p) => setMicStatus(p.microphone))
-      .catch(() => {});
+    window.prompty.invoke("onboarding:permission-status", undefined as never).then((p) => setMicStatus(p.microphone)).catch(() => {});
   }, []);
   const refreshClaude = useCallback(() => {
-    window.prompty
-      .invoke("onboarding:check-claude", undefined as never)
-      .then((r) => setClaude(r))
-      .catch(() => {});
+    window.prompty.invoke("onboarding:check-claude", undefined as never).then((r) => setClaude(r)).catch(() => {});
   }, []);
   const refreshMemories = useCallback(() => {
-    window.prompty
-      .invoke("memory:list", undefined as never)
-      .then((r) => setMemories(r.items))
-      .catch(() => {});
+    window.prompty.invoke("memory:list", undefined as never).then((r) => setMemories(r.items)).catch(() => {});
   }, []);
-  // Refetch on entering the Memory tab so items added elsewhere (a post-call note,
-  // or another window) show without a relaunch — the cheap stand-in for a
-  // memory:updated broadcast.
-  useEffect(() => {
-    if (tab === "memory") refreshMemories();
-  }, [tab, refreshMemories]);
+
   const readCall = useCallback(async (name: string): Promise<ParsedCall | null> => {
     try {
       const r = await window.prompty.invoke("calls:read", { name });
@@ -179,6 +226,7 @@ export default function App(): JSX.Element {
           summary,
           startedAt: obj.startedAt as number | undefined,
           endedAt: obj.endedAt as number | undefined,
+          attendee: obj.attendee as ParsedCall["attendee"],
           components: obj.components as PrepComp[] | undefined,
           transcript,
           summaryPending: obj.summaryPending as boolean | undefined,
@@ -186,152 +234,56 @@ export default function App(): JSX.Element {
         };
       } catch {}
       return parsed;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }, []);
 
-  useEffect(() => {
-    // Seed the direction editor on mount: a live call's direction wins (so
-    // reopening the window mid-call still shows what's being coached); otherwise
-    // restore the persisted draft so a prepped brief survives closing the window.
-    window.prompty
-      .invoke("session:state", undefined as never)
-      .then(async (r) => {
-        setSessionState(r.state);
-        if (!seeded.current && r.setup?.direction) {
-          setDirection(r.setup.direction);
-          seeded.current = true;
-        }
-        if (!seeded.current) {
-          try {
-            const s = await window.prompty.invoke("settings:get", undefined as never);
-            const draft = (s as { directionDraft?: string }).directionDraft;
-            if (!seeded.current && draft) {
-              setDirection(draft);
-              seeded.current = true;
-            }
-          } catch {}
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        draftReady.current = true;
-      });
-    window.prompty
-      .invoke("settings:get", undefined as never)
-      .then((s) => {
-        const set = s as { hotkey?: string; skill?: string; prepComponents?: PrepComp[] };
-        if (set.hotkey) setHotkey(set.hotkey);
-        if (typeof set.skill === "string") setSkill(set.skill);
-        // Restore a brief prepped before an app restart (Gap 2). Persisted
-        // components are [] during/after a call, so this is safe mid-session.
-        if (Array.isArray(set.prepComponents)) setPrepComponents(set.prepComponents);
-      })
-      .catch(() => {});
-    window.prompty
-      .invoke("skills:list", undefined as never)
-      .then((r) => setSkills(r.skills))
-      .catch(() => {});
-    window.prompty
-      .invoke("preflight:get", undefined as never)
-      .then((pf) => pf && setError(pf.message))
-      .catch(() => {});
-    refreshCalls();
-    refreshMic();
-    refreshClaude();
-    refreshMemories();
+  // ── Session ─────────────────────────────────────────────────────────────────
 
-    const offState = window.prompty.on("session:state-changed", (p) => {
-      setSessionState(p.state);
-      if (p.state === "ended" || p.state === "idle") refreshCalls();
-    });
-    const offPf = window.prompty.on("preflight:failed", (p) => {
-      setError(p.message);
-      if (p.code === "mic") refreshMic();
-    });
-    // The background summary pass landed: refresh the list, and if the affected
-    // call is open, re-read it so the "Summarizing…" placeholder fills in.
-    const offCallsUpdated = window.prompty.on("calls:updated", (p) => {
-      refreshCalls();
-      setOpenCall((oc) => {
-        if (oc?.name === p.name) {
-          void readCall(p.name).then((call) => {
-            if (call)
-              setOpenCall((cur) => (cur?.name === p.name ? { name: p.name, call } : cur));
-          });
-        }
-        return oc;
-      });
-    });
-    // Prep chat streaming (RUBY B2 phase 2b): deltas append to a live bubble,
-    // and the authoritative full message finalizes it.
-    const offPrepDelta = window.prompty.on("prep:assistant-delta", (p) => {
-      setPrepThinking(false);
-      // Flip streamingRef synchronously here, NOT inside the updater: React runs
-      // updaters at commit time, so if the ref were set there, a fast-arriving
-      // final prep:assistant could read it as still-false and append a second
-      // bubble instead of finalizing this one (the "reply twice" bug).
-      const continuing = streamingRef.current;
-      streamingRef.current = true;
-      setPrepMessages((m) => {
-        const last = m[m.length - 1];
-        if (continuing && last && last.role === "assistant") {
-          return [...m.slice(0, -1), { ...last, text: last.text + p.text }];
-        }
-        return [...m, { role: "assistant", text: p.text }];
-      });
-    });
-    const offPrepAsst = window.prompty.on("prep:assistant", (p) => {
-      const streaming = streamingRef.current;
-      streamingRef.current = false;
-      setPrepMessages((m) => {
-        const last = m[m.length - 1];
-        if (streaming && last && last.role === "assistant") {
-          return [...m.slice(0, -1), { ...last, text: p.text }];
-        }
-        return [...m, { role: "assistant", text: p.text }];
-      });
-    });
-    const offPrepDir = window.prompty.on("prep:direction", (p) => {
-      // Ruby rewrote the shared working direction — reflect it live in the editor.
-      setDirection(p.direction);
-      seeded.current = true;
-    });
-    const offPrepThinking = window.prompty.on("prep:thinking", (p) =>
-      setPrepThinking(p.thinking),
-    );
-    const offPrepError = window.prompty.on("prep:error", (p) => setPrepError(p.message));
-    const offPrepComps = window.prompty.on("prep:components", (p) =>
-      setPrepComponents(p.components as PrepComp[]),
-    );
-    return () => {
-      offState();
-      offPf();
-      offCallsUpdated();
-      offPrepDelta();
-      offPrepAsst();
-      offPrepDir();
-      offPrepThinking();
-      offPrepError();
-      offPrepComps();
-    };
-  }, [refreshCalls, refreshMic, refreshClaude, refreshMemories, readCall]);
+  const startCall = useCallback(async (dir: string) => {
+    setError(null);
+    if (!dir.trim()) { setError("Describe the call first."); return; }
+    const r = await window.prompty.invoke("call:start", { direction: dir, skill: skill || undefined });
+    if (!r.ok) {
+      const pf = await window.prompty.invoke("preflight:get", undefined as never).catch(() => null);
+      setError(pf?.message ?? r.error ?? "Couldn't start the call.");
+      if (pf?.code === "mic") refreshMic();
+      return;
+    }
+    // The brief was consumed by this call — clear the pending prep so it doesn't
+    // carry into the next one. The main process clears the persisted copy
+    // (directionDraft + prepComponents); this clears the live editor state to
+    // match. Skill is sticky and deliberately left as-is.
+    setDirection("");
+    setPrepComponents([]);
+  }, [refreshMic, skill]);
 
-  const openPrep = useCallback(async () => {
+  // Sticky skill: a discrete pick, so persist it synchronously on change (no
+  // debounce — immune to the directionDraft quick-close race).
+  const pickSkill = useCallback((name: string) => {
+    setSkill(name);
+    void window.prompty.invoke("settings:set", { skill: name });
+  }, []);
+
+  const endCall = useCallback(() => {
+    void window.prompty.invoke("call:end", undefined as never);
+  }, []);
+
+  // ── Prep ────────────────────────────────────────────────────────────────────
+
+  const openPrep = useCallback(async (initialMessage: string) => {
     setPrepError(null);
     setPrepMessages([]);
     setPrepComponents([]);
-    const r = await window.prompty.invoke("prep:start", { direction });
+    streamingRef.current = false;
+    setDirection(initialMessage);
+    const r = await window.prompty.invoke("prep:start", { direction: initialMessage });
     if (r.ok) {
-      setPrepOpen(true);
+      setPrepMessages([{ role: "user", text: initialMessage }]);
       void window.prompty.invoke("main:set-prep-layout", { wide: true });
-    } else setPrepError("Couldn't start prep — is Claude Code installed?");
-  }, [direction]);
-
-  const syncComponents = useCallback((next: PrepComp[]) => {
-    setPrepComponents(next);
-    void window.prompty.invoke("prep:set-components", { components: next as never });
+      setScreen({ id: "prep" });
+    } else {
+      setPrepError("Couldn't start prep — is Claude Code installed?");
+    }
   }, []);
 
   const sendPrep = useCallback(() => {
@@ -339,7 +291,7 @@ export default function App(): JSX.Element {
     if (!msg || prepThinking) return;
     setPrepInput("");
     if (prepInputRef.current) prepInputRef.current.style.height = "auto";
-    streamingRef.current = false; // next assistant turn starts a fresh bubble
+    streamingRef.current = false;
     setPrepMessages((m) => [...m, { role: "user", text: msg }]);
     void window.prompty.invoke("prep:send", { message: msg });
   }, [prepInput, prepThinking]);
@@ -347,27 +299,17 @@ export default function App(): JSX.Element {
   const closePrep = useCallback(() => {
     void window.prompty.invoke("prep:end", undefined as never);
     void window.prompty.invoke("main:set-prep-layout", { wide: false });
-    setPrepOpen(false);
+    setScreen({ id: "home" });
   }, []);
 
-  // Keep the chat pinned to the latest message as the conversation grows.
-  useEffect(() => {
-    const el = chatLogRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [prepMessages, prepThinking]);
+  const syncComponents = useCallback((next: PrepComp[]) => {
+    setPrepComponents(next);
+    void window.prompty.invoke("prep:set-components", { components: next as never });
+  }, []);
 
-  // Persist the working direction as a draft (debounced) so it survives closing
-  // the window. Gated on draftReady so the initial empty render can't clobber a
-  // saved draft before it has loaded.
-  useEffect(() => {
-    if (!draftReady.current) return;
-    const id = setTimeout(() => {
-      void window.prompty.invoke("settings:set", { directionDraft: direction });
-    }, 400);
-    return () => clearTimeout(id);
-  }, [direction]);
+  // ── Memory ──────────────────────────────────────────────────────────────────
 
-  const addMemoryItem = useCallback(() => {
+  const addMemory = useCallback(() => {
     const text = newMemory.trim();
     if (!text) return;
     setNewMemory("");
@@ -387,1296 +329,1009 @@ export default function App(): JSX.Element {
     });
   }, [editingMem]);
 
-  const deleteMemoryItem = useCallback((id: string) => {
+  const deleteMemory = useCallback((id: string) => {
     void window.prompty.invoke("memory:delete", { id }).then((r) => {
       if (r.ok) setMemories((list) => list.filter((m) => m.id !== id));
     });
   }, []);
 
-  const isLive =
-    sessionState === "starting" || sessionState === "live" || sessionState === "ending";
-  // The end teardown — closing the agent and generating the post-call summary —
-  // can take several seconds. Surface it: the button locks into "Ending…" and a
-  // status line explains the wait, so a re-click can't fire end() again.
-  const isEnding = sessionState === "ending";
+  // ── Auto-scroll prep chat ───────────────────────────────────────────────────
 
-  const start = useCallback(async () => {
-    setError(null);
-    if (!direction.trim()) {
-      setError("Add a direction first — it's the brief your coach follows on the call.");
-      return;
-    }
-    const r = await window.prompty.invoke("call:start", {
-      direction,
-      skill: skill || undefined,
-    });
-    if (!r.ok) {
-      const pf = await window.prompty
-        .invoke("preflight:get", undefined as never)
-        .catch(() => null);
-      setError(pf?.message ?? r.error ?? "Couldn't start the call.");
-      if (pf?.code === "mic") refreshMic();
-      return;
-    }
-    // The brief was consumed by this call — clear the pending prep so it doesn't
-    // carry into the next one (Gap 2). The main process clears the persisted copy
-    // (directionDraft + prepComponents); this clears the live editor state to
-    // match. Skill is sticky and deliberately left as-is.
-    setDirection("");
-    setPrepComponents([]);
-  }, [direction, skill, refreshMic]);
+  useEffect(() => {
+    const el = chatLogRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [prepMessages, prepThinking]);
 
-  // Sticky skill: a discrete pick, so persist it synchronously on change (no
-  // debounce — immune to the directionDraft quick-close race).
-  const pickSkill = useCallback((name: string) => {
-    setSkill(name);
-    void window.prompty.invoke("settings:set", { skill: name });
-  }, []);
+  // Persist the working direction as a draft (debounced) so it survives closing
+  // the window. Gated on draftReady so the initial empty render can't clobber a
+  // saved draft before it has loaded.
+  useEffect(() => {
+    if (!draftReady.current) return;
+    const id = setTimeout(() => {
+      void window.prompty.invoke("settings:set", { directionDraft: direction });
+    }, 400);
+    return () => clearTimeout(id);
+  }, [direction]);
 
-  const end = useCallback(() => {
-    void window.prompty.invoke("call:end", undefined as never);
-  }, []);
+  // Refetch on entering the Memory screen so items added elsewhere (a post-call
+  // note, or another window) show without a relaunch.
+  useEffect(() => {
+    if (screen.id === "memory") refreshMemories();
+  }, [screen.id, refreshMemories]);
 
-  const grantMic = useCallback(async () => {
-    await window.prompty.invoke("onboarding:request-mic", undefined as never).catch(() => {});
-    refreshMic();
-  }, [refreshMic]);
+  // ── Live timer ──────────────────────────────────────────────────────────────
 
-  const viewCall = useCallback(
-    (name: string) => {
-      if (openCall?.name === name) {
-        setOpenCall(null);
-        return;
+  useEffect(() => {
+    if (!isLive) { setLiveSeconds(0); liveStartRef.current = 0; return; }
+    if (liveStartRef.current === 0) liveStartRef.current = Date.now();
+    const id = setInterval(() => setLiveSeconds(Math.floor((Date.now() - liveStartRef.current) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [isLive]);
+
+  // ── Session auto-navigate ───────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (sessionState === "starting" || sessionState === "live") setScreen({ id: "live" });
+    if (sessionState === "ended") { setScreen({ id: "home" }); refreshCalls(); }
+  }, [sessionState, refreshCalls]);
+
+  // ── IPC setup ───────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    // Seed the direction on mount: a live call's direction wins (so reopening the
+    // window mid-call still shows what's being coached); otherwise restore the
+    // persisted draft so a prepped brief survives closing the window.
+    window.prompty.invoke("session:state", undefined as never).then(async (r) => {
+      setSessionState(r.state);
+      if (!seeded.current && r.setup?.direction) { setDirection(r.setup.direction); seeded.current = true; }
+      if (!seeded.current) {
+        try {
+          const s = await window.prompty.invoke("settings:get", undefined as never);
+          const draft = (s as { directionDraft?: string }).directionDraft;
+          if (!seeded.current && draft) { setDirection(draft); seeded.current = true; }
+        } catch {}
       }
-      void readCall(name).then((call) => {
-        if (call) setOpenCall({ name, call });
-      });
-    },
-    [openCall, readCall],
-  );
+    }).catch(() => {}).finally(() => { draftReady.current = true; });
+    window.prompty.invoke("settings:get", undefined as never).then((s) => {
+      const set = s as { hotkey?: string; skill?: string; prepComponents?: PrepComp[] };
+      if (set.hotkey) setHotkey(set.hotkey);
+      if (typeof set.skill === "string") setSkill(set.skill);
+      // Restore a brief prepped before an app restart. Persisted components are []
+      // during/after a call, so this is safe mid-session.
+      if (Array.isArray(set.prepComponents)) setPrepComponents(set.prepComponents);
+    }).catch(() => {});
+    window.prompty.invoke("skills:list", undefined as never).then((r) => setSkills(r.skills)).catch(() => {});
+    window.prompty.invoke("preflight:get", undefined as never).then((pf) => pf && setError(pf.message)).catch(() => {});
+    refreshCalls(); refreshMic(); refreshClaude(); refreshMemories();
 
-  const saveRename = useCallback(() => {
-    if (!editing) return;
-    const { name, draft } = editing;
-    const title = draft.trim();
-    setEditing(null);
-    void window.prompty.invoke("calls:rename", { name, title }).then(() => {
-      setCalls((list) => list.map((c) => (c.name === name ? { ...c, title } : c)));
-      setOpenCall((oc) =>
-        oc && oc.name === name ? { ...oc, call: { ...oc.call, title } } : oc,
-      );
+    const offState = window.prompty.on("session:state-changed", (p) => {
+      setSessionState(p.state);
+      if (p.state === "ended" || p.state === "idle") refreshCalls();
     });
-  }, [editing]);
+    const offPf = window.prompty.on("preflight:failed", (p) => {
+      setError(p.message);
+      if (p.code === "mic") refreshMic();
+    });
+    const offCallsUpdated = window.prompty.on("calls:updated", () => refreshCalls());
+    // Prep chat streaming: deltas append to a live bubble, the authoritative full
+    // message finalizes it.
+    const offPrepDelta = window.prompty.on("prep:assistant-delta", (p) => {
+      setPrepThinking(false);
+      // Flip streamingRef synchronously here, NOT inside the updater: React runs
+      // updaters at commit time, so if the ref were set there, a fast-arriving
+      // final prep:assistant could read it as still-false and append a second
+      // bubble instead of finalizing this one (the "reply twice" bug).
+      const continuing = streamingRef.current;
+      streamingRef.current = true;
+      setPrepMessages((m) => {
+        const last = m[m.length - 1];
+        if (continuing && last && last.role === "assistant")
+          return [...m.slice(0, -1), { ...last, text: last.text + p.text }];
+        return [...m, { role: "assistant", text: p.text }];
+      });
+    });
+    const offPrepAsst = window.prompty.on("prep:assistant", (p) => {
+      const streaming = streamingRef.current;
+      streamingRef.current = false;
+      setPrepMessages((m) => {
+        const last = m[m.length - 1];
+        if (streaming && last && last.role === "assistant")
+          return [...m.slice(0, -1), { ...last, text: p.text }];
+        return [...m, { role: "assistant", text: p.text }];
+      });
+    });
+    const offPrepDir = window.prompty.on("prep:direction", (p) => { setDirection(p.direction); seeded.current = true; });
+    const offPrepThinking = window.prompty.on("prep:thinking", (p) => setPrepThinking(p.thinking));
+    const offPrepError = window.prompty.on("prep:error", (p) => setPrepError(p.message));
+    const offPrepComps = window.prompty.on("prep:components", (p) => setPrepComponents(p.components as PrepComp[]));
 
-  const micOk = micStatus === "granted";
-  const micBlocked = micStatus === "denied" || micStatus === "restricted";
+    return () => {
+      offState(); offPf(); offCallsUpdated(); offPrepDelta(); offPrepAsst();
+      offPrepDir(); offPrepThinking(); offPrepError(); offPrepComps();
+    };
+  }, [refreshCalls, refreshMic, refreshClaude, refreshMemories]);
 
-  const chatPanel = (
-    <section style={S.chatCard}>
-      <div style={S.chatHead}>
-        <span style={S.label}>Prep with Ruby</span>
-        <button style={S.linkBtn} data-testid="prep-done" onClick={closePrep}>
-          Done
-        </button>
-      </div>
-      <div ref={chatLogRef} style={S.chatLog} data-testid="prep-log">
-        {prepMessages.length === 0 && !prepThinking ? (
-          <div style={S.empty}>Tell Ruby about the call you're about to have.</div>
-        ) : (
-          prepMessages.map((m, i) => (
-            <div
-              key={i}
-              data-testid={`prep-msg-${m.role}`}
-              style={m.role === "user" ? S.bubbleUser : S.bubbleAsst}
-            >
-              {m.text}
-            </div>
-          ))
-        )}
-        {prepThinking && (
-          <div style={S.bubbleAsst} data-testid="prep-thinking">
-            …
-          </div>
-        )}
-      </div>
-      {prepError && <div style={S.error}>{prepError}</div>}
-      <div style={S.chatInputRow}>
-        <textarea
-          ref={prepInputRef}
-          data-testid="prep-input"
-          style={S.chatComposer}
-          value={prepInput}
-          rows={1}
-          placeholder="Message Ruby…  (Enter to send · Shift+Enter for a new line)"
-          onChange={(e) => {
-            setPrepInput(e.target.value);
-            const el = e.target;
-            el.style.height = "auto";
-            el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendPrep();
-            }
-          }}
-        />
-        <button
-          style={S.btnAccent}
-          data-testid="prep-send"
-          onClick={sendPrep}
-          disabled={!prepInput.trim() || prepThinking}
-        >
-          Send
-        </button>
-      </div>
-    </section>
-  );
+  // ── Routing ──────────────────────────────────────────────────────────────────
 
-  const editGoal = (id: string, text: string) =>
-    syncComponents(
-      prepComponents.map((c) => (c.id === id && c.type === "goal" ? { ...c, text } : c)),
+  if (screen.id === "live") {
+    const mm = String(Math.floor(liveSeconds / 60)).padStart(2, "0");
+    const ss = String(liveSeconds % 60).padStart(2, "0");
+    return (
+      <LiveScreen
+        timer={`${mm}:${ss}`}
+        isEnding={isEnding}
+        direction={direction}
+        prepComponents={prepComponents}
+        onEnd={endCall}
+      />
     );
-  const editItem = (cid: string, iid: string, text: string) =>
-    syncComponents(
-      prepComponents.map((c) =>
-        c.id === cid && c.type === "checklist"
-          ? { ...c, items: c.items.map((it) => (it.id === iid ? { ...it, text } : it)) }
-          : c,
-      ),
-    );
-  const deleteItem = (cid: string, iid: string) =>
-    syncComponents(
-      prepComponents.map((c) =>
-        c.id === cid && c.type === "checklist"
-          ? { ...c, items: c.items.filter((it) => it.id !== iid) }
-          : c,
-      ),
-    );
-  const addItem = (cid: string) =>
-    syncComponents(
-      prepComponents.map((c) =>
-        c.id === cid && c.type === "checklist"
-          ? { ...c, items: [...c.items, { id: `it_${Date.now()}`, text: "", done: false }] }
-          : c,
-      ),
-    );
-  const deleteComponent = (id: string) =>
-    syncComponents(prepComponents.filter((c) => c.id !== id));
+  }
 
-  const componentsPanel = prepComponents.length > 0 && (
-    <section style={S.card} data-testid="prep-components">
-      <div style={S.cardHead}>
-        <span style={S.label}>Call plan</span>
-      </div>
-      {prepComponents.map((c) =>
-        c.type === "goal" ? (
-          <div key={c.id} style={S.compBlock} data-testid="component-goal">
-            <div style={S.compHead}>
-              <span style={S.compKind}>Goal</span>
-              <button
-                style={S.renameBtn}
-                aria-label="Delete goal"
-                onClick={() => deleteComponent(c.id)}
-              >
-                ✕
-              </button>
-            </div>
-            <textarea
-              style={S.goalInput}
-              data-testid="goal-input"
-              value={c.text}
-              rows={2}
-              placeholder="The one outcome that makes this call a success…"
-              onChange={(e) => editGoal(c.id, e.target.value)}
-            />
-          </div>
-        ) : (
-          <div key={c.id} style={S.compBlock} data-testid="component-checklist">
-            <div style={S.compHead}>
-              <span style={S.compKind}>{c.title?.trim() || "Checklist"}</span>
-              <button
-                style={S.renameBtn}
-                aria-label="Delete checklist"
-                onClick={() => deleteComponent(c.id)}
-              >
-                ✕
-              </button>
-            </div>
-            <ul style={S.list}>
-              {c.items.map((it) => (
-                <li key={it.id} style={S.checkRow} data-testid="checklist-item">
-                  <span style={S.checkDot} aria-hidden>
-                    ○
-                  </span>
-                  <input
-                    style={S.checkInput}
-                    value={it.text}
-                    onChange={(e) => editItem(c.id, it.id, e.target.value)}
-                  />
-                  <button
-                    style={S.renameBtn}
-                    aria-label="Delete item"
-                    data-testid="checklist-item-delete"
-                    onClick={() => deleteItem(c.id, it.id)}
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <button style={S.linkBtn} data-testid="checklist-add" onClick={() => addItem(c.id)}>
-              + Add item
-            </button>
-          </div>
-        ),
-      )}
-    </section>
-  );
+  if (screen.id === "prep") {
+    return (
+      <PrepScreen
+        direction={direction}
+        setDirection={setDirection}
+        prepMessages={prepMessages}
+        prepThinking={prepThinking}
+        prepError={prepError}
+        prepInput={prepInput}
+        setPrepInput={setPrepInput}
+        prepInputRef={prepInputRef}
+        chatLogRef={chatLogRef}
+        prepComponents={prepComponents}
+        syncComponents={syncComponents}
+        sendPrep={sendPrep}
+        onClose={closePrep}
+        onBeginCall={() => startCall(direction)}
+        skills={skills}
+        skill={skill}
+        pickSkill={pickSkill}
+        error={error}
+      />
+    );
+  }
+
+  if (screen.id === "post-call") {
+    return (
+      <PostCallScreen
+        callName={screen.callName}
+        readCall={readCall}
+        onBack={() => setScreen({ id: "home" })}
+        setMemories={setMemories}
+      />
+    );
+  }
+
+  if (screen.id === "memory") {
+    return (
+      <MemoryScreen
+        memories={memories}
+        newMemory={newMemory}
+        setNewMemory={setNewMemory}
+        editingMem={editingMem}
+        setEditingMem={setEditingMem}
+        addMemory={addMemory}
+        saveMemoryEdit={saveMemoryEdit}
+        deleteMemory={deleteMemory}
+        onBack={() => setScreen({ id: "home" })}
+      />
+    );
+  }
+
+  if (screen.id === "settings") {
+    return (
+      <SettingsScreen
+        micStatus={micStatus}
+        claude={claude}
+        hotkey={hotkey}
+        refreshMic={refreshMic}
+        refreshClaude={refreshClaude}
+        onBack={() => setScreen({ id: "home" })}
+      />
+    );
+  }
 
   return (
-    <div style={prepOpen ? { ...S.page, ...S.pageWide } : S.page}>
+    <HomeScreen
+      calls={calls}
+      isLive={isLive}
+      isEnding={isEnding}
+      error={error}
+      onSend={openPrep}
+      onViewCall={(name) => setScreen({ id: "post-call", callName: name })}
+      onMemory={() => setScreen({ id: "memory" })}
+      onSettings={() => setScreen({ id: "settings" })}
+      onEndCall={endCall}
+    />
+  );
+}
+
+// ─── Home screen ──────────────────────────────────────────────────────────────
+
+function HomeScreen(props: {
+  calls: CallMeta[];
+  isLive: boolean;
+  isEnding: boolean;
+  error: string | null;
+  onSend: (message: string) => void;
+  onViewCall: (name: string) => void;
+  onMemory: () => void;
+  onSettings: () => void;
+  onEndCall: () => void;
+}): JSX.Element {
+  const { calls, isLive, isEnding, error, onSend, onViewCall, onMemory, onSettings, onEndCall } = props;
+  const [input, setInput] = useState("");
+  const [focused, setFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleSend = () => {
+    const msg = input.trim();
+    if (!msg) return;
+    setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    onSend(msg);
+  };
+
+  const groups = groupCallsByDay(calls);
+
+  return (
+    <div className="home-root">
       <div className="app-dragbar" />
-      <header className="app-drag" style={S.header}>
-        <div>
-          <div style={S.title}>
-            <Gem variant="mini" size={20} />
-            <span>Ruby</span>
-          </div>
-          <div style={S.subtitle}>Your coaching brief — what a good call looks like, on every call.</div>
+
+      {/* Topbar */}
+      <header className="home-topbar app-drag">
+        <div className="home-brand">
+          <Gem variant="mini" size={20} />
+          <span className="home-wordmark">Prompty</span>
         </div>
-        <nav className="app-no-drag" style={S.nav}>
-          {(["direction", "memory", "settings"] as Tab[]).map((t) => (
+        <div className="home-topbar-actions app-no-drag">
+          {isLive && (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              data-testid={`tab-${t}`}
-              style={{ ...S.navBtn, ...(tab === t ? S.navBtnActive : null) }}
+              className={`home-live-btn${isEnding ? " busy" : ""}`}
+              onClick={onEndCall}
+              disabled={isEnding}
             >
-              {TAB_LABELS[t]}
+              <span className="home-live-dot" />
+              {isEnding ? "Ending…" : "End call"}
             </button>
-          ))}
-        </nav>
+          )}
+          <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <circle cx="7.5" cy="5" r="3.25" stroke="currentColor" strokeWidth="1.25"/>
+              <path d="M1.5 13.5c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+            </svg>
+          </button>
+          <button className="home-icon-btn" onClick={onSettings} title="Settings" aria-label="Settings">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <circle cx="7.5" cy="7.5" r="2.25" stroke="currentColor" strokeWidth="1.25"/>
+              <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M3.05 3.05l1.06 1.06M10.89 10.89l1.06 1.06M10.89 4.11l1.06-1.06M3.05 11.95l1.06-1.06" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
       </header>
 
-      {tab === "direction" ? (
-        <>
-          {!prepOpen && !micOk && micStatus && (
-            <div style={S.warn}>
-              <span>🎙️ Microphone not granted — calls can't hear audio.</span>
-              <button style={S.linkBtn} onClick={() => setTab("settings")}>
-                Fix in Settings →
+      {/* Scrollable body */}
+      <div className="home-body">
+
+        <div className="home-chat-bg">
+        <div className="home-chat-container">
+          <div className="home-logo"><RubyLogo size={52} /></div>
+          <h2 className="home-section-heading">Your next call</h2>
+
+          {/* Chat input bar */}
+          <div className={`home-bar${focused ? " focused" : ""}`}>
+            <div className="home-bar-bottom">
+            <textarea
+              ref={textareaRef}
+              className="home-bar-input"
+              data-testid="home-direction"
+              value={input}
+              rows={2}
+              placeholder="Who's this call with? What's it about?"
+              onChange={(e) => {
+                setInput(e.target.value);
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+              }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+              }}
+            />
+            <button
+              className="home-bar-send"
+              data-testid="home-send"
+              onClick={handleSend}
+              disabled={!input.trim()}
+              aria-label="Send"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M7 12V2M7 2L2.5 6.5M7 2L11.5 6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        {error && <div className="home-error">{error}</div>}
+
+        {/* Past calls list */}
+        {calls.length === 0 ? (
+          <div className="home-empty">No calls yet — start one above.</div>
+        ) : (
+          <div className="home-calls">
+            {groups.map((group) => (
+              <div key={group.label} className="home-day-group">
+                <div className="home-day-label">
+                  <span className="home-day-text">{group.label}</span>
+                  <span className="home-day-line" />
+                </div>
+                <ul className="home-call-list">
+                  {group.items.map((c) => {
+                    const when = c.startedAt ?? c.mtimeMs;
+                    const prepped = false; // future: detect from call components
+                    return (
+                      <li key={c.name}>
+                        <button
+                          className="home-call-row"
+                          data-testid="call-row"
+                          onClick={() => onViewCall(c.name)}
+                        >
+                          <span className={`home-call-dot${prepped ? " prepped" : ""}`} />
+                          <span className="home-call-title">{c.title || "Untitled call"}</span>
+                          <span className="home-call-time">{fmtClock(when)}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Prep screen ──────────────────────────────────────────────────────────────
+
+function PrepScreen(props: {
+  direction: string;
+  setDirection: (d: string) => void;
+  prepMessages: { role: "user" | "assistant"; text: string }[];
+  prepThinking: boolean;
+  prepError: string | null;
+  prepInput: string;
+  setPrepInput: (v: string) => void;
+  prepInputRef: React.RefObject<HTMLTextAreaElement>;
+  chatLogRef: React.RefObject<HTMLDivElement>;
+  prepComponents: PrepComp[];
+  syncComponents: (next: PrepComp[]) => void;
+  sendPrep: () => void;
+  onClose: () => void;
+  onBeginCall: () => void;
+  skills: SkillOpt[];
+  skill: string;
+  pickSkill: (name: string) => void;
+  error: string | null;
+}): JSX.Element {
+  const {
+    direction, setDirection, prepMessages, prepThinking, prepError,
+    prepInput, setPrepInput, prepInputRef, chatLogRef, prepComponents, syncComponents,
+    sendPrep, onClose, onBeginCall, skills, skill, pickSkill, error,
+  } = props;
+  const selectedSkill = skills.find((s) => s.name === skill);
+
+  const editGoal = (id: string, text: string) =>
+    syncComponents(prepComponents.map((c) => (c.id === id && c.type === "goal" ? { ...c, text } : c)));
+  const editItem = (cid: string, iid: string, text: string) =>
+    syncComponents(prepComponents.map((c) =>
+      c.id === cid && c.type === "checklist"
+        ? { ...c, items: c.items.map((it) => (it.id === iid ? { ...it, text } : it)) }
+        : c,
+    ));
+  const deleteItem = (cid: string, iid: string) =>
+    syncComponents(prepComponents.map((c) =>
+      c.id === cid && c.type === "checklist"
+        ? { ...c, items: c.items.filter((it) => it.id !== iid) }
+        : c,
+    ));
+  const addItem = (cid: string) =>
+    syncComponents(prepComponents.map((c) =>
+      c.id === cid && c.type === "checklist"
+        ? { ...c, items: [...c.items, { id: `it_${Date.now()}`, text: "", done: false }] }
+        : c,
+    ));
+  const deleteComponent = (id: string) => syncComponents(prepComponents.filter((c) => c.id !== id));
+
+  const [sidebarWidth, setSidebarWidth] = React.useState(400);
+  const dragging = React.useRef(false);
+
+  const onHandleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const bodyW = document.body.clientWidth;
+      const newW = Math.min(600, Math.max(280, bodyW - ev.clientX));
+      setSidebarWidth(newW);
+    };
+    const onUp = () => {
+      dragging.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div className="prep-root">
+      <div className="app-dragbar" />
+
+      {error && <div className="prep-error-banner">{error}</div>}
+      <div className="prep-body">
+        <section className="prep-chat-col">
+          <div className="prep-chat-toprow">
+            <button className="prep-back app-no-drag" onClick={onClose}>← Back</button>
+            <div className="prep-chat-label"><span className="prep-chat-dot" />Prep with Ruby</div>
+          </div>
+          <div className="prep-chat-log" ref={chatLogRef}>
+            {prepMessages.length === 0 && !prepThinking
+              ? <div className="prep-chat-empty">Tell Ruby about the call you're about to have.</div>
+              : prepMessages.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "prep-bubble-user" : "prep-bubble-asst"}>{m.text}</div>
+              ))}
+            {prepThinking && <div className="prep-bubble-asst prep-thinking">…</div>}
+          </div>
+          {prepError && <div className="prep-chat-error">{prepError}</div>}
+          <div className="prep-chat-input-row">
+            <div className="prep-chat-input-bar">
+              <textarea
+                ref={prepInputRef}
+                className="prep-chat-input"
+                value={prepInput}
+                rows={1}
+                placeholder="Message Ruby…  (Enter to send · Shift+Enter for new line)"
+                onChange={(e) => {
+                  setPrepInput(e.target.value);
+                  const el = e.target;
+                  el.style.height = "auto";
+                  el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrep(); } }}
+              />
+              <button className="prep-send-btn" onClick={sendPrep} disabled={!prepInput.trim() || prepThinking}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
               </button>
             </div>
-          )}
-
-          <div style={prepOpen ? S.prepSplit : undefined}>
-          {prepOpen && chatPanel}
-          <div style={prepOpen ? S.prepRight : undefined}>
-          <section style={S.card}>
-            <label style={S.label} htmlFor="direction">
-              Direction
-            </label>
+          </div>
+        </section>
+        <div className="prep-resize-handle" onMouseDown={onHandleMouseDown} />
+        <aside className="prep-panel" style={{ flexBasis: sidebarWidth, minWidth: 280, maxWidth: 600 }}>
+          <div className="prep-panel-body">
+          <div className="prep-sticky-note">
+            <svg className="prep-sticky-pin" width="20" height="20" viewBox="0 0 522 516" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <g clipPath="url(#clip0_1681_7856)">
+                <mask id="mask0_1681_7856" style={{maskType:"alpha"}} maskUnits="userSpaceOnUse" x="-37" y="-45" width="597" height="573">
+                  <path d="M-36.3779 -44.4694L559.747 -44.4694L559.747 527.061L-36.3789 527.061L-36.3779 -44.4694ZM40.0918 419.951L201.535 395.776L218.482 387.718L430.768 197.904L362.087 103.892L262.188 125.38L40.0918 307.136L40.0918 419.951Z" fill="#D9D9D9"/>
+                </mask>
+                <g mask="url(#mask0_1681_7856)">
+                  <path d="M480.608 46.475C430.437 -11.4802 353.471 -15.3839 293.514 36.9516L86.5901 217.509C82.9148 220.684 105.949 247.28 109.624 244.063L316.548 63.5055C354.069 30.7743 411.206 19.9211 454.155 69.5541C482.831 102.671 493.685 155.35 438.087 203.868L171.804 436.246C140.394 463.658 85.1371 486.565 49.8806 445.898C11.7181 401.842 57.4874 353.539 78.9405 334.835L238.727 195.46C259.326 177.485 302.787 160.112 317.616 174.997C332.445 189.883 345.779 220.298 300.522 265.769L203.898 351.093C200.693 353.925 223.043 381.079 227.061 377.519L323.685 292.195C353.728 265.598 397.36 213.262 352.531 161.484C318.471 122.147 266.035 124.978 215.736 168.863L55.9489 308.238C-4.35037 360.917 -16.829 422.519 23.4275 469.02C65.0515 517.109 133.043 516.765 188.727 468.162L461.121 230.464C522.061 177.314 529.882 103.358 480.608 46.475Z" fill="#E453D5"/>
+                  <path d="M284.197 163.243C262.061 163.243 241.12 176.971 228.684 187.824L68.9404 327.242C51.4617 342.557 32.8292 364.263 31.2053 392.104C29.0685 429.039 50.778 447.786 47.701 443.71C13.7266 398.539 57.4874 353.539 78.9405 334.835L238.727 195.46C266.847 173.11 297.274 165.474 314.625 172.638C314.582 172.638 307.488 163.243 284.197 163.243Z" fill="#80117A"/>
+                  <path d="M428.429 47.6333C388.172 16.7468 339.369 27.2568 306.505 55.9556C306.505 55.9556 99.4106 237.157 99.026 237.157C103 240.932 107.958 245.479 109.197 244.363L316.548 63.5914C344.283 39.354 389.924 23.7392 428.429 47.6333Z" fill="#80117A"/>
+                  <path d="M187.531 469.192L461.121 230.465C526.121 171.694 527.702 101.17 478.429 44.2874C468.856 33.2197 477.531 43.6868 480.053 47.1615C520.096 102.457 508.429 172.853 451.078 222.872L178.684 460.569C132.83 500.593 78.5986 507.843 37.6156 482.233C77.8294 516.036 138.642 511.875 187.531 469.192Z" fill="#80117A"/>
+                  <path d="M350.351 159.297C343.984 152.219 337.317 147.285 329.967 142.91C334.369 146.342 338.514 149.344 342.488 153.892C387.36 205.67 343.685 258.005 313.642 284.602L216.505 370.87C216.505 370.87 224.625 380.093 227.36 377.304L334.753 281.728C363.087 253.286 392.873 206.485 350.351 159.297Z" fill="#80117A"/>
+                  <path d="M122.146 482.404C108.342 490.726 89.026 491.027 76.59 488.582C56.7609 484.635 39.7951 476.055 27.1455 460.312C11.248 440.45 2.7864 410.121 9.7095 382.624C9.7095 382.624 12.1454 372.156 19.1112 373.787C26.0771 375.417 23.3848 391.975 23.3848 391.975C19.9232 408.062 23.983 435.259 37.4019 451.99C46.2053 462.971 58.4703 471.465 72.0601 475.412C109.112 486.136 140.052 471.637 122.146 482.404Z" fill="#EAB9E9"/>
+                  <path d="M459.241 39.3542C468.301 48.5773 474.583 58.8728 471.036 64.7069C469.283 67.624 463.984 66.766 459.497 62.0901C448.813 50.8509 437.403 41.9281 434.112 39.7832C399.198 16.8328 376.976 17.5192 345.351 25.0263C336.762 27.0425 335.992 22.9672 339.924 19.8356C345.736 15.2027 359.24 12.543 365.352 11.5563C424.668 2.20458 455.138 35.1502 459.241 39.3542Z" fill="#EAB9E9"/>
+                  <path d="M335.095 162.042C348.087 177.657 335.779 187.095 326.975 178.815C315.651 168.134 301.676 147.843 261.291 161.227C254.582 163.458 247.873 160.498 258.984 154.321C295.821 133.858 322.104 146.427 335.095 162.042Z" fill="#EAB9E9"/>
+                </g>
+              </g>
+              <defs>
+                <clipPath id="clip0_1681_7856">
+                  <rect width="516" height="522" fill="white" transform="translate(2.25551e-05 516) rotate(-90)"/>
+                </clipPath>
+              </defs>
+            </svg>
+            <div className="prep-sticky-header">
+              <div className="prep-sticky-label">Note to Ruby</div>
+              <div className="prep-sticky-help">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M6.5 6C6.5 5.17 7.17 4.5 8 4.5C8.83 4.5 9.5 5.17 9.5 6C9.5 6.83 8 7.5 8 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  <circle cx="8" cy="11" r="0.75" fill="currentColor"/>
+                </svg>
+                <div className="prep-sticky-tooltip">Tap on the note to edit it</div>
+              </div>
+            </div>
             <textarea
-              id="direction"
-              data-testid="playground-direction"
+              className="prep-direction-input"
+              data-testid="prep-direction"
               value={direction}
               onChange={(e) => setDirection(e.target.value)}
-              placeholder="Describe what a good call looks like: what to explore, the stance to carry, when to speak up…"
+              placeholder="What a good call looks like…"
               spellCheck={false}
-              style={prepOpen ? { ...S.textarea, ...S.textareaTall } : S.textarea}
+              rows={1}
             />
-            <div style={S.skillRow}>
-              <label style={S.label} htmlFor="skill">
-                Skill
-              </label>
-              <select
-                id="skill"
-                data-testid="playground-skill"
-                value={skill}
-                onChange={(e) => pickSkill(e.target.value)}
-                disabled={isLive}
-                style={S.skillSelect}
-              >
-                <option value="">No skill</option>
-                {skills.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {(() => {
-              const sel = skills.find((s) => s.name === skill);
-              return sel?.description ? (
-                <div style={S.skillHint} data-testid="playground-skill-hint">
-                  {sel.description}
-                </div>
-              ) : null;
-            })()}
-            <div style={S.row}>
-              {!prepOpen && !isLive && (
-                <button style={S.btnGhost} data-testid="prep-open" onClick={openPrep}>
-                  Prep with Ruby
-                </button>
-              )}
-              <span style={{ flex: 1 }} />
-              {isLive ? (
-                <button
-                  style={{ ...S.btnDanger, ...(isEnding ? S.btnBusy : null) }}
-                  data-testid="playground-end"
-                  onClick={end}
-                  disabled={isEnding}
-                >
-                  {isEnding ? "Ending…" : "End call"}
-                </button>
-              ) : (
-                <button style={S.btnAccent} data-testid="playground-start" onClick={start}>
-                  Start call
-                </button>
-              )}
-            </div>
-            {isEnding ? (
-              <div style={S.ending} data-testid="playground-ending">
-                <span className="mw-spinner" aria-hidden /> Wrapping up — saving your call
-                summary. This can take a few seconds.
-              </div>
-            ) : isLive ? (
-              <div style={S.live}>
-                <span style={S.dot} /> Coaching live in the floating overlay.
-              </div>
-            ) : null}
-            {error && (
-              <div style={S.error} data-testid="playground-error">
-                {error}
-              </div>
-            )}
-          </section>
-          {componentsPanel}
-          </div>
           </div>
 
-          {!prepOpen && (
-          <section style={S.card}>
-            <div style={S.cardHead}>
-              <span style={S.label}>Past calls</span>
-              <button style={S.linkBtn} onClick={refreshCalls}>
-                Refresh
-              </button>
-            </div>
-            {calls.length === 0 ? (
-              <div style={S.empty}>No calls yet — start one above.</div>
-            ) : (
-              groupByDay(calls).map((group) => (
-                <div key={group.label} style={S.callGroup}>
-                  <div style={S.callDay}>{group.label}</div>
-                  <ul style={S.list}>
-                    {group.items.map((c) => {
-                      const when = c.startedAt ?? c.mtimeMs;
-                      const open = openCall?.name === c.name;
-                      const isEditing = editing?.name === c.name;
-                      const dur = fmtDur(c.startedAt, c.endedAt);
-                      return (
-                        <li key={c.name}>
-                          <div className={`pc-rowwrap${open ? " open" : ""}`} style={S.callRowWrap}>
-                            {isEditing ? (
-                              <input
-                                autoFocus
-                                style={S.renameInput}
-                                value={editing.draft}
-                                onChange={(e) => setEditing({ name: c.name, draft: e.target.value })}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") saveRename();
-                                  if (e.key === "Escape") setEditing(null);
-                                }}
-                                onBlur={saveRename}
-                              />
-                            ) : (
-                              <>
-                                <button
-                                  className="pc-row"
-                                  style={S.callMain}
-                                  onClick={() => viewCall(c.name)}
-                                >
-                                  <span style={S.callChevron}>{open ? "▾" : "▸"}</span>
-                                  <span style={S.callTitle}>{c.title || "Untitled call"}</span>
-                                  <span style={S.callMeta}>
-                                    {fmtClock(when)}
-                                    {dur ? ` · ${dur}` : ""}
-                                    {c.summaryPending ? " · Summarizing…" : ""}
-                                  </span>
-                                </button>
-                                <button
-                                  style={S.renameBtn}
-                                  title="Rename"
-                                  aria-label="Rename call"
-                                  onClick={() => setEditing({ name: c.name, draft: c.title || "" })}
-                                >
-                                  ✎
-                                </button>
-                              </>
-                            )}
-                          </div>
-                          {open && <CallCard call={openCall.call} />}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))
-            )}
-          </section>
-          )}
-        </>
-      ) : tab === "memory" ? (
-        <>
-          <section style={S.card}>
-            <div style={S.cardHead}>
-              <span style={S.label}>Memory</span>
-            </div>
-            <div style={S.memIntro}>
-              Tell Ruby how to coach you. These apply to every call — nudge
-              frequency, tone, things to always watch for.
-            </div>
-            <div style={S.memAddRow}>
-              <input
-                data-testid="memory-input"
-                style={S.memInput}
-                value={newMemory}
-                placeholder="e.g. Nudge me rarely — only when it really matters."
-                onChange={(e) => setNewMemory(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addMemoryItem();
-                }}
-              />
-              <button
-                style={S.btnAccent}
-                data-testid="memory-add"
-                onClick={addMemoryItem}
-                disabled={!newMemory.trim()}
-              >
-                Add
-              </button>
-            </div>
-            {memories.length === 0 ? (
-              <div style={S.empty} data-testid="memory-empty">
-                No memories yet — add one above and Ruby will keep it in mind.
-              </div>
-            ) : (
-              <ul style={S.list} data-testid="memory-list">
-                {memories.map((m) => {
-                  const isEditing = editingMem?.id === m.id;
-                  return (
-                    <li key={m.id}>
-                      <div className="pc-rowwrap" style={S.memRowWrap} data-testid="memory-item">
-                        {isEditing ? (
-                          <input
-                            autoFocus
-                            style={S.renameInput}
-                            value={editingMem.draft}
-                            onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveMemoryEdit();
-                              if (e.key === "Escape") setEditingMem(null);
-                            }}
-                            onBlur={saveMemoryEdit}
-                          />
-                        ) : (
-                          <>
-                            <span style={S.memText}>{m.text}</span>
-                            <button
-                              style={S.renameBtn}
-                              title="Edit"
-                              aria-label="Edit memory"
-                              onClick={() => setEditingMem({ id: m.id, draft: m.text })}
-                            >
-                              ✎
-                            </button>
-                            <button
-                              style={S.renameBtn}
-                              title="Delete"
-                              aria-label="Delete memory"
-                              data-testid="memory-delete"
-                              onClick={() => deleteMemoryItem(m.id)}
-                            >
-                              ✕
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </>
-      ) : (
-        <>
-          <section style={S.card}>
-            <Setting
-              label="Microphone"
-              value={micStatus ?? "checking…"}
-              tone={micOk ? "green" : micBlocked ? "red" : "amber"}
+          <div className="prep-skill">
+            <label className="prep-skill-label" htmlFor="prep-skill-select">Playbook</label>
+            <select
+              id="prep-skill-select"
+              data-testid="playground-skill"
+              className="prep-skill-select"
+              value={skill}
+              onChange={(e) => pickSkill(e.target.value)}
             >
-              {!micOk &&
-                (micBlocked ? (
-                  <button
-                    style={S.btnGhost}
-                    onClick={() => window.prompty.invoke("onboarding:open-external", { url: MIC_SETTINGS_URL })}
-                  >
-                    Open System Settings
-                  </button>
+              <option value="">No playbook</option>
+              {skills.map((s) => (
+                <option key={s.name} value={s.name}>{s.title}</option>
+              ))}
+            </select>
+            {selectedSkill?.description && (
+              <div className="prep-skill-hint" data-testid="playground-skill-hint">
+                {selectedSkill.description}
+              </div>
+            )}
+          </div>
+
+          {prepComponents.length > 0 && (
+            <div className="prep-components">
+              {prepComponents.map((c) =>
+                c.type === "goal" ? (
+                  <div key={c.id} className="prep-comp-block" data-testid="component-goal">
+                    <div className="prep-comp-head">
+                      <span className="prep-comp-kind">Goal</span>
+                      <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
+                    </div>
+                    <textarea className="prep-comp-goal-input" value={c.text} rows={2}
+                      placeholder="The one outcome that makes this call a success…"
+                      onChange={(e) => editGoal(c.id, e.target.value)} />
+                  </div>
                 ) : (
-                  <button style={S.btnAccent} onClick={grantMic}>
-                    Grant microphone
-                  </button>
-                ))}
-            </Setting>
-
-            <Setting
-              label="Claude Code"
-              value={claude ? (claude.found ? claude.path ?? "found" : "not found") : "checking…"}
-              tone={claude?.found ? "green" : claude ? "red" : "amber"}
-            >
-              <button style={S.btnGhost} onClick={refreshClaude}>
-                Re-check
-              </button>
-            </Setting>
-          </section>
-
-          <section style={S.card}>
-            <Setting label="Reveal debug logs" value="~/.prompty/debug" tone="muted">
-              <button
-                style={S.btnGhost}
-                onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}
-              >
-                Open folder
-              </button>
-            </Setting>
-            <Setting label="Hotkey (ask)" value={hotkey} tone="muted" />
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Setting(props: {
-  label: string;
-  value: string;
-  tone: "green" | "red" | "amber" | "muted";
-  children?: React.ReactNode;
-}): JSX.Element {
-  const toneColor =
-    props.tone === "green"
-      ? v("--green", "#46c46a")
-      : props.tone === "red"
-        ? v("--red", "#d05050")
-        : props.tone === "amber"
-          ? v("--amber", "#e0a23a")
-          : v("--muted", "#9a9aa2");
-  return (
-    <div style={S.settingRow}>
-      <div style={{ minWidth: 0 }}>
-        <div style={S.settingLabel}>{props.label}</div>
-        <div style={{ ...S.settingValue, color: toneColor }}>{props.value}</div>
-      </div>
-      <div style={S.settingControl}>{props.children}</div>
-    </div>
-  );
-}
-
-// The post-call card (RUBY_MVP decision #9): Recap / Insights & quotes (✦ marks
-// Ruby-assisted ones) / Questions you didn't ask, plus one quiet stat line. Falls
-// back to the raw JSON for older logs (or a call that never produced a summary).
-function checklistCoverage(components?: PrepComp[]): JSX.Element | null {
-  const checklist = components?.find((c) => c.type === "checklist");
-  if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) return null;
-  const total = checklist.items.length;
-  const covered = checklist.items.filter((it) => it.done).length;
-  return (
-    <section style={S.sec} data-testid="call-checklist">
-      <div style={S.secHead} data-testid="call-checklist-stat">
-        Checklist · covered {covered}/{total}
-      </div>
-      <ul style={S.insightList}>
-        {checklist.items.map((it) => (
-          <li key={it.id} style={S.insight}>
-            <span style={it.done ? S.checkOn : S.checkOff} aria-hidden>
-              {it.done ? "✓" : "○"}
-            </span>
-            <span>{it.text}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-// mm:ss into the call, measured from the first utterance so 0:00 is the call's
-// open — robust whether startMs is wall-clock or stream-relative.
-function intoCall(startMs: number, baseMs: number): string {
-  const s = Math.max(0, Math.round((startMs - baseMs) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
-// Collapsible full transcript, collapsed by default — the summary is the
-// headline; the transcript is on-demand. Self-contained (its own open state) so
-// it can drop into the summary card, the summarizing card, or the raw fallback.
-// Renders nothing for logs that predate transcript capture.
-function TranscriptSection(props: { transcript?: Utterance[] }): JSX.Element | null {
-  const [open, setOpen] = useState(false);
-  const lines = props.transcript ?? [];
-  if (lines.length === 0) return null;
-  const baseMs = lines[0].startMs;
-  return (
-    <section style={S.sec} data-testid="call-transcript">
-      <button
-        style={S.transcriptToggle}
-        data-testid="call-transcript-toggle"
-        onClick={() => setOpen((o) => !o)}
-      >
-        {open ? "▾" : "▸"} Transcript · {lines.length} lines
-      </button>
-      {open && (
-        <div style={S.transcriptBody}>
-          {lines.map((u, i) => (
-            <div key={i} style={S.uttRow}>
-              <span style={S.uttTime}>{intoCall(u.startMs, baseMs)}</span>
-              <span style={u.speaker === "me" ? S.uttMe : S.uttThem}>
-                {u.speaker === "me" ? "You" : "Them"}
-              </span>
-              <span style={S.uttText}>{u.text}</span>
+                  <div key={c.id} className="prep-comp-block" data-testid="component-checklist">
+                    <div className="prep-comp-head">
+                      <span className="prep-comp-kind">{c.title?.trim() || "Checklist"}</span>
+                      <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
+                    </div>
+                    <ul className="prep-comp-list">
+                      {c.items.map((it) => (
+                        <li key={it.id} className="prep-comp-item">
+                          <span className="prep-comp-dot">○</span>
+                          <input className="prep-comp-item-input" value={it.text}
+                            onChange={(e) => editItem(c.id, it.id, e.target.value)} />
+                          <button className="prep-comp-del" onClick={() => deleteItem(c.id, it.id)}>✕</button>
+                        </li>
+                      ))}
+                    </ul>
+                    <button className="prep-add-item" onClick={() => addItem(c.id)}>+ Add item</button>
+                  </div>
+                ),
+              )}
             </div>
-          ))}
-        </div>
-      )}
-    </section>
+          )}
+          {prepComponents.length === 0 && (
+            <div className="prep-empty-state">
+              <svg width="20" height="20" viewBox="0 0 28 28" fill="none" className="prep-empty-sparkle">
+                <path d="M10.0599 18.701C10.2571 18.8403 10.4829 18.9339 10.7207 18.9752C10.9586 19.0165 11.2027 19.0043 11.4353 18.9396C11.6679 18.8749 11.8832 18.7593 12.0656 18.6011C12.248 18.4429 12.3929 18.2461 12.4899 18.025L13.2599 15.685C13.4472 15.122 13.763 14.6104 14.1824 14.1907C14.6017 13.771 15.1131 13.4548 15.6759 13.267L17.9139 12.54C18.232 12.4294 18.5071 12.2211 18.6999 11.945C18.8488 11.7357 18.9458 11.4939 18.9829 11.2397C19.0199 10.9855 18.996 10.7262 18.9131 10.483C18.8301 10.2399 18.6906 10.02 18.5059 9.84138C18.3212 9.66282 18.0967 9.53073 17.8509 9.45602L15.6359 8.73602C15.0728 8.54922 14.5609 8.23381 14.1408 7.8148C13.7208 7.39579 13.4041 6.88469 13.2159 6.32202L12.4889 4.08502C12.3771 3.76808 12.1695 3.49374 11.8949 3.30002C11.6186 3.10952 11.291 3.00751 10.9554 3.00751C10.6198 3.00751 10.2922 3.10952 10.0159 3.30002C9.73703 3.49724 9.52715 3.77708 9.41591 4.10002L8.67991 6.36502C8.49216 6.91308 8.18221 7.41126 7.77352 7.82186C7.36482 8.23246 6.86809 8.54472 6.32091 8.73502L4.08091 9.46102C3.76217 9.5737 3.48647 9.78292 3.29218 10.0596C3.09789 10.3362 2.99466 10.6666 2.99686 11.0046C2.99906 11.3427 3.10658 11.6717 3.30446 11.9458C3.50234 12.2199 3.78073 12.4255 4.10091 12.534L6.31691 13.254C7.03536 13.4951 7.66694 13.9424 8.13291 14.54C8.39891 14.883 8.60391 15.268 8.73891 15.68L9.46691 17.914C9.57891 18.232 9.78691 18.507 10.0619 18.701M19.8059 24.781C20.0094 24.9249 20.2527 25.0017 20.5019 25.001C20.7494 25.0018 20.9911 24.926 21.1939 24.784C21.4027 24.6366 21.5589 24.4264 21.6399 24.184L22.0119 23.041C22.0906 22.8037 22.2235 22.588 22.4 22.4109C22.5765 22.2339 22.7918 22.1004 23.0289 22.021L24.1949 21.643C24.4301 21.5595 24.6336 21.4053 24.7777 21.2016C24.9219 20.9979 24.9995 20.7546 24.9999 20.505C24.9999 20.2489 24.918 19.9996 24.7661 19.7934C24.6143 19.5872 24.4005 19.435 24.1559 19.359L23.0119 18.989C22.7745 18.9102 22.5587 18.7772 22.3817 18.6005C22.2046 18.4238 22.0712 18.2083 21.9919 17.971L21.6119 16.808C21.53 16.5707 21.3756 16.365 21.1706 16.22C20.9656 16.075 20.7203 15.9979 20.4692 15.9997C20.2181 16.0014 19.9738 16.0819 19.7709 16.2298C19.568 16.3777 19.4165 16.5855 19.3379 16.824L18.9639 17.97C18.8873 18.2042 18.7579 18.4177 18.5857 18.594C18.4136 18.7704 18.2032 18.9048 17.9709 18.987L16.8049 19.365C16.5692 19.4483 16.3651 19.6025 16.2206 19.8064C16.0761 20.0104 15.9983 20.2541 15.9979 20.504C15.9982 20.7561 16.0778 21.0017 16.2255 21.206C16.3733 21.4103 16.5816 21.5628 16.8209 21.642L17.9649 22.014C18.2032 22.0926 18.4198 22.2261 18.5969 22.4039C18.7741 22.5816 18.907 22.7985 18.9849 23.037L19.3639 24.2C19.4466 24.435 19.6004 24.6384 19.8039 24.782" fill="currentColor"/>
+              </svg>
+              <p className="prep-empty-message">Ruby fills these in as you chat.</p>
+              <div className="prep-empty-pills">
+                <span className="prep-empty-pill">Goal</span>
+                <span className="prep-empty-pill">Checklist</span>
+              </div>
+            </div>
+          )}
+          </div>
+          <div className="prep-panel-begin">
+            <button className="prep-begin-btn" data-testid="prep-begin" onClick={onBeginCall}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="prep-begin-mic">
+                <path d="M11.9999 1C12.6565 1 13.3067 1.12933 13.9133 1.3806C14.52 1.63188 15.0712 2.00017 15.5355 2.46447C15.9998 2.92876 16.3681 3.47995 16.6193 4.08658C16.8706 4.69321 16.9999 5.34339 16.9999 6V10C16.9999 11.3261 16.4731 12.5979 15.5355 13.5355C14.5978 14.4732 13.326 15 11.9999 15C10.6738 15 9.40208 14.4732 8.4644 13.5355C7.52672 12.5979 6.99993 11.3261 6.99993 10V6C6.99993 4.67392 7.52672 3.40215 8.4644 2.46447C9.40208 1.52678 10.6738 1 11.9999 1ZM3.05493 11H5.06993C5.31222 12.6648 6.1458 14.1867 7.41816 15.2873C8.69053 16.3879 10.3166 16.9936 11.9989 16.9936C13.6813 16.9936 15.3073 16.3879 16.5797 15.2873C17.8521 14.1867 18.6856 12.6648 18.9279 11H20.9439C20.7166 13.0287 19.8066 14.9199 18.3631 16.3635C16.9197 17.8071 15.0286 18.7174 12.9999 18.945V23H10.9999V18.945C8.97107 18.7176 7.07972 17.8074 5.63611 16.3638C4.1925 14.9202 3.28234 13.0289 3.05493 11Z" fill="currentColor"/>
+              </svg>
+              Finish prep & start listening
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
   );
 }
 
-function CallCard(props: { call: ParsedCall }): JSX.Element {
-  const { title, summary, raw, startedAt, endedAt, summaryPending, components, transcript } =
-    props.call;
-  // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c). Hooks must
-  // run before the early returns below, so they live here regardless of summary.
+// ─── Live screen ─────────────────────────────────────────────────────────────
+
+function LiveScreen(props: {
+  timer: string;
+  isEnding: boolean;
+  direction: string;
+  prepComponents: PrepComp[];
+  onEnd: () => void;
+}): JSX.Element {
+  const { timer, isEnding, direction, prepComponents, onEnd } = props;
+  const goal = prepComponents.find((c) => c.type === "goal") as { type: "goal"; id: string; text: string } | undefined;
+  const checklist = prepComponents.find((c) => c.type === "checklist") as { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] } | undefined;
+
+  return (
+    <div className="live-root">
+      <header className="live-topbar">
+        <div className="live-topbar-left">
+          <span className="live-pulse" />
+          <span className="live-label">Live</span>
+        </div>
+        <div className="live-timer">{timer}</div>
+        <button className={`live-end-btn${isEnding ? " busy" : ""}`} onClick={onEnd} disabled={isEnding}>
+          {isEnding ? "Ending…" : "End session"}
+        </button>
+      </header>
+      <div className="live-body">
+        <div className="live-left">
+          {goal && (
+            <div className="live-goal-pill">
+              <span className="live-goal-label">Goal</span>
+              <span className="live-goal-text">{goal.text}</span>
+            </div>
+          )}
+          {checklist && checklist.items.length > 0 && (
+            <div className="live-checklist-card">
+              <div className="live-card-label">{checklist.title || "Checklist"}</div>
+              <ul className="live-checklist">
+                {checklist.items.map((it) => (
+                  <li key={it.id} className={`live-check-item${it.done ? " done" : ""}`}>
+                    <span className="live-check-glyph">{it.done ? "✓" : "○"}</span>
+                    <span>{it.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!goal && !checklist && (
+            <div className="live-direction-card">
+              <div className="live-card-label">Direction</div>
+              <div className="live-direction-text">{direction || "No direction set."}</div>
+            </div>
+          )}
+          <div className="live-overlay-note">Ruby is coaching you via the floating overlay.</div>
+        </div>
+        <div className="live-right">
+          <div className="live-card-label">Transcript</div>
+          <div className="live-transcript-empty">Transcript appears here during the call.</div>
+        </div>
+      </div>
+      <div className="live-teleprompter">
+        <span className="live-tp-label">Ruby says</span>
+        <span className="live-tp-text">Listening…</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Post-call screen ─────────────────────────────────────────────────────────
+
+function PostCallScreen(props: {
+  callName: string;
+  readCall: (name: string) => Promise<ParsedCall | null>;
+  onBack: () => void;
+  setMemories: React.Dispatch<React.SetStateAction<Mem[]>>;
+}): JSX.Element {
+  const { callName, readCall, onBack, setMemories } = props;
+  const [call, setCall] = useState<ParsedCall | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [scrolled, setScrolled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c) — never a
+  // reflexive pre-filled suggestion.
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
-  const saveNote = useCallback(() => {
+
+  useEffect(() => {
+    setLoading(true);
+    readCall(callName).then((c) => { setCall(c); setLoading(false); });
+  }, [callName, readCall]);
+
+  // The background summary pass lands after the call ends — if we're viewing it
+  // while it's still "Summarizing…", re-read so the placeholder fills in.
+  useEffect(() => {
+    const off = window.prompty.on("calls:updated", (p) => {
+      if (p.name === callName) readCall(callName).then((c) => c && setCall(c));
+    });
+    return off;
+  }, [callName, readCall]);
+
+  const saveNote = () => {
     const text = note.trim();
     if (!text) return;
     void window.prompty.invoke("memory:add", { text }).then((r) => {
       if (r.item) {
+        setMemories((list) => [...list, r.item as Mem]);
         setNote("");
         setNoteOpen(false);
         setNoteSaved(true);
       }
     });
-  }, [note]);
-  const coverage = checklistCoverage(components);
-  // Legacy call logs carry an older summary schema ({goalRecap, items}) whose
-  // recap/insights/questionsNotAsked/stat are absent. Treat anything that isn't a
-  // current-shape summary as "no summary" so we render the raw-log fallback rather
-  // than crashing on `summary.insights.length`.
-  const sum =
-    summary &&
-    typeof summary.recap === "string" &&
-    Array.isArray(summary.insights) &&
-    Array.isArray(summary.questionsNotAsked) &&
-    summary.stat
-      ? summary
-      : null;
-  if (!sum) {
-    if (summaryPending) {
-      return (
-        <div style={S.card2} data-testid="call-summarizing">
-          {coverage}
-          <div style={S.summarizing}>
-            <span className="mw-spinner" aria-hidden /> Summarizing this call…
-          </div>
-          <TranscriptSection transcript={transcript} />
-        </div>
-      );
-    }
-    return (
-      <div style={S.card2}>
-        {coverage}
-        <div style={S.cardNote}>No summary card for this call — showing the raw log.</div>
-        <TranscriptSection transcript={transcript} />
-        <pre style={S.pre}>{raw}</pre>
-      </div>
-    );
-  }
-  const name = title?.trim() || "Call";
-  const mins =
-    startedAt && endedAt && endedAt > startedAt
-      ? Math.max(1, Math.round((endedAt - startedAt) / 60000))
-      : null;
+  };
+
+  const handleScroll = () => {
+    setScrolled((scrollRef.current?.scrollTop ?? 0) > 2);
+  };
+
+  const title = call?.title || call?.attendee?.name || "Call";
+  const mins = call?.startedAt && call?.endedAt && call.endedAt > call.startedAt
+    ? Math.max(1, Math.round((call.endedAt - call.startedAt) / 60000)) : null;
+  const summary = call?.summary;
+
   return (
-    <div style={S.card2} data-testid="call-card">
-      <div style={S.receiptHead}>
-        {name}
-        {mins != null && <span style={S.receiptMeta}> · {mins} min</span>}
+    <div className="pcs-root">
+      <div className="app-dragbar" />
+      <div className="pcs-toprow app-drag">
+        <button className="pcs-back app-no-drag" onClick={onBack}>← Back</button>
       </div>
-      {coverage}
-      <section style={S.sec}>
-        <div style={S.secHead}>Recap</div>
-        <p style={S.recap}>{sum.recap}</p>
-      </section>
-
-      <section style={S.sec}>
-        <div style={S.secHead}>Insights &amp; quotes</div>
-        {sum.insights.length === 0 ? (
-          <div style={S.cardNote}>Nothing notable surfaced.</div>
+      <div className={`pcs-scroll-edge${scrolled ? " visible" : ""}`} />
+      <div className="pcs-body" ref={scrollRef} onScroll={handleScroll}>
+        {loading ? (
+          <div className="pcs-loading">Loading…</div>
+        ) : !call ? (
+          <div className="pcs-loading">Couldn't load this call.</div>
+        ) : call.summaryPending ? (
+          <div data-testid="call-summarizing">
+            <div className="pcs-loading"><span className="mw-spinner" /> Summarizing…</div>
+            <ChecklistCoverage components={call.components} />
+            <TranscriptSection transcript={call.transcript} />
+          </div>
+        ) : !summary ? (
+          <>
+            <div className="pcs-title">{title}</div>
+            {mins && <div className="pcs-meta">{mins} min</div>}
+            <ChecklistCoverage components={call.components} />
+            <TranscriptSection transcript={call.transcript} />
+            <pre className="pcs-raw">{call.raw}</pre>
+          </>
         ) : (
-          <ul style={S.insightList}>
-            {sum.insights.map((ins, i) => (
-              <li key={i} style={S.insight}>
-                <span style={ins.assisted ? S.checkOn : S.checkOff} aria-hidden>
-                  {ins.assisted ? "✓" : "·"}
-                </span>
-                <span>
-                  {ins.text}
-                  {ins.assisted && ins.via && <span style={S.via}> — {ins.via}</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          <>
+            <div className="pcs-hero">
+              {call.attendee?.company && (
+                <div className="pcs-hero-company">{call.attendee.company}</div>
+              )}
+              <h1 className="pcs-title">{title}</h1>
+              <div className="pcs-meta-row">
+                {mins && <span className="pcs-meta-chip">{mins} min</span>}
+                {call.startedAt && (
+                  <span className="pcs-meta-chip">
+                    {new Date(call.startedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                  </span>
+                )}
+              </div>
+            </div>
 
-      <section style={S.sec}>
-        <div style={S.secHead}>Questions you didn't ask</div>
-        {sum.questionsNotAsked.length === 0 ? (
-          <div style={S.cardNote}>You picked up everything Ruby surfaced.</div>
-        ) : (
-          <ul style={S.qList}>
-            {sum.questionsNotAsked.map((q, i) => (
-              <li key={i} style={S.qItem}>{q.text}</li>
-            ))}
-          </ul>
-        )}
-      </section>
+            <div className="pcs-stats" data-testid="call-stat">
+              <div className="pcs-stat-card">
+                <div className="pcs-stat-num">{summary.stat.surfaced}</div>
+                <div className="pcs-stat-label">Nudges surfaced</div>
+              </div>
+              <div className="pcs-stat-card">
+                <div className="pcs-stat-num">{summary.stat.used}</div>
+                <div className="pcs-stat-label">Used by you</div>
+              </div>
+              <div className="pcs-stat-card">
+                <div className="pcs-stat-num">{(() => {
+                  const cl = call.components?.find((c) => c.type === "checklist") as { items: ChecklistItemR[] } | undefined;
+                  if (!cl || cl.items.length === 0) return "—";
+                  return `${cl.items.filter((it) => it.done).length}/${cl.items.length}`;
+                })()}</div>
+                <div className="pcs-stat-label">Checklist done</div>
+              </div>
+            </div>
 
-      <div style={S.stat} data-testid="call-stat">
-        Ruby surfaced {sum.stat.surfaced}, you used {sum.stat.used}.
+            <div className="pcs-section">
+              <div className="pcs-section-label">Recap</div>
+              <p className="pcs-recap">{summary.recap}</p>
+            </div>
+
+            {summary.insights.length > 0 && (
+              <div className="pcs-section">
+                <div className="pcs-section-label">Insights &amp; quotes</div>
+                <ul className="pcs-insight-list">
+                  {summary.insights.map((ins, i) => (
+                    <li key={i} className="pcs-insight-item">
+                      <p className="pcs-insight-text">{ins.text}</p>
+                      {ins.assisted && (
+                        <span className="pcs-assisted-pill">✓ {ins.via || "Ruby"}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.questionsNotAsked.length > 0 && (
+              <div className="pcs-section">
+                <div className="pcs-section-label pcs-label-missed">Questions you didn't ask</div>
+                <ul className="pcs-q-list">
+                  {summary.questionsNotAsked.map((q, i) => (
+                    <li key={i} className="pcs-q-item">
+                      <span className="pcs-q-mark">?</span>
+                      <span className="pcs-q-text">{q.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <ChecklistCoverage components={call.components} />
+
+            {noteSaved ? (
+              <div className="pcs-memory-card" data-testid="nudge-note-saved">
+                <div className="pcs-memory-icon">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M4 9.5L7.5 13L14 5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                <div className="pcs-memory-content">
+                  <div className="pcs-memory-title">Saved to memory</div>
+                  <div className="pcs-memory-desc">Ruby will apply this to future calls.</div>
+                </div>
+              </div>
+            ) : noteOpen ? (
+              <div className="pcs-memory-card pcs-memory-open">
+                <div className="pcs-memory-content">
+                  <div className="pcs-memory-title">Note how Ruby nudged</div>
+                  <textarea
+                    className="pcs-note-input"
+                    data-testid="nudge-note-input"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="e.g. The pricing nudge landed at the right moment — do that more."
+                    rows={3}
+                    autoFocus
+                  />
+                  <div className="pcs-note-actions">
+                    <button className="pcs-note-cancel" onClick={() => { setNoteOpen(false); setNote(""); }}>Cancel</button>
+                    <button className="pcs-memory-btn" data-testid="nudge-note-save" onClick={saveNote} disabled={!note.trim()}>Save</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="pcs-memory-card">
+                <div className="pcs-memory-icon">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M9 2.5L10.3 6.4H14.5L11.1 8.8L12.4 12.7L9 10.3L5.6 12.7L6.9 8.8L3.5 6.4H7.7L9 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                <div className="pcs-memory-content">
+                  <div className="pcs-memory-title">Save to memory</div>
+                  <div className="pcs-memory-desc">Tell Ruby how the coaching landed — it applies to future calls.</div>
+                </div>
+                <button className="pcs-memory-btn" data-testid="nudge-note-open" onClick={() => setNoteOpen(true)}>
+                  Add note
+                </button>
+              </div>
+            )}
+
+            <TranscriptSection transcript={call.transcript} />
+          </>
+        )}
       </div>
-
-      <TranscriptSection transcript={transcript} />
-
-      {noteSaved ? (
-        <div style={S.noteSaved} data-testid="nudge-note-saved">
-          Saved to memory.
-        </div>
-      ) : noteOpen ? (
-        <div style={S.noteRow}>
-          <textarea
-            style={S.noteInput}
-            data-testid="nudge-note-input"
-            placeholder="e.g. don't surface follow-up questions during the close"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveNote();
-            }}
-            autoFocus
-          />
-          <button
-            style={S.btnAccent}
-            data-testid="nudge-note-save"
-            onClick={saveNote}
-            disabled={!note.trim()}
-          >
-            Save to memory
-          </button>
-        </div>
-      ) : (
-        <button
-          style={S.noteToggle}
-          data-testid="nudge-note-open"
-          onClick={() => setNoteOpen(true)}
-        >
-          + Note something about how Ruby nudged
-        </button>
-      )}
     </div>
   );
 }
 
-const S: Record<string, React.CSSProperties> = {
-  page: {
-    font: v("--font", "14px system-ui, sans-serif"),
-    color: v("--text", "#211d15"),
-    background: v("--bg", "#faf7e9"),
-    minHeight: "100vh",
-    padding: "44px 32px 40px",
-    boxSizing: "border-box",
-    maxWidth: 760,
-    margin: "0 auto",
-  },
-  header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16 },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: 9,
-    fontFamily: v("--serif", "Georgia, serif"),
-    fontSize: 26,
-    fontWeight: 500,
-    letterSpacing: "-0.015em",
-    color: v("--ink", "#211d15"),
-  },
-  subtitle: { fontSize: 13, color: v("--muted", "#6e6757"), marginTop: 6 },
-  nav: { display: "flex", gap: 4, flexShrink: 0 },
-  navBtn: {
-    padding: "6px 12px",
-    fontSize: 13,
-    color: v("--muted", "#9a9aa2"),
-    background: "transparent",
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  navBtnActive: { color: v("--text-strong", "#fff"), background: v("--surface-raised", "#2a2a32"), borderColor: v("--border-strong", "#3a3a44") },
-  warn: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    padding: "10px 14px",
-    marginBottom: 14,
-    fontSize: 13,
-    color: v("--amber", "#e0a23a"),
-    background: "rgba(224,162,58,0.10)",
-    border: `1px solid ${v("--amber", "#e0a23a")}`,
-    borderRadius: 8,
-  },
-  card: {
-    background: v("--surface", "#1e1e24"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 12,
-    padding: 18,
-    marginBottom: 18,
-  },
-  label: { fontSize: 13, fontWeight: 600, color: v("--text-strong", "#fff") },
-  textarea: {
-    width: "100%",
-    minHeight: 220,
-    marginTop: 8,
-    padding: 12,
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 13,
-    lineHeight: 1.5,
-    color: v("--text", "#e8e8ea"),
-    background: v("--surface-2", "#141418"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 8,
-    resize: "vertical",
-    boxSizing: "border-box",
-  },
-  row: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
-  skillRow: { display: "flex", alignItems: "center", gap: 10, marginTop: 12 },
-  skillSelect: {
-    flex: 1,
-    padding: "8px 10px",
-    fontSize: 13,
-    color: v("--text", "#e8e8ea"),
-    background: v("--surface-2", "#141418"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 8,
-  },
-  skillHint: { marginTop: 6, fontSize: 12, color: v("--muted-dim", "#6a6a72") },
-  live: { marginTop: 12, fontSize: 13, color: v("--green", "#46c46a"), display: "flex", alignItems: "center", gap: 8 },
-  ending: { marginTop: 12, fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },
-  summarizing: { fontSize: 13, color: v("--gold", "#c98e2e"), display: "flex", alignItems: "center", gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: "50%", background: v("--green", "#46c46a"), display: "inline-block" },
-  error: {
-    marginTop: 12,
-    padding: "10px 12px",
-    fontSize: 13,
-    color: v("--danger-text", "#ffb4b4"),
-    background: "rgba(220,80,80,0.12)",
-    border: `1px solid ${v("--red", "#d05050")}`,
-    borderRadius: 8,
-  },
-  cardHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  empty: { fontSize: 13, color: v("--muted-dim", "#6a6a72") },
-  memIntro: { fontSize: 13, lineHeight: 1.5, color: v("--muted", "#6e6757"), marginBottom: 14 },
-  memAddRow: { display: "flex", gap: 10, marginBottom: 8 },
-  memInput: {
-    flex: 1,
-    padding: "10px 12px",
-    fontSize: 13,
-    color: v("--ink", "#211d15"),
-    background: v("--card", "#fff"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 10,
-    outline: "none",
-    fontFamily: "inherit",
-  },
-  memRowWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 12px",
-    borderRadius: 10,
-  },
-  memText: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.45, color: v("--ink", "#211d15") },
-  pageWide: { maxWidth: 1120 },
-  textareaTall: { minHeight: 460 },
-  prepSplit: { display: "flex", gap: 20, alignItems: "stretch" },
-  prepRight: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" },
-  chatCard: {
-    flex: "1 1 0",
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
-    background: v("--surface", "#fff"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 12,
-    padding: 18,
-    marginBottom: 18,
-  },
-  chatHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  chatLog: {
-    flex: 1,
-    minHeight: 440,
-    maxHeight: "62vh",
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-    marginBottom: 12,
-    paddingRight: 4,
-  },
-  bubbleUser: {
-    alignSelf: "flex-end",
-    maxWidth: "85%",
-    padding: "8px 12px",
-    fontSize: 13,
-    lineHeight: 1.45,
-    color: "#fff",
-    background: `linear-gradient(140deg, ${v("--ruby", "#d61f47")}, ${v("--ruby-deep", "#b01238")})`,
-    borderRadius: "12px 12px 4px 12px",
-    whiteSpace: "pre-wrap",
-  },
-  bubbleAsst: {
-    alignSelf: "flex-start",
-    maxWidth: "85%",
-    padding: "8px 12px",
-    fontSize: 13,
-    lineHeight: 1.45,
-    color: v("--ink", "#211d15"),
-    background: v("--surface-2", "#f1ecd9"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: "12px 12px 12px 4px",
-    whiteSpace: "pre-wrap",
-  },
-  chatInputRow: { display: "flex", gap: 8, alignItems: "flex-end" },
-  chatComposer: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 44,
-    maxHeight: 160,
-    padding: "11px 12px",
-    fontSize: 14,
-    lineHeight: 1.45,
-    color: v("--ink", "#211d15"),
-    background: v("--card", "#fff"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 10,
-    outline: "none",
-    resize: "none",
-    fontFamily: "inherit",
-    boxSizing: "border-box",
-  },
-  compBlock: { marginBottom: 16 },
-  goalInput: {
-    width: "100%",
-    minHeight: 64,
-    padding: "10px 12px",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: v("--ink", "#211d15"),
-    background: v("--card", "#fff"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 10,
-    outline: "none",
-    resize: "vertical",
-    fontFamily: "inherit",
-    boxSizing: "border-box",
-  },
-  compHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  compKind: {
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: "0.13em",
-    textTransform: "uppercase",
-    color: v("--ruby", "#d61f47"),
-  },
-  checkRow: { display: "flex", alignItems: "center", gap: 8 },
-  checkDot: { flexShrink: 0, fontSize: 12, color: v("--ink-faint", "#a39a82") },
-  checkInput: {
-    flex: 1,
-    minWidth: 0,
-    padding: "6px 8px",
-    fontSize: 13,
-    color: v("--ink", "#211d15"),
-    background: v("--card", "#fff"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 8,
-    outline: "none",
-    fontFamily: "inherit",
-  },
-  list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 },
-  callRow: {
-    width: "100%",
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    padding: "8px 10px",
-    background: "transparent",
-    border: "none",
-    borderRadius: 6,
-    color: v("--text", "#e8e8ea"),
-    cursor: "pointer",
-    textAlign: "left",
-    fontSize: 13,
-  },
-  callName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  callDate: { color: v("--muted-dim", "#6a6a72"), flexShrink: 0 },
-  callGroup: { marginTop: 6 },
-  callDay: {
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-    color: v("--ink-faint", "#a39a82"),
-    margin: "14px 0 4px",
-    paddingLeft: 4,
-  },
-  callRowWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: 10,
-  },
-  callMain: {
-    flex: 1,
-    minWidth: 0,
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "10px 10px",
-    background: "transparent",
-    border: "none",
-    borderRadius: 10,
-    cursor: "pointer",
-    textAlign: "left",
-    color: v("--ink", "#211d15"),
-    font: "inherit",
-  },
-  callChevron: { flexShrink: 0, width: 10, fontSize: 11, color: v("--ink-faint", "#a39a82") },
-  callTitle: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 14,
-    fontWeight: 600,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  callMeta: { flexShrink: 0, fontSize: 12, color: v("--ink-faint", "#a39a82") },
-  renameBtn: {
-    flexShrink: 0,
-    width: 32,
-    height: 32,
-    border: "none",
-    background: "transparent",
-    color: v("--ink-faint", "#a39a82"),
-    borderRadius: 8,
-    cursor: "pointer",
-    fontSize: 13,
-  },
-  renameInput: {
-    flex: 1,
-    padding: "9px 10px",
-    fontSize: 14,
-    fontWeight: 600,
-    color: v("--ink", "#211d15"),
-    background: v("--card", "#fff"),
-    border: `1px solid ${v("--ruby", "#d61f47")}`,
-    borderRadius: 10,
-    outline: "none",
-    fontFamily: "inherit",
-  },
-  pre: {
-    margin: "4px 0 8px",
-    padding: 12,
-    maxHeight: 320,
-    overflow: "auto",
-    fontSize: 12,
-    lineHeight: 1.45,
-    color: v("--muted", "#bdbdc4"),
-    background: v("--surface-2", "#141418"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 8,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-  },
-  card2: {
-    margin: "4px 0 10px",
-    padding: 16,
-    background: v("--surface-2", "#141418"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 10,
-  },
-  receiptHead: {
-    fontFamily: v("--serif", "Georgia, serif"),
-    fontSize: 19,
-    fontWeight: 600,
-    color: v("--ink", "#211d15"),
-    marginBottom: 16,
-  },
-  receiptMeta: { color: v("--ink-faint", "#a39a82"), fontWeight: 400 },
-  sec: { marginBottom: 16 },
-  secHead: {
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: "0.13em",
-    textTransform: "uppercase",
-    color: v("--ruby", "#d61f47"),
-    marginBottom: 8,
-  },
-  recap: { margin: 0, fontSize: 13, lineHeight: 1.55, color: v("--text", "#211d15") },
-  insightList: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 },
-  insight: {
-    display: "flex",
-    gap: 9,
-    fontSize: 13,
-    lineHeight: 1.5,
-    color: v("--text", "#211d15"),
-  },
-  checkOn: { color: v("--ok", "#2e9e63"), flexShrink: 0, fontWeight: 800 },
-  checkOff: { color: v("--ink-faint", "#a39a82"), flexShrink: 0, fontWeight: 700 },
-  via: { color: v("--gold", "#c98e2e"), fontStyle: "italic" },
-  qList: { listStyle: "disc", margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 },
-  qItem: { fontSize: 13, lineHeight: 1.5, color: v("--text", "#e8e8ea") },
-  cardNote: { fontSize: 13, color: v("--muted-dim", "#6a6a72") },
-  transcriptToggle: {
-    padding: 0,
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: "0.13em",
-    textTransform: "uppercase",
-    color: v("--ruby", "#d61f47"),
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-  },
-  transcriptBody: {
-    marginTop: 10,
-    maxHeight: 280,
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: 7,
-    paddingRight: 6,
-  },
-  uttRow: { display: "flex", gap: 8, fontSize: 13, lineHeight: 1.5, alignItems: "baseline" },
-  uttTime: {
-    flexShrink: 0,
-    fontSize: 11,
-    fontVariantNumeric: "tabular-nums",
-    color: v("--ink-faint", "#a39a82"),
-    minWidth: 34,
-  },
-  uttMe: { flexShrink: 0, fontWeight: 700, color: v("--ruby", "#d61f47"), minWidth: 38 },
-  uttThem: { flexShrink: 0, fontWeight: 700, color: v("--muted", "#6e6757"), minWidth: 38 },
-  uttText: { color: v("--text", "#211d15") },
-  stat: {
-    marginTop: 4,
-    paddingTop: 12,
-    borderTop: `1px solid ${v("--border", "#2c2c34")}`,
-    fontSize: 12,
-    color: v("--muted", "#9a9aa2"),
-  },
-  noteToggle: {
-    marginTop: 10,
-    padding: 0,
-    fontSize: 12,
-    color: v("--muted", "#9a9aa2"),
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    fontFamily: "inherit",
-    textAlign: "left",
-  },
-  noteRow: { display: "flex", gap: 10, marginTop: 10, alignItems: "flex-start" },
-  noteInput: {
-    flex: 1,
-    minHeight: 40,
-    padding: "10px 12px",
-    fontSize: 13,
-    lineHeight: 1.45,
-    color: v("--ink", "#211d15"),
-    background: v("--card", "#fff"),
-    border: `1px solid ${v("--border", "#2c2c34")}`,
-    borderRadius: 10,
-    outline: "none",
-    fontFamily: "inherit",
-    resize: "vertical",
-  },
-  noteSaved: { marginTop: 10, fontSize: 12, color: v("--muted", "#9a9aa2") },
-  settingRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-    padding: "12px 0",
-    borderBottom: `1px solid ${v("--border", "#2c2c34")}`,
-  },
-  settingLabel: { fontSize: 13, fontWeight: 600, color: v("--text-strong", "#fff") },
-  settingValue: { fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 },
-  settingControl: { flexShrink: 0 },
-  btnAccent: {
-    padding: "9px 18px",
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#fff",
-    background: `linear-gradient(140deg, ${v("--ruby", "#d61f47")}, ${v("--ruby-deep", "#b01238")})`,
-    border: "none",
-    borderRadius: 10,
-    cursor: "pointer",
-    boxShadow: "0 4px 14px rgba(214,31,71,0.28)",
-  },
-  btnDanger: {
-    padding: "8px 16px",
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#fff",
-    background: v("--red", "#d05050"),
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  btnBusy: { opacity: 0.6, cursor: "default" },
-  btnGhost: {
-    padding: "8px 14px",
-    fontSize: 13,
-    color: v("--text", "#e8e8ea"),
-    background: "transparent",
-    border: `1px solid ${v("--border-strong", "#3a3a44")}`,
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  linkBtn: {
-    padding: 0,
-    fontSize: 13,
-    color: v("--accent", "#5b7cfa"),
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-  },
-};
+// ─── Memory screen ────────────────────────────────────────────────────────────
+
+function MemoryScreen(props: {
+  memories: Mem[];
+  newMemory: string;
+  setNewMemory: (v: string) => void;
+  editingMem: { id: string; draft: string } | null;
+  setEditingMem: (v: { id: string; draft: string } | null) => void;
+  addMemory: () => void;
+  saveMemoryEdit: () => void;
+  deleteMemory: (id: string) => void;
+  onBack: () => void;
+}): JSX.Element {
+  const { memories, newMemory, setNewMemory, editingMem, setEditingMem, addMemory, saveMemoryEdit, deleteMemory, onBack } = props;
+  return (
+    <div className="fullscreen-root">
+      <div className="app-dragbar" />
+      <header className="fullscreen-topbar app-drag">
+        <button className="fullscreen-back app-no-drag" onClick={onBack}>← Back</button>
+        <span className="fullscreen-title">Memory</span>
+        <span />
+      </header>
+      <div className="fullscreen-body">
+        <p className="fullscreen-intro">Tell Ruby how to coach you. These apply to every call.</p>
+        <div className="mem-add-row">
+          <input className="mem-input" data-testid="memory-input" value={newMemory} placeholder="e.g. Nudge me rarely — only when it really matters."
+            onChange={(e) => setNewMemory(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addMemory(); }} />
+          <button className="mem-add-btn" data-testid="memory-add" onClick={addMemory} disabled={!newMemory.trim()}>Add</button>
+        </div>
+        {memories.length === 0
+          ? <div className="fullscreen-empty">No memories yet.</div>
+          : <ul className="mem-list">{memories.map((m) => {
+            const isEdit = editingMem?.id === m.id;
+            return (
+              <li key={m.id} className="mem-item" data-testid="memory-item">
+                {isEdit ? (
+                  <input autoFocus className="mem-edit-input" value={editingMem.draft}
+                    onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveMemoryEdit(); if (e.key === "Escape") setEditingMem(null); }}
+                    onBlur={saveMemoryEdit} />
+                ) : (
+                  <>
+                    <span className="mem-text">{m.text}</span>
+                    {m.source === "suggested" && <span className="mem-tag">suggested</span>}
+                    <button className="mem-action-btn" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>✎</button>
+                    <button className="mem-action-btn" onClick={() => deleteMemory(m.id)}>✕</button>
+                  </>
+                )}
+              </li>
+            );
+          })}</ul>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Settings screen ──────────────────────────────────────────────────────────
+
+const MIC_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+
+function SettingsScreen(props: {
+  micStatus: string | null;
+  claude: { found: boolean; path: string | null } | null;
+  hotkey: string;
+  refreshMic: () => void;
+  refreshClaude: () => void;
+  onBack: () => void;
+}): JSX.Element {
+  const { micStatus, claude, hotkey, refreshMic, refreshClaude, onBack } = props;
+  const micOk = micStatus === "granted";
+  const micBlocked = micStatus === "denied" || micStatus === "restricted";
+  return (
+    <div className="fullscreen-root">
+      <div className="app-dragbar" />
+      <header className="fullscreen-topbar app-drag">
+        <button className="fullscreen-back app-no-drag" onClick={onBack}>← Back</button>
+        <span className="fullscreen-title">Settings</span>
+        <span />
+      </header>
+      <div className="fullscreen-body">
+        <div className="set-group">
+          <SettingRow label="Microphone" value={micStatus ?? "checking…"} tone={micOk ? "green" : micBlocked ? "red" : "amber"}>
+            {!micOk && (micBlocked
+              ? <button className="set-btn" onClick={() => window.prompty.invoke("onboarding:open-external", { url: MIC_SETTINGS_URL })}>Open System Settings</button>
+              : <button className="set-btn set-btn-accent" onClick={() => { window.prompty.invoke("onboarding:request-mic", undefined as never).catch(() => {}); refreshMic(); }}>Grant access</button>
+            )}
+          </SettingRow>
+          <SettingRow label="Claude Code" value={claude ? (claude.found ? claude.path ?? "found" : "not found") : "checking…"} tone={claude?.found ? "green" : claude ? "red" : "amber"}>
+            <button className="set-btn" onClick={refreshClaude}>Re-check</button>
+          </SettingRow>
+        </div>
+        <div className="set-group">
+          <SettingRow label="Hotkey (ask)" value={hotkey} tone="muted" />
+          <SettingRow label="Debug logs" value="~/.prompty/debug" tone="muted">
+            <button className="set-btn" onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}>Open folder</button>
+          </SettingRow>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingRow(props: { label: string; value: string; tone: "green" | "red" | "amber" | "muted"; children?: React.ReactNode }): JSX.Element {
+  return (
+    <div className="set-row">
+      <div className="set-row-main">
+        <div className="set-label">{props.label}</div>
+        <div className={`set-val set-val-${props.tone}`}>{props.value}</div>
+      </div>
+      {props.children && <div className="set-control">{props.children}</div>}
+    </div>
+  );
+}
