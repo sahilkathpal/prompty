@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { RubyLogo } from "../shared/RubyLogo";
 import type { MediaPermissionStatus, PermissionStatus } from "../shared/types";
 
 type StepKey = "welcome" | "claude" | "mic" | "hotkey" | "signin";
@@ -386,7 +387,7 @@ export default function App(): JSX.Element {
 function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div className="ob-step-content">
-      <img src={new URL("./ruby.png", import.meta.url).href} width={54} height={54} style={{ borderRadius: 15, marginBottom: 18, display: "block", objectFit: "cover" }} alt="Ruby" />
+      <div style={{ marginBottom: 18 }}><RubyLogo size={48} /></div>
       <h1 className="ob-title">Meet Ruby, <em>your call coach.</em></h1>
       <p className="ob-body">
         A real-time AI coach that lives inside your calls. She preps you before,

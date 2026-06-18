@@ -10,6 +10,7 @@
 
 import React from "react";
 import "./gem.css";
+import { RubyLogo } from "./RubyLogo";
 
 export type GemState =
   | "idle"
@@ -206,7 +207,7 @@ export function Gem({
 
   return (
     <div className={`gem-pill is-${state}${className ? ` ${className}` : ""}`}>
-      <FacedGem state={state} />
+      <RubyLogo size={26} />
       {middle}
       <div className="gem-dots6">
         <i />
