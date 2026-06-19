@@ -412,7 +412,7 @@ export default function App(): JSX.Element {
                   disabled={isEnding}
                   onClick={endCall}
                 >
-                  {isEnding ? "Ending…" : "End call"}
+                  {isEnding ? "Stopping…" : "Stop Listening"}
                 </button>
               </div>
             )}

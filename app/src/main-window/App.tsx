@@ -607,7 +607,7 @@ function HomeScreen(props: {
               disabled={isEnding}
             >
               <span className="home-live-dot" />
-              {isEnding ? "Ending…" : "End call"}
+              {isEnding ? "Stopping…" : "Stop Listening"}
             </button>
           )}
           <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
@@ -887,6 +887,45 @@ function PrepScreen(props: {
               spellCheck={false}
               rows={1}
             />
+
+            {/* Goal + checklist are folded into the note itself (sections of the
+                one document), not separate cards — but they stay structured
+                PrepComponents so live mark_covered + post-call coverage work. */}
+            {prepComponents.length > 0 && (
+              <div className="prep-components prep-note-components" data-testid="prep-components">
+                {prepComponents.map((c) =>
+                  c.type === "goal" ? (
+                    <div key={c.id} className="prep-comp-block" data-testid="component-goal">
+                      <div className="prep-comp-head">
+                        <span className="prep-comp-kind">Goal</span>
+                        <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
+                      </div>
+                      <textarea className="prep-comp-goal-input" data-testid="goal-input" value={c.text} rows={2}
+                        placeholder="The one outcome that makes this call a success…"
+                        onChange={(e) => editGoal(c.id, e.target.value)} />
+                    </div>
+                  ) : (
+                    <div key={c.id} className="prep-comp-block" data-testid="component-checklist">
+                      <div className="prep-comp-head">
+                        <span className="prep-comp-kind">{c.title?.trim() || "Checklist"}</span>
+                        <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
+                      </div>
+                      <ul className="prep-comp-list">
+                        {c.items.map((it) => (
+                          <li key={it.id} className="prep-comp-item" data-testid="checklist-item">
+                            <span className="prep-comp-dot">○</span>
+                            <input className="prep-comp-item-input" value={it.text}
+                              onChange={(e) => editItem(c.id, it.id, e.target.value)} />
+                            <button className="prep-comp-del" data-testid="checklist-item-delete" onClick={() => deleteItem(c.id, it.id)}>✕</button>
+                          </li>
+                        ))}
+                      </ul>
+                      <button className="prep-add-item" data-testid="checklist-add" onClick={() => addItem(c.id)}>+ Add item</button>
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
           </div>
 
           <div className="prep-skill">
@@ -910,41 +949,6 @@ function PrepScreen(props: {
             )}
           </div>
 
-          {prepComponents.length > 0 && (
-            <div className="prep-components" data-testid="prep-components">
-              {prepComponents.map((c) =>
-                c.type === "goal" ? (
-                  <div key={c.id} className="prep-comp-block" data-testid="component-goal">
-                    <div className="prep-comp-head">
-                      <span className="prep-comp-kind">Goal</span>
-                      <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
-                    </div>
-                    <textarea className="prep-comp-goal-input" data-testid="goal-input" value={c.text} rows={2}
-                      placeholder="The one outcome that makes this call a success…"
-                      onChange={(e) => editGoal(c.id, e.target.value)} />
-                  </div>
-                ) : (
-                  <div key={c.id} className="prep-comp-block" data-testid="component-checklist">
-                    <div className="prep-comp-head">
-                      <span className="prep-comp-kind">{c.title?.trim() || "Checklist"}</span>
-                      <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
-                    </div>
-                    <ul className="prep-comp-list">
-                      {c.items.map((it) => (
-                        <li key={it.id} className="prep-comp-item" data-testid="checklist-item">
-                          <span className="prep-comp-dot">○</span>
-                          <input className="prep-comp-item-input" value={it.text}
-                            onChange={(e) => editItem(c.id, it.id, e.target.value)} />
-                          <button className="prep-comp-del" data-testid="checklist-item-delete" onClick={() => deleteItem(c.id, it.id)}>✕</button>
-                        </li>
-                      ))}
-                    </ul>
-                    <button className="prep-add-item" data-testid="checklist-add" onClick={() => addItem(c.id)}>+ Add item</button>
-                  </div>
-                ),
-              )}
-            </div>
-          )}
           {prepComponents.length === 0 && (
             <div className="prep-empty-state">
               <svg width="20" height="20" viewBox="0 0 28 28" fill="none" className="prep-empty-sparkle">
@@ -994,7 +998,7 @@ function LiveScreen(props: {
         </div>
         <div className="live-timer">{timer}</div>
         <button className={`live-end-btn${isEnding ? " busy" : ""}`} data-testid="end-call" onClick={onEnd} disabled={isEnding}>
-          {isEnding ? "Ending…" : "End session"}
+          {isEnding ? "Stopping…" : "Stop Listening"}
         </button>
       </header>
       {isEnding && (
@@ -1397,6 +1401,40 @@ function SettingsScreen(props: {
   const { micStatus, claude, hotkey, refreshMic, refreshClaude, onBack } = props;
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
+
+  // Account (Google sign-in). Self-contained: query on mount, stay in sync via
+  // the auth:state-changed broadcast.
+  const [account, setAccount] = useState<{ signedIn: boolean; email?: string } | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    window.prompty.invoke("auth:status", undefined as never).then((s) => {
+      if (active) setAccount(s);
+    });
+    const off = window.prompty.on("auth:state-changed", (s) =>
+      setAccount({ signedIn: s.signedIn, email: s.email }),
+    );
+    return () => { active = false; off(); };
+  }, []);
+  async function signIn() {
+    setAuthBusy(true);
+    try {
+      const res = await window.prompty.invoke("auth:google-sign-in", undefined as never);
+      if (res.ok) setAccount({ signedIn: true, email: res.email });
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+  async function signOut() {
+    setAuthBusy(true);
+    try {
+      await window.prompty.invoke("auth:sign-out", undefined as never);
+      setAccount({ signedIn: false });
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   return (
     <div className="fullscreen-root">
       <div className="app-dragbar" />
@@ -1415,6 +1453,18 @@ function SettingsScreen(props: {
           </SettingRow>
           <SettingRow label="Claude Code" value={claude ? (claude.found ? claude.path ?? "found" : "not found") : "checking…"} tone={claude?.found ? "green" : claude ? "red" : "amber"}>
             <button className="set-btn" onClick={refreshClaude}>Re-check</button>
+          </SettingRow>
+        </div>
+        <div className="set-group">
+          <SettingRow
+            label="Account"
+            value={account ? (account.signedIn ? account.email ?? "signed in" : "not signed in") : "checking…"}
+            tone={account?.signedIn ? "green" : account ? "amber" : "muted"}
+          >
+            {account && (account.signedIn
+              ? <button className="set-btn" disabled={authBusy} onClick={signOut}>Sign out</button>
+              : <button className="set-btn set-btn-accent" disabled={authBusy} onClick={signIn}>Sign in with Google</button>
+            )}
           </SettingRow>
         </div>
         <div className="set-group">
