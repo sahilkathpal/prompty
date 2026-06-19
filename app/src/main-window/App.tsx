@@ -116,33 +116,23 @@ function ChecklistCoverage(props: { components?: PrepComp[] }): JSX.Element | nu
 // Collapsible full transcript, collapsed by default — the summary is the
 // headline; the transcript is on-demand. Renders nothing for logs that predate
 // transcript capture.
-function TranscriptSection(props: { transcript?: Utterance[] }): JSX.Element | null {
-  const [open, setOpen] = useState(false);
+function TranscriptSection(props: { transcript?: Utterance[]; expanded?: boolean }): JSX.Element | null {
   const lines = props.transcript ?? [];
-  if (lines.length === 0) return null;
+  if (lines.length === 0) return <div className="pcs-transcript-empty">No transcript available for this call.</div>;
   const baseMs = lines[0].startMs;
   return (
-    <div className="pcs-section" data-testid="call-transcript">
-      <button
-        className="pcs-transcript-toggle"
-        data-testid="call-transcript-toggle"
-        onClick={() => setOpen((o) => !o)}
-      >
-        {open ? "▾" : "▸"} Transcript · {lines.length} lines
-      </button>
-      {open && (
-        <div className="pcs-transcript-body">
-          {lines.map((u, i) => (
-            <div key={i} className="pcs-utt-row">
-              <span className="pcs-utt-time">{intoCall(u.startMs, baseMs)}</span>
-              <span className={u.speaker === "me" ? "pcs-utt-me" : "pcs-utt-them"}>
-                {u.speaker === "me" ? "You" : "Them"}
-              </span>
-              <span className="pcs-utt-text">{u.text}</span>
-            </div>
-          ))}
+    <div className="pcs-transcript-full" data-testid="call-transcript">
+      {lines.map((u, i) => (
+        <div key={i} className={`pcs-utt-row ${u.speaker === "me" ? "is-me" : "is-them"}`}>
+          <div className="pcs-utt-meta">
+            <span className={u.speaker === "me" ? "pcs-utt-me" : "pcs-utt-them"}>
+              {u.speaker === "me" ? "You" : "Them"}
+            </span>
+            <span className="pcs-utt-time">{intoCall(u.startMs, baseMs)}</span>
+          </div>
+          <div className="pcs-utt-bubble">{u.text}</div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -602,8 +592,12 @@ function HomeScreen(props: {
       {/* Topbar */}
       <header className="home-topbar app-drag">
         <div className="home-brand">
-          <Gem variant="mini" size={20} />
-          <span className="home-wordmark">Prompty</span>
+          <svg width="40" height="16" viewBox="0 0 361 147" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Ruby">
+            <path d="M288.453 55.7333C284.622 46.2691 282.894 44.6918 275.608 43.2646V35.9788H317.972V43.2646C308.132 44.0909 306.705 45.8185 309.86 54.5315L323.154 90.8107L337.2 54.5315C340.505 45.8185 339.078 44.0158 329.163 43.2646V35.9788H360.11V43.2646C352.598 44.4664 351.096 45.4429 346.89 55.7333L330.44 95.8432L323.68 112.368L311.212 146.919H291.983V146.469C297.391 137.756 305.728 123.935 311.888 113.269L288.453 55.7333Z" fill="#1a1814"/>
+            <path d="M275.079 73.1593C275.079 98.0214 259.005 114.095 238.8 114.095C228.134 114.095 219.346 108.988 214.989 103.054L207.252 112.368H198.014V18.4776C198.014 14.1962 197.338 13.0695 193.056 11.9428L187.423 10.5157V3.90583L218.97 0V47.6962C222.951 39.7343 232.64 34.2512 243.982 34.2512C261.183 34.2512 275.079 48.8229 275.079 73.1593ZM253.446 74.8869C253.446 56.7848 245.56 46.3442 233.692 46.3442C227.007 46.3442 221.524 49.2736 218.97 54.0808V97.1952C221.223 100.725 226.256 103.955 233.241 103.955C245.109 103.955 253.446 93.2894 253.446 74.8869Z" fill="#1a1814"/>
+            <path d="M128.977 35.0024V84.8769C128.977 95.9936 134.76 101.927 144.675 101.927C151.586 101.927 156.768 98.6976 159.172 94.7166V53.3298C159.172 49.1235 158.496 47.9969 154.29 46.9453L148.581 45.443V38.8332L180.203 35.0024V95.0922C180.203 99.3736 180.879 100.5 185.236 101.627L190.869 103.054V109.664L159.547 113.344V100.876C155.341 108.237 146.478 114.096 133.859 114.096C118.386 114.096 108.021 104.932 108.021 88.933V53.3298C108.021 49.1235 107.344 47.9969 103.138 46.9453L97.4297 45.443V38.8332L128.977 35.0024Z" fill="#1a1814"/>
+            <path d="M93.2894 33.1247C93.3645 46.7951 83.9003 56.109 71.8073 59.1886L85.5528 85.3276C94.3409 101.627 97.6459 104.406 102.077 105.533V112.368H76.0135L51.7523 65.1224H35.3027V96.1438C35.3027 102.528 36.7299 103.88 47.2456 105.082V112.368H0V105.082C11.4171 103.88 12.694 102.453 12.694 95.7682V20.5058C12.694 13.8208 11.4171 12.3937 0 11.1919V3.90601H49.6492C78.7927 3.90601 93.2894 15.1728 93.2894 33.1247ZM70.7557 34.9273C70.7557 21.0316 61.7422 13.1448 43.5651 12.5439L35.3027 12.3186V56.785L44.9922 56.4845C61.3667 56.0339 70.7557 48.8231 70.7557 34.9273Z" fill="#1a1814"/>
+          </svg>
         </div>
         <div className="home-topbar-actions app-no-drag">
           {isLive && (
@@ -648,7 +642,7 @@ function HomeScreen(props: {
               data-testid="home-direction"
               value={direction}
               rows={2}
-              placeholder="Who's this call with? What's it about?"
+              placeholder="Tell Ruby about your next call — who it's with, what you're trying to get out of it, any context that matters."
               onChange={(e) => {
                 setDirection(e.target.value);
                 const el = e.target;
@@ -1066,9 +1060,20 @@ function PostCallScreen(props: {
 
   // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c) — never a
   // reflexive pre-filled suggestion.
+  const [tab, setTab] = useState<"summary" | "transcript">("summary");
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyTranscript = () => {
+    if (!call?.transcript) return;
+    const text = call.transcript.map((u) => `${u.speaker === "me" ? "You" : "Them"}: ${u.text}`).join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -1123,6 +1128,42 @@ function PostCallScreen(props: {
       <div className="app-dragbar" />
       <div className="pcs-toprow app-drag">
         <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← Back</button>
+        {tab === "transcript" && (
+          <button className="pcs-copy-btn app-no-drag" onClick={copyTranscript}>
+            {copied ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Copied!
+              </>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="2"/>
+                </svg>
+                Copy transcript
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      <div className="pcs-tab-toggle">
+        <button className={`pcs-tab${tab === "summary" ? " active" : ""}`} onClick={() => setTab("summary")}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M15 4H7M18 16L21 19L18 22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M3 4V17C3 17.5304 3.21071 18.0391 3.58579 18.4142C3.96086 18.7893 4.46957 19 5 19H21M7 14H14M7 9H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Summary
+        </button>
+        <button className={`pcs-tab${tab === "transcript" ? " active" : ""}`} onClick={() => setTab("transcript")}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M5 16C5 15.7348 5.10536 15.4804 5.29289 15.2929C5.48043 15.1054 5.73478 15 6 15H14C14.2652 15 14.5196 15.1054 14.7071 15.2929C14.8946 15.4804 15 15.7348 15 16C15 16.2652 14.8946 16.5196 14.7071 16.7071C14.5196 16.8946 14.2652 17 14 17H6C5.73478 17 5.48043 16.8946 5.29289 16.7071C5.10536 16.5196 5 16.2652 5 16ZM18 11C18.2652 11 18.5196 11.1054 18.7071 11.2929C18.8946 11.4804 19 11.7348 19 12C19 12.2652 18.8946 12.5196 18.7071 12.7071C18.5196 12.8946 18.2652 13 18 13H10C9.73478 13 9.48043 12.8946 9.29289 12.7071C9.10536 12.5196 9 12.2652 9 12C9 11.7348 9.10536 11.4804 9.29289 11.2929C9.48043 11.1054 9.73478 11 10 11H18ZM16 16C16 15.7348 16.1054 15.4804 16.2929 15.2929C16.4804 15.1054 16.7348 15 17 15H18C18.2652 15 18.5196 15.1054 18.7071 15.2929C18.8946 15.4804 19 15.7348 19 16C19 16.2652 18.8946 16.5196 18.7071 16.7071C18.5196 16.8946 18.2652 17 18 17H17C16.7348 17 16.4804 16.8946 16.2929 16.7071C16.1054 16.5196 16 16.2652 16 16ZM7 11C7.26522 11 7.51957 11.1054 7.70711 11.2929C7.89464 11.4804 8 11.7348 8 12C8 12.2652 7.89464 12.5196 7.70711 12.7071C7.51957 12.8946 7.26522 13 7 13H6C5.73478 13 5.48043 12.8946 5.29289 12.7071C5.10536 12.5196 5 12.2652 5 12C5 11.7348 5.10536 11.4804 5.29289 11.2929C5.48043 11.1054 5.73478 11 6 11H7Z" fill="currentColor"/>
+            <path fillRule="evenodd" clipRule="evenodd" d="M4 3C3.20435 3 2.44129 3.31607 1.87868 3.87868C1.31607 4.44129 1 5.20435 1 6V18C1 18.7956 1.31607 19.5587 1.87868 20.1213C2.44129 20.6839 3.20435 21 4 21H20C20.7956 21 21.5587 20.6839 22.1213 20.1213C22.6839 19.5587 23 18.7956 23 18V6C23 5.20435 22.6839 4.44129 22.1213 3.87868C21.5587 3.31607 20.7956 3 20 3H4ZM20 5H4C3.73478 5 3.48043 5.10536 3.29289 5.29289C3.10536 5.48043 3 5.73478 3 6V18C3 18.2652 3.10536 18.5196 3.29289 18.7071C3.48043 18.8946 3.73478 19 4 19H20C20.2652 19 20.5196 18.8946 20.7071 18.7071C20.8946 18.5196 21 18.2652 21 18V6C21 5.73478 20.8946 5.48043 20.7071 5.29289C20.5196 5.10536 20.2652 5 20 5Z" fill="currentColor"/>
+          </svg>
+          Transcript
+        </button>
       </div>
       <div className={`pcs-scroll-edge${scrolled ? " visible" : ""}`} />
       <div className="pcs-body" ref={scrollRef} onScroll={handleScroll}>
@@ -1162,6 +1203,7 @@ function PostCallScreen(props: {
               </div>
             </div>
 
+            {tab === "transcript" ? <TranscriptSection transcript={call.transcript} expanded /> : (<>
             <div className="pcs-stats" data-testid="call-stat">
               <div className="pcs-stat-card">
                 <div className="pcs-stat-num">{summary.stat.surfaced}</div>
@@ -1266,7 +1308,7 @@ function PostCallScreen(props: {
               </div>
             )}
 
-            <TranscriptSection transcript={call.transcript} />
+            </>)}
           </>
         )}
       </div>

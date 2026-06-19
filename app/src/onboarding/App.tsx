@@ -578,7 +578,15 @@ function StepMic({
           <button className="ob-btn-primary" onClick={onNext}>Continue →</button>
         )}
       </div>
-      <p className="ob-note">Ruby only listens during an active session. You're always in control.</p>
+      <div className="ob-note ob-note-trust">
+        <div className="ob-note-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C16.5 22.15 20 17.25 20 12V6l-8-4z" fill="#a0917e" />
+            <path d="M9 12l2 2 4-4" stroke="#f2ebe0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <span>Ruby only listens during an active session.<br />You're always in control.</span>
+      </div>
     </div>
   );
 }

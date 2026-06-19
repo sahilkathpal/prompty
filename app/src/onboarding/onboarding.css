@@ -1,7 +1,7 @@
 /* Onboarding revamp — Ruby onboarding flow.
  *
  * Window: 800 × 700 px, titleBarStyle:"hidden", traffic lights at x:16.
- * Layout: centered white card (420px) on warm #f0eeea background.
+ * Layout: centered white card (420px) on warm #f2ebe0 background.
  * Ruby pill floats fixed at the right edge with a speech bubble to its left. */
 
 *, *::before, *::after {
@@ -12,7 +12,7 @@ html, body, #root {
   margin: 0;
   padding: 0;
   height: auto;
-  background: #ffffff;
+  background: #f2ebe0;
   overflow: hidden;
 }
 
@@ -21,10 +21,28 @@ html, body, #root {
 .ob-app {
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: #f2ebe0;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   color: #1a1a1a;
   -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+.ob-app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.2;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  background-repeat: repeat;
+}
+
+.ob-app > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Draggable traffic-light strip */
@@ -52,12 +70,12 @@ html, body, #root {
   flex: 1;
   height: 3px;
   border-radius: 2px;
-  background: #e5e7eb;
+  background: #d4c9b8;
   transition: background 380ms ease;
 }
 
 .ob-seg.active {
-  background: rgba(187, 22, 61, 0.42);
+  background: rgba(187, 22, 61, 0.35);
 }
 
 .ob-seg.done {
@@ -157,9 +175,27 @@ html, body, #root {
 
 .ob-note {
   font-size: 11px;
-  color: #aaa;
-  margin: 10px 0 0;
+  color: #a0917e;
+  margin: 20px 0 0;
   line-height: 1.55;
+}
+
+.ob-note-trust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ob-note-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid #d4c9b8;
+  background: #ece4d7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ── Check rows ── */
