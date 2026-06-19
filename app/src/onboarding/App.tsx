@@ -128,6 +128,12 @@ export default function App(): JSX.Element {
   // Hotkey step
   const [hotkeyDone, setHotkeyDone] = useState(false);
   const [showHotkeyContinue, setShowHotkeyContinue] = useState(false);
+  // True when the real global shortcut couldn't be registered (combo already
+  // owned by another app) — the step falls back to a focused-window listener.
+  const [hotkeyFallback, setHotkeyFallback] = useState(false);
+  // The "Skip for now" safety valve fades in after a delay, so a user who
+  // genuinely can't press the combo is never stuck.
+  const [showHotkeySkip, setShowHotkeySkip] = useState(false);
 
   // Signin step
   const [signingIn, setSigningIn] = useState(false);
@@ -233,19 +239,50 @@ export default function App(): JSX.Element {
     setBubble("Thank you for trusting me with that. I'll only ever use your mic when you're on a call. Nothing else, ever.");
   }, [micGranted]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Listen for hotkey on step 4 ──────────────────────────────────────────
+  // ── Hotkey step: arm the real global shortcut + react to it ───────────────
 
+  // On entering the step, register the real global shortcut (works system-wide,
+  // even if this window isn't focused) and put main into onboarding-nudge mode.
+  // If the combo is already taken, fall back to a focused-window listener below.
   useEffect(() => {
     if (step !== "hotkey") return;
+    let cancelled = false;
+    void window.prompty
+      .invoke("onboarding:arm-hotkey", undefined as never)
+      .then((res) => {
+        if (!cancelled) setHotkeyFallback(!res.registered);
+      });
+    const skipTimer = setTimeout(() => {
+      if (!cancelled) setShowHotkeySkip(true);
+    }, 10000);
+    return () => {
+      cancelled = true;
+      clearTimeout(skipTimer);
+    };
+  }, [step]);
+
+  // The shortcut fired (real or fallback) → a sample nudge bloomed in the gem.
+  // Mark the step done, bring the card back forward, reveal Continue.
+  useEffect(() => {
+    const off = window.prompty.on("onboarding:hotkey-fired", () => {
+      onHotkeyFired();
+    });
+    return off;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fallback only: when the global shortcut couldn't be registered, catch the
+  // keypress in-window and ask main to bloom the sample nudge (same path).
+  useEffect(() => {
+    if (step !== "hotkey" || !hotkeyFallback) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey && e.shiftKey && e.code === "Space") {
         e.preventDefault();
-        triggerHotkey();
+        void window.prompty.invoke("onboarding:fire-nudge", undefined as never);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, hotkeyFallback]);
 
   // ── Advance to next step ──────────────────────────────────────────────────
 
@@ -292,12 +329,15 @@ export default function App(): JSX.Element {
     }
   }
 
-  function triggerHotkey() {
-    if (hotkeyDone) return;
-    setHotkeyDone(true);
-    setBubble("That's all there is to it. You're going to do great.");
-    setTimeout(() => setShowHotkeyContinue(true), 700);
-    void window.prompty.invoke("onboarding:celebrate", undefined as never);
+  // Called when a sample nudge bloomed (first or repeat press). The narration
+  // and Continue only need to appear once; repeat presses just re-bloom the gem.
+  function onHotkeyFired() {
+    setHotkeyDone((already) => {
+      if (already) return true;
+      setBubble("That's all there is to it. You're going to do great.");
+      setTimeout(() => setShowHotkeyContinue(true), 700);
+      return true;
+    });
   }
 
   async function handleSignIn() {
@@ -365,15 +405,17 @@ export default function App(): JSX.Element {
               <StepHotkey
                 done={hotkeyDone}
                 showContinue={showHotkeyContinue}
-                onTrigger={triggerHotkey}
+                showSkip={showHotkeySkip}
+                fallback={hotkeyFallback}
                 onNext={advance}
+                onSkip={advance}
               />
             )}
             {step === "signin" && (
               <StepSignin
                 signingIn={signingIn}
                 onSignIn={handleSignIn}
-                onRestart={() => { setStepIdx(0); setStepVisible(true); setHotkeyDone(false); setShowHotkeyContinue(false); setSigningIn(false); }}
+                onRestart={() => { setStepIdx(0); setStepVisible(true); setHotkeyDone(false); setShowHotkeyContinue(false); setHotkeyFallback(false); setShowHotkeySkip(false); setSigningIn(false); }}
               />
             )}
         </div>
@@ -544,31 +586,18 @@ function StepMic({
 function StepHotkey({
   done,
   showContinue,
-  onTrigger,
+  showSkip,
+  fallback,
   onNext,
+  onSkip,
 }: {
   done: boolean;
   showContinue: boolean;
-  onTrigger: () => void;
+  showSkip: boolean;
+  fallback: boolean;
   onNext: () => void;
+  onSkip: () => void;
 }) {
-  const [keys, setKeys] = useState({ alt: false, shift: false, space: false });
-
-  useEffect(() => {
-    const onDown = (e: KeyboardEvent) => {
-      setKeys({ alt: e.altKey, shift: e.shiftKey, space: e.code === "Space" });
-    };
-    const onUp = (e: KeyboardEvent) => {
-      setKeys(prev => ({ alt: e.altKey, shift: e.shiftKey, space: e.code === "Space" ? false : prev.space }));
-    };
-    window.addEventListener("keydown", onDown);
-    window.addEventListener("keyup", onUp);
-    return () => {
-      window.removeEventListener("keydown", onDown);
-      window.removeEventListener("keyup", onUp);
-    };
-  }, []);
-
   return (
     <div className="ob-step-content">
       <StepIcon bg="#1a1a1a">
@@ -576,27 +605,37 @@ function StepHotkey({
       </StepIcon>
       <h1 className="ob-title">Want a nudge? Just ask.</h1>
       <p className="ob-body">
-        During any live call, press this hotkey and Ruby will instantly give you
-        a question to ask. There's no call right now, so she'll say something
-        nice. Give it a try.
+        {done
+          ? "That's a nudge — the same card she'll bloom mid-call, except then she'll be listening to your actual conversation. Press again to see another."
+          : "Ruby's waiting up in the corner ↗. Press the hotkey and watch her hand you a question — it works even when another app is focused, just like on a real call."}
       </p>
 
       <div className="ob4-demo">
-        <div className="ob4-demo-label">RUBY WILL SUGGEST A QUESTION</div>
-        <div className="ob4-keys">
-          <span className={`ob4-key${keys.alt ? " ob4-key-active" : ""}`}>⌥</span>
-          <span className={`ob4-key${keys.shift ? " ob4-key-active" : ""}`}>⇧</span>
-          <span className={`ob4-key${keys.space ? " ob4-key-active" : ""}`}>Space</span>
+        <div className="ob4-demo-label">
+          {done ? "PRESS AGAIN FOR ANOTHER" : "PRESS THIS, THEN LOOK UP ↗"}
         </div>
+        <div className="ob4-keys">
+          <span className="ob4-key">⌥</span>
+          <span className="ob4-key">⇧</span>
+          <span className="ob4-key">Space</span>
+        </div>
+        {fallback && (
+          <div className="ob4-fallback-note">
+            Keep this window focused — another app is using this shortcut. You can
+            change it later in Settings.
+          </div>
+        )}
       </div>
 
       <div className="ob-actions">
-        <button className={`ob-btn-plain${done ? " ob4-btn-done" : ""}`} onClick={onTrigger} disabled={done}>
-          {done ? "🎉 She heard you!" : "Hold ⌥ ⇧ Space together"}
-        </button>
         {showContinue && (
           <button className="ob-btn-primary ob-anim-fade" onClick={onNext}>
             Continue →
+          </button>
+        )}
+        {!done && showSkip && (
+          <button className="ob-btn-skip ob-anim-fade" onClick={onSkip}>
+            Skip for now
           </button>
         )}
       </div>

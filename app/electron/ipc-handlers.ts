@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { findClaudeBinary } from "../src/main-process/claude-cli";
 import { closeOnboardingWindow, getOnboardingWindow } from "./onboarding-window";
-import type { MediaPermissionStatus, PermissionStatus } from "../src/shared/types";
+import type { MediaPermissionStatus, Nudge, PermissionStatus } from "../src/shared/types";
 import type {
   InvokeChannel,
   InvokeChannels,
@@ -70,6 +70,9 @@ export function sendTo<C extends EventChannel>(
 export interface IpcDeps {
   getOverlayWindow: () => BrowserWindow | null;
   onOnboardingComplete?: () => void;
+  // Register the global hotkey (idempotent). Lives in main where globalShortcut
+  // is owned; called when the onboarding hotkey step arms.
+  ensureHotkeyRegistered?: () => { registered: boolean; conflict: boolean };
 }
 
 function micStatus(): MediaPermissionStatus {
@@ -103,6 +106,20 @@ function setActivePrepComponents(components: PrepComponent[]): void {
   activePrepComponents = components;
   updateSettings({ prepComponents: components });
 }
+// --- Onboarding hotkey step (no live call) ----------------------------------
+// While the onboarding hotkey step is on screen we register the real global
+// shortcut early and flip this on, so its press callback blooms a canned sample
+// nudge (there's no session/agent yet) instead of the live path. Cleared at
+// onboarding:complete; after that the same shortcut routes to the real agent.
+let onboardingHotkeyArmed = false;
+let onboardingNudgeIndex = 0;
+const ONBOARDING_SAMPLE_NUDGES = [
+  "What does a great outcome here look like for you?",
+  "What's the biggest risk nobody's naming yet?",
+  "What would have to be true for this to be a yes?",
+  "What's changed since you two last spoke?",
+];
+
 // Buffer of session:status events for the active session — read by E2E.
 let statusLog: SessionStatusEvent[] = [];
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
@@ -614,6 +631,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   });
 
+  handle("onboarding:arm-hotkey", () => {
+    onboardingHotkeyArmed = true;
+    onboardingNudgeIndex = 0;
+    const res = deps.ensureHotkeyRegistered?.() ?? { registered: false, conflict: true };
+    return { ok: true, registered: res.registered, conflict: res.conflict };
+  });
+
+  handle("onboarding:fire-nudge", () => {
+    fireOnboardingNudge();
+  });
+
   handle("onboarding:celebrate", async () => {
     const { BrowserWindow: BW, screen } = require("electron") as typeof import("electron");
     // Confetti particle = the bundled Ruby image. Resolve from resources when
@@ -720,6 +748,8 @@ img.onload = () => {
 
   handle("onboarding:complete", () => {
     pendingRubyMessage = null;
+    // Hand the global hotkey back to the live nudge path.
+    onboardingHotkeyArmed = false;
     updateSettings({ onboardingCompleted: true });
     sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
     hideOverlay();
@@ -755,6 +785,30 @@ export function triggerNudge(source: "hotkey" | "tray" | "panel"): boolean {
 
 export function requestNudgeFromHotkey(): void {
   triggerNudge("hotkey");
+}
+
+export function isOnboardingHotkeyArmed(): boolean {
+  return onboardingHotkeyArmed;
+}
+
+/**
+ * Bloom a canned sample nudge for the onboarding hotkey step and tell the
+ * onboarding card it fired. Cycles ONBOARDING_SAMPLE_NUDGES on repeat presses
+ * so the user sees that nudges vary. Used by the global hotkey callback only
+ * while armed and with no live session.
+ */
+export function fireOnboardingNudge(): void {
+  const text =
+    ONBOARDING_SAMPLE_NUDGES[onboardingNudgeIndex % ONBOARDING_SAMPLE_NUDGES.length];
+  onboardingNudgeIndex += 1;
+  const nudge: Nudge = {
+    id: `onboarding_${Date.now()}_${onboardingNudgeIndex}`,
+    urgency: "medium",
+    text,
+    createdAt: Date.now(),
+  };
+  broadcast("nudge:received", nudge);
+  broadcast("onboarding:hotkey-fired", { nudge });
 }
 
 export function getActiveSession(): SessionHandle | null {
