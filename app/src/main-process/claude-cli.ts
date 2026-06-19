@@ -70,7 +70,7 @@ export function repairProcessPath(): void {
  * Pinning the agent's cwd here keeps the CLI's startup workspace probing out of
  * the user's TCC-protected folders (Desktop / Downloads / Documents / iCloud).
  * Without it the CLI inherits `process.cwd()` — for a Finder-launched app that's
- * `/` or the user's home — and its directory scan trips the macOS "Prompty wants
+ * `/` or the user's home — and its directory scan trips the macOS "Ruby wants
  * to access your Desktop/Downloads/…" prompts. `~/.prompty` is a plain home
  * dotfolder, not a protected location, so nothing prompts. Kept dependency-free
  * (no electron `app`) so it works in the headless smoke tests too.

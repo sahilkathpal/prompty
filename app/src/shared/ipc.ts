@@ -160,7 +160,22 @@ export interface InvokeChannels {
   // one-shot preflight:failed broadcast.
   "preflight:get": {
     request: void;
-    response: { code: "mic" | "claude"; message: string } | null;
+    response: { code: "mic" | "auth" | "claude"; message: string } | null;
+  };
+  // Google sign-in (relay-brokered PKCE). Opens a BrowserWindow, persists an
+  // encrypted session, and exchanges the ID token for a relay session JWT; the
+  // minted Deepgram key is fetched per-call from the relay.
+  "auth:google-sign-in": {
+    request: void;
+    response: { ok: boolean; error?: string; userId?: string; email?: string };
+  };
+  "auth:sign-out": {
+    request: void;
+    response: { ok: boolean };
+  };
+  "auth:status": {
+    request: void;
+    response: { signedIn: boolean; userId?: string; email?: string };
   };
   "quit": {
     request: void;
@@ -272,12 +287,20 @@ export interface EventChannels {
   // Live audio/transcription health for the overlay status dot.
   "session:status": SessionStatusEvent;
   // A start attempt was blocked by a failed pre-flight check.
-  "preflight:failed": { code: "mic" | "claude"; message: string };
+  "preflight:failed": { code: "mic" | "auth" | "claude"; message: string };
+  // Sign-in state changed (sign-in / sign-out), so any open window can update
+  // its identity UI without re-querying.
+  "auth:state-changed": { signedIn: boolean; userId?: string; email?: string };
   "session:setup": { setup: CallSetup };
   // A saved call changed on disk (e.g. the background summary pass landed) —
   // renderers showing the Past Calls list re-read it. `name` is the log filename.
   "calls:updated": { name: string };
   "overlay:ruby-message": { text: string | null };
+  // Wipe the gem's ephemeral nudge state (bloom + history + queue + expanded).
+  // Sent deterministically when the overlay is shown for a new call and when
+  // onboarding completes, so demo/previous-call nudges can't linger. The call
+  // log is the authoritative record; this state is display-only.
+  "overlay:reset": { reason: "call-start" | "onboarding-complete" };
   // Prep chat streaming (RUBY B2 phase 2b).
   "prep:assistant-delta": { text: string };
   "prep:assistant": { text: string };

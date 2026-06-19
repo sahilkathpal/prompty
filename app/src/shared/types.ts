@@ -118,6 +118,12 @@ export interface AppSettings {
   // brief prepped ahead of a call survives an app quit (Gap 2). Together with
   // directionDraft this is the one pending prep; both are cleared at call start.
   prepComponents: PrepComponent[];
+  // Google sign-in state, mirrored into settings so renderers can show the
+  // signed-in identity without an extra IPC round-trip. The encrypted session
+  // itself lives in userData/google-session.bin (see google-auth.ts).
+  signedIn: boolean;
+  signedInUserId: string | null;
+  signedInEmail: string | null;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -131,6 +137,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   directionDraft: "",
   skill: "",
   prepComponents: [],
+  signedIn: false,
+  signedInUserId: null,
+  signedInEmail: null,
 };
 
 /** Display metadata for a pickable skill — name (folder) + frontmatter title/description. */

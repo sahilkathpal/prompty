@@ -30,6 +30,16 @@ import {
   deleteMemory,
 } from "../src/main-process/memory-store";
 import { openPrepAgent, type PrepAgent } from "../src/main-process/prep-agent";
+import {
+  getSessionToken,
+  getUserId,
+  signInWithGoogleAndRelay,
+  clearSessionCache,
+} from "../src/main-process/relay-client";
+import {
+  getSession as getGoogleSession,
+  signOut as googleSignOut,
+} from "../src/main-process/google-auth";
 import { listBundledSkills } from "../src/main-process/prompts/loader";
 import type { PrepComponent } from "../src/main-process/types";
 import { debugDir, debugEnabled } from "../src/main-process/debug-logger";
@@ -125,7 +135,7 @@ const ONBOARDING_SAMPLE_NUDGES = [
 let statusLog: SessionStatusEvent[] = [];
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
 let lastPreflightFailure:
-  | { code: "mic" | "claude"; message: string; at: number }
+  | { code: "mic" | "auth" | "claude"; message: string; at: number }
   | null = null;
 let lastBroadcastState: SessionState | "idle" = "idle";
 
@@ -159,10 +169,11 @@ function broadcastSessionState(state: SessionState | "idle"): void {
 
 type PreflightResult =
   | { ok: true }
-  | { ok: false; code: "mic" | "claude"; message: string };
+  | { ok: false; code: "mic" | "auth" | "claude"; message: string };
 
 const PREFLIGHT_MESSAGES = {
   mic: "Ruby needs microphone access to hear the call.",
+  auth: "Sign in with Google to enable transcription.",
   claude: "Install Claude Code to enable AI coaching.",
 } as const;
 
@@ -174,12 +185,31 @@ const PREFLIGHT_MESSAGES = {
  * so existing start tests still run; a specific failure can be forced for tests
  * via PROMPTY_E2E_FORCE_PREFLIGHT.
  */
+/**
+ * Whether the Deepgram-key requirement is satisfied: signed in with Google, or
+ * bypassed for E2E/mock runs and the dev local-key path (no relay, no auth).
+ * Shared by preflight and the onboarding-complete gate.
+ */
+async function authSatisfied(): Promise<boolean> {
+  if (
+    process.env.PROMPTY_E2E === "1" ||
+    process.env.PROMPTY_MOCK_AUDIO === "1" ||
+    process.env.PROMPTY_MOCK_DEEPGRAM === "1" ||
+    process.env.PROMPTY_MOCK_AGENT === "1" ||
+    process.env.DEEPGRAM_API_KEY?.trim()
+  ) {
+    return true;
+  }
+  return !!getGoogleSession() || !!(await getSessionToken());
+}
+
 async function preflight(): Promise<PreflightResult> {
   const forced = process.env.PROMPTY_E2E_FORCE_PREFLIGHT as
     | "mic"
+    | "auth"
     | "claude"
     | undefined;
-  if (forced === "mic" || forced === "claude") {
+  if (forced === "mic" || forced === "auth" || forced === "claude") {
     return { ok: false, code: forced, message: PREFLIGHT_MESSAGES[forced] };
   }
   if (
@@ -192,6 +222,11 @@ async function preflight(): Promise<PreflightResult> {
   }
   if (micStatus() !== "granted") {
     return { ok: false, code: "mic", message: PREFLIGHT_MESSAGES.mic };
+  }
+  // A relay-minted Deepgram key needs a signed-in Google session (bypassed by
+  // the dev local-key path inside authSatisfied).
+  if (!(await authSatisfied())) {
+    return { ok: false, code: "auth", message: PREFLIGHT_MESSAGES.auth };
   }
   if (!findClaudeBinary()) {
     return { ok: false, code: "claude", message: PREFLIGHT_MESSAGES.claude };
@@ -269,6 +304,11 @@ async function doStartSession(
     // Show the gem overlay + broadcast setup.
     try {
       showOverlay();
+      // Deterministically wipe any stale nudge state the moment the gem is
+      // shown for this call — the overlay window is reused across calls and
+      // onboarding, so we can't rely on the timing-sensitive "starting"
+      // broadcast alone.
+      sendTo(getOverlayWindow(), "overlay:reset", { reason: "call-start" });
     } catch (e) {
       console.error("[ipc] showOverlay failed:", (e as Error).message);
     }
@@ -459,7 +499,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("main:set-prep-layout", (payload) => {
     const win = getMainWindow();
     if (!win || win.isDestroyed()) return;
-    const [w, h] = payload.wide ? [1521, 1014] : [900, 600];
+    const [w, h] = payload.wide ? [1180, 760] : [900, 600];
     try {
       const [x, y] = win.getPosition();
       const [curW] = win.getSize();
@@ -496,6 +536,57 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   });
 
   handle("skills:list", () => ({ skills: listBundledSkills() }));
+
+  handle("auth:google-sign-in", async () => {
+    try {
+      const session = await signInWithGoogleAndRelay();
+      const next = updateSettings({
+        signedIn: true,
+        signedInUserId: session.userId,
+        signedInEmail: session.email,
+      });
+      broadcast("settings:changed", next);
+      broadcast("auth:state-changed", {
+        signedIn: true,
+        userId: session.userId,
+        email: session.email,
+      });
+      return { ok: true, userId: session.userId, email: session.email };
+    } catch (e) {
+      const msg = (e as Error).message;
+      console.error("[ipc] auth:google-sign-in failed:", msg);
+      return { ok: false, error: msg };
+    }
+  });
+
+  handle("auth:sign-out", async () => {
+    try {
+      googleSignOut();
+      clearSessionCache();
+      const next = updateSettings({
+        signedIn: false,
+        signedInUserId: null,
+        signedInEmail: null,
+      });
+      broadcast("settings:changed", next);
+      broadcast("auth:state-changed", { signedIn: false });
+      return { ok: true };
+    } catch (e) {
+      console.error("[ipc] auth:sign-out failed:", (e as Error).message);
+      return { ok: false };
+    }
+  });
+
+  handle("auth:status", async () => {
+    const g = getGoogleSession();
+    if (g) {
+      return { signedIn: true, userId: g.sub, email: g.email };
+    }
+    const tok = await getSessionToken();
+    if (!tok) return { signedIn: false };
+    const uid = (await getUserId()) ?? undefined;
+    return { signedIn: true, userId: uid };
+  });
 
   handle("debug:reveal", async () => {
     const dir = debugDir();
@@ -751,12 +842,21 @@ img.onload = () => {
     setTimeout(() => { if (!win.isDestroyed()) win.close(); }, 6000);
   });
 
-  handle("onboarding:complete", () => {
+  handle("onboarding:complete", async () => {
+    // Sign-in is the last onboarding step; don't let the window finish (and tear
+    // itself down) until a session exists, so the first call isn't dead on a
+    // missing Deepgram key. Bypassed for E2E/mock and the dev local-key path.
+    if (!(await authSatisfied())) {
+      return { ok: false };
+    }
     pendingRubyMessage = null;
     // Hand the global hotkey back to the live nudge path.
     onboardingHotkeyArmed = false;
     updateSettings({ onboardingCompleted: true });
     sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
+    // Clear the canned onboarding demo nudge so it can't linger in the gem's
+    // history into the first real call.
+    sendTo(getOverlayWindow(), "overlay:reset", { reason: "onboarding-complete" });
     hideOverlay();
     closeOnboardingWindow();
     deps.onOnboardingComplete?.();
@@ -827,6 +927,16 @@ export function endActiveSession(): Promise<{ ok: boolean; error?: string }> {
 
 export function e2eStartSession(): Promise<{ ok: boolean; error?: string }> {
   return doStartSession();
+}
+
+// Read-only sign-in state for E2E, mirroring the auth:status handler. Lets a
+// spec seed google-session.bin and assert the real app detects the session.
+export async function e2eAuthStatus(): Promise<{ signedIn: boolean; userId?: string; email?: string }> {
+  const g = getGoogleSession();
+  if (g) return { signedIn: true, userId: g.sub, email: g.email };
+  const tok = await getSessionToken();
+  if (!tok) return { signedIn: false };
+  return { signedIn: true, userId: (await getUserId()) ?? undefined };
 }
 
 export function e2eEndSession(): Promise<{ ok: boolean; error?: string }> {

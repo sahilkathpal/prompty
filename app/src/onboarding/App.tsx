@@ -342,10 +342,31 @@ export default function App(): JSX.Element {
 
   async function handleSignIn() {
     setSigningIn(true);
-    // Backend auth not yet wired — simulating for now
-    setBubble("It's been a pleasure. I'll be here every time you take a call. Good luck out there.");
-    await new Promise<void>((r) => setTimeout(r, 1500));
-    await window.prompty.invoke("onboarding:complete", undefined as never);
+    try {
+      // Already signed in (e.g. a returning user, or an E2E-injected session)?
+      // Skip the Google window and finish. Otherwise run the real PKCE flow.
+      const status = await window.prompty.invoke("auth:status", undefined as never);
+      if (!status.signedIn) {
+        const res = await window.prompty.invoke("auth:google-sign-in", undefined as never);
+        if (!res.ok) {
+          setBubble(
+            `Sign-in didn't go through${res.error ? ` (${res.error})` : ""}. Want to try again?`,
+          );
+          setSigningIn(false);
+          return;
+        }
+      }
+      setBubble("It's been a pleasure. I'll be here every time you take a call. Good luck out there.");
+      await new Promise<void>((r) => setTimeout(r, 1500));
+      const done = await window.prompty.invoke("onboarding:complete", undefined as never);
+      if (!done.ok) {
+        setBubble("Almost — I still need you signed in to finish. Want to try again?");
+        setSigningIn(false);
+      }
+    } catch (e) {
+      setBubble(`Sign-in hit a snag${e instanceof Error ? ` (${e.message})` : ""}. Want to try again?`);
+      setSigningIn(false);
+    }
   }
 
   function openExternal(url: string) {
@@ -667,7 +688,7 @@ function StepSignin({
       </StepIcon>
       <h1 className="ob-title">Last step.</h1>
       <p className="ob-body">
-        Create your Prompty account to save your calls, memory, and recap
+        Create your Ruby account to save your calls, memory, and recap
         history. Takes about five seconds.
       </p>
 

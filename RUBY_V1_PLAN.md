@@ -29,10 +29,19 @@ Out of scope (tracked separately, not part of this plan):
 
 ## 2. Gap 1 — Post-call transcript view  ✅ done
 
-> Shipped: `App.tsx` parses `transcript` (interim lines filtered), and a
-> collapsed-by-default `TranscriptSection` renders speaker-labelled lines with
-> `mm:ss` timestamps in all three card variants. Covered by
+> Shipped: `App.tsx` parses `transcript` (interim lines filtered). The post-call
+> screen exposes Summary and Transcript behind a floating tab pill; the Transcript
+> tab renders speaker-labelled chat bubbles (`me` right / `them` left) with `mm:ss`
+> timestamps, and a Copy-transcript button surfaces only on that tab. Covered by
 > `tests/e2e/call-transcript.spec.ts`.
+>
+> **UI revision (PR #3):** the original collapsed-by-default `TranscriptSection`
+> was replaced by the Summary/Transcript tab design below. Wiring rules: the pill
+> shows whenever a call is loaded (not while loading and not on the "couldn't load"
+> state); the transcript renders only on its own tab and never bleeds into the
+> Summary tab — including while the summary is still generating (Summary tab shows
+> the "Summarizing…" state, Transcript tab is immediately usable). The raw-log
+> fallback is a dev-only state and is also tab-aware for consistency.
 
 ### Current state
 - The full transcript is already captured and persisted on every call:
@@ -50,21 +59,23 @@ So the data is on disk; nothing renders it. This is purely a renderer addition.
 1. **`ParsedCall` type** (`App.tsx`): add `transcript?: TranscriptUtterance[]`.
 2. **`readCall`** (`App.tsx:154`): extract `obj.transcript` into the parsed call,
    filtering to `isFinal` utterances (interim results would duplicate lines).
-3. **`CallCard`** (`App.tsx`): add a **collapsible Transcript section** below the
-   summary, collapsed by default (the summary is the headline; the transcript is
-   on-demand). Render speaker-labelled lines — `me` vs `them` styled distinctly —
-   each prefixed with an `mm:ss`-into-the-call timestamp (derive from
-   `startMs` minus the call's first utterance, mirroring `summary.ts`'s nudge
-   timestamp rendering).
-4. **Defensive empty state**: older logs predate `transcript`; if absent or empty,
-   render nothing (no disclosure toggle) rather than an empty box.
-5. **Styles**: scrollable block, reuse existing `S.*` tokens; add `me`/`them`
-   line styles.
+3. **`PostCallScreen`** (`App.tsx`): a floating **Summary / Transcript tab pill**
+   selects what the body renders. The Transcript tab renders speaker-labelled chat
+   bubbles — `me` vs `them` styled distinctly — each with an `mm:ss`-into-the-call
+   timestamp (derive from `startMs` minus the call's first utterance, mirroring
+   `summary.ts`'s nudge timestamp rendering). _(Originally a collapsible section
+   below the summary; revised to tabs in PR #3.)_
+4. **Defensive empty state**: older logs predate `transcript`; on the Transcript
+   tab an absent/empty transcript renders a quiet "No transcript available" note.
+5. **Styles**: scrollable chat-bubble block, reuse existing tokens; add `is-me` /
+   `is-them` bubble styles and the frosted tab-pill styles.
 
 ### Tests
 - Unit: `readCall` extracts and `isFinal`-filters transcript from a fixture log.
-- E2E: open a past call with a transcript, expand the section, assert utterances
-  render with speaker labels.
+- E2E: open a past call with a transcript, confirm Summary is the default tab
+  (transcript hidden), switch to the Transcript tab and assert utterances render
+  with speaker labels, the copy affordance appears, interim lines are dropped, and
+  switching back to Summary hides the transcript again.
 
 ---
 

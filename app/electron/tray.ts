@@ -51,7 +51,7 @@ export function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
       click: () => showOverlay(),
     },
     {
-      label: "End session",
+      label: "Stop Listening",
       enabled: sessionActive,
       click: () => {
         void endActiveSession();

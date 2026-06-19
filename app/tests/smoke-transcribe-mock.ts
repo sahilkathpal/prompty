@@ -24,7 +24,7 @@ async function main() {
   const handle = startTranscription({
     micStream,
     tapStream,
-    deepgramKey: "mock",
+    getKey: async () => "mock",
     onUtterance: (u) => {
       utterances.push(u);
       console.log(`[smoke] [${u.speaker}] ${u.text}`);

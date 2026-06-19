@@ -10,10 +10,12 @@ import {
   getMainPage,
 } from "./_helpers";
 
-// Gap 1: the post-call card exposes the full transcript in a collapsed-by-default
-// section. The transcript is persisted on the call log; this asserts it renders,
-// is collapsed until clicked, labels speakers, and drops interim (isFinal:false)
-// lines so revised utterances don't duplicate.
+// Gap 1: the post-call card exposes the full transcript behind a floating
+// Summary / Transcript tab pill. The transcript is persisted on the call log;
+// this asserts the Summary tab is the default (transcript hidden), the Transcript
+// tab renders the utterances as a speaker-labelled chat view, the copy affordance
+// appears only on that tab, and interim (isFinal:false) lines are dropped so
+// revised utterances don't duplicate.
 
 function callWithTranscript(slug: string, started: number) {
   return {
@@ -40,7 +42,7 @@ function callWithTranscript(slug: string, started: number) {
   };
 }
 
-test("post-call card: transcript is collapsed, expands, labels speakers, drops interim lines", async () => {
+test("post-call card: Summary/Transcript tabs — transcript hidden by default, renders on its tab, labels speakers, drops interim lines", async () => {
   const userDataDir = await freshUserDataDir("e2e-call-transcript");
   const callLogDir = path.join(userDataDir, "calls");
   await fs.mkdir(callLogDir, { recursive: true });
@@ -65,23 +67,35 @@ test("post-call card: transcript is collapsed, expands, labels speakers, drops i
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
     await rows.first().click();
 
-    // Toggle present; counts only the 3 finalized lines (interim dropped).
-    const toggle = page.getByTestId("call-transcript-toggle");
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toContainText("3 lines");
-
-    // Collapsed by default — no utterance text yet.
+    // The pill is present; Summary is the default tab. Summary content shows and
+    // the transcript is not rendered yet.
+    const summaryTab = page.getByTestId("post-call-tab-summary");
+    const transcriptTab = page.getByTestId("post-call-tab-transcript");
+    await expect(summaryTab).toBeVisible();
+    await expect(transcriptTab).toBeVisible();
+    await expect(page.getByTestId("call-stat")).toBeVisible();
+    await expect(page.getByTestId("call-transcript")).toHaveCount(0);
     await expect(page.locator("text=smoother than last quarter")).toHaveCount(0);
+    // Copy affordance is scoped to the transcript tab.
+    await expect(page.getByTestId("post-call-copy-transcript")).toHaveCount(0);
 
-    await toggle.click();
-
-    // Expanded — speaker labels and finalized text render; interim text does not.
+    // Switch to the Transcript tab — utterances render with speaker labels; the
+    // interim (isFinal:false) line is dropped; the summary content is hidden.
+    await transcriptTab.click();
     const body = page.getByTestId("call-transcript");
+    await expect(body).toBeVisible();
     await expect(body.locator("text=smoother than last quarter")).toBeVisible();
     await expect(body.locator("text=And what about the pricing change?")).toBeVisible();
     await expect(body.getByText("You", { exact: true }).first()).toBeVisible();
     await expect(body.getByText("Them", { exact: true }).first()).toBeVisible();
     await expect(page.locator("text=ZZINTERIM")).toHaveCount(0);
+    await expect(page.getByTestId("post-call-copy-transcript")).toBeVisible();
+    await expect(page.getByTestId("call-stat")).toHaveCount(0);
+
+    // Back to Summary — transcript hidden again, summary restored.
+    await summaryTab.click();
+    await expect(page.getByTestId("call-transcript")).toHaveCount(0);
+    await expect(page.getByTestId("call-stat")).toBeVisible();
 
     expect(errors, "no uncaught render error").toEqual([]);
   } finally {

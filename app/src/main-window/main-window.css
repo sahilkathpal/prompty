@@ -182,7 +182,7 @@ html, body, #root {
 }
 
 .home-chat-container {
-  max-width: 600px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 100px 4px 100px;
 }
@@ -480,8 +480,8 @@ html, body, #root {
 .prep-chat-log::-webkit-scrollbar { width: 5px; }
 .prep-chat-log::-webkit-scrollbar-thumb { background: #d4cec5; border-radius: 3px; }
 .prep-chat-empty { font-size: 14px; color: #b0a898; line-height: 1.5; }
-.prep-bubble-user { align-self: flex-end; max-width: 80%; padding: 10px 14px; font-size: 14px; line-height: 1.45; color: #1a1814; background: #e8e3dc; border: 1px solid #cdc6bc; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
-.prep-bubble-asst { align-self: flex-start; max-width: 80%; padding: 10px 14px; font-size: 14px; line-height: 1.45; color: #1a1814; background: #fff; border: 1px solid #e2ddd5; border-radius: 14px 14px 14px 4px; white-space: pre-wrap; }
+.prep-bubble-user { align-self: flex-end; max-width: 520px; padding: 10px 14px; font-size: 14px; line-height: 1.45; color: #1a1814; background: #e8e3dc; border: 1px solid #cdc6bc; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
+.prep-bubble-asst { align-self: flex-start; max-width: 520px; padding: 10px 14px; font-size: 14px; line-height: 1.45; color: #1a1814; background: #fff; border: 1px solid #e2ddd5; border-radius: 14px 14px 14px 4px; white-space: pre-wrap; }
 .prep-thinking { color: #b0a898; }
 .prep-chat-error { flex-shrink: 0; font-size: 13px; color: #c40a3c; margin-bottom: 10px; padding: 0 24px; }
 .prep-chat-input-row { flex-shrink: 0; padding: 14px 24px 20px; background: #f2ebe0; }
@@ -597,6 +597,25 @@ html, body, #root {
 .prep-comp-item-input { flex: 1; min-width: 0; padding: 2px 0; font-family: inherit; font-size: 14px; line-height: 1.5; color: #1a1814; background: transparent; border: none; outline: none; overflow: visible; }
 .prep-add-item { font-family: inherit; font-size: 13px; color: #ED0C48; background: transparent; border: none; cursor: pointer; padding: 8px 0 0; margin-top: 4px; display: block; }
 .prep-add-item:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Goal + checklist folded into the sticky note: render as sections of the one
+ * document — transparent, divided by faint rules in the note's amber, with the
+ * note's brown accent — rather than detached white cards. */
+.prep-note-components { margin-top: 16px; gap: 0; }
+.prep-note-components .prep-comp-block {
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(146, 121, 74, 0.28);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 14px 0 0;
+  margin-top: 14px;
+}
+.prep-note-components .prep-comp-kind { color: #92794a; }
+.prep-note-components .prep-add-item { color: #92794a; }
+.prep-note-components .prep-comp-dot { color: #b8a98a; }
+.prep-note-components .prep-comp-del { color: #b8a98a; }
+.prep-note-components .prep-comp-del:hover { color: #92794a; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    LIVE SCREEN
@@ -773,6 +792,7 @@ html, body, #root {
   max-width: 600px;
   width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
   scrollbar-width: none;
 }
 .pcs-body::-webkit-scrollbar { display: none; }
@@ -1100,7 +1120,7 @@ html, body, #root {
 .fullscreen-back { font-family: inherit; font-size: 13px; color: #888078; background: transparent; border: none; cursor: pointer; padding: 0; }
 .fullscreen-back:hover { color: #1a1814; }
 .fullscreen-title { font-size: 14px; font-weight: 600; color: #1a1814; }
-.fullscreen-body { flex: 1; overflow-y: auto; padding: 28px 32px 48px; max-width: 600px; margin: 0 auto; width: 100%; scrollbar-width: thin; scrollbar-color: #d4cec5 transparent; }
+.fullscreen-body { flex: 1; overflow-y: auto; padding: 28px 32px 48px; max-width: 600px; margin: 0 auto; width: 100%; box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #d4cec5 transparent; }
 .fullscreen-intro { font-size: 14px; color: #888078; line-height: 1.55; margin: 0 0 20px; }
 .fullscreen-empty { font-size: 14px; color: #b0a898; padding: 12px 0; }
 

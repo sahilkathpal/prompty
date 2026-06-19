@@ -49,6 +49,15 @@ import type { TranscriptUtterance } from "../../src/main-process/types";
 
 const OPEN = 1;
 
+// `connect()` now awaits the getKey() provider before constructing the socket,
+// so the fake socket appears one microtask after the call (and after each
+// reconnect timer fires). Flush the microtask queue to let that land.
+const tick = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+const getKey = async () => "key";
+
 beforeEach(() => {
   reg.instances.length = 0;
   vi.useFakeTimers();
@@ -70,8 +79,9 @@ const resultMsg = (transcript: string, isFinal: boolean) =>
   );
 
 describe("openDeepgramStream", () => {
-  it("buffers audio sent before open, then flushes it once connected", () => {
-    const stream = openDeepgramStream("me", "key", { onUtterance: () => {}, onError: () => {} });
+  it("buffers audio sent before open, then flushes it once connected", async () => {
+    const stream = openDeepgramStream("me", getKey, { onUtterance: () => {}, onError: () => {} });
+    await tick(); // let async connect() resolve the key + construct the socket
     const ws = reg.instances[0];
     stream.sendAudio(Buffer.from([1, 2, 3, 4])); // before open → buffered
     expect(ws.sent).toHaveLength(0);
@@ -80,9 +90,10 @@ describe("openDeepgramStream", () => {
     expect(ws.sent.length).toBeGreaterThanOrEqual(1); // pending flushed on open
   });
 
-  it("emits speaker-tagged utterances from Results messages", () => {
+  it("emits speaker-tagged utterances from Results messages", async () => {
     const utts: TranscriptUtterance[] = [];
-    openDeepgramStream("them", "key", { onUtterance: (u) => utts.push(u), onError: () => {} });
+    openDeepgramStream("them", getKey, { onUtterance: (u) => utts.push(u), onError: () => {} });
+    await tick();
     const ws = reg.instances[0];
     ws.readyState = OPEN;
     ws.emit("open");
@@ -91,13 +102,14 @@ describe("openDeepgramStream", () => {
     expect(utts[0]).toMatchObject({ speaker: "them", text: "eight brokers", isFinal: true });
   });
 
-  it("reconnects on an abnormal close and reports 'reconnecting'", () => {
+  it("reconnects on an abnormal close and reports 'reconnecting'", async () => {
     const statuses: DeepgramConnStatus[] = [];
-    openDeepgramStream("me", "key", {
+    openDeepgramStream("me", getKey, {
       onUtterance: () => {},
       onError: () => {},
       onStatus: (s) => statuses.push(s),
     });
+    await tick();
     const ws0 = reg.instances[0];
     ws0.readyState = OPEN;
     ws0.emit("open");
@@ -107,40 +119,42 @@ describe("openDeepgramStream", () => {
     ws0.emit("close", 1011, Buffer.from("idle timeout")); // not a clean 1000
     expect(statuses).toContain("reconnecting");
 
-    vi.advanceTimersByTime(600); // past reconnectDelay(0)=500ms
+    await vi.advanceTimersByTimeAsync(600); // past reconnectDelay(0)=500ms; flush async connect
     expect(reg.instances.length).toBe(2); // a fresh socket was opened
   });
 
-  it("does NOT reconnect after a clean close (1000)", () => {
+  it("does NOT reconnect after a clean close (1000)", async () => {
     const statuses: DeepgramConnStatus[] = [];
-    openDeepgramStream("me", "key", {
+    openDeepgramStream("me", getKey, {
       onUtterance: () => {},
       onError: () => {},
       onStatus: (s) => statuses.push(s),
     });
+    await tick();
     const ws0 = reg.instances[0];
     ws0.readyState = OPEN;
     ws0.emit("open");
     ws0.emit("close", 1000, Buffer.from("done"));
-    vi.advanceTimersByTime(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(reg.instances.length).toBe(1); // no reconnect
     expect(statuses).not.toContain("reconnecting");
   });
 
-  it("gives up and reports 'error' after exhausting reconnect attempts", () => {
+  it("gives up and reports 'error' after exhausting reconnect attempts", async () => {
     const statuses: DeepgramConnStatus[] = [];
-    openDeepgramStream("me", "key", {
+    openDeepgramStream("me", getKey, {
       onUtterance: () => {},
       onError: () => {},
       onStatus: (s) => statuses.push(s),
     });
+    await tick();
     // Drive close→advance repeatedly; each new socket never opens, so attempts
     // climb until scheduleReconnect trips the give-up branch.
     for (let i = 0; i < 10 && !statuses.includes("error"); i++) {
       const ws = reg.instances[reg.instances.length - 1];
       ws.readyState = 3;
       ws.emit("close", 1011, Buffer.from("drop"));
-      vi.advanceTimersByTime(9000); // past the max backoff
+      await vi.advanceTimersByTimeAsync(9000); // past the max backoff; flush async connect
     }
     expect(statuses).toContain("error");
   });

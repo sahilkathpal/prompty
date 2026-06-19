@@ -84,6 +84,18 @@ export default function App(): JSX.Element {
     hasCurrent.current = true;
   }, []);
 
+  // Wipe all ephemeral nudge display state. The overlay window is created once
+  // and reused for the app's lifetime, so its React state would otherwise
+  // persist across calls (and across onboarding). The call log is the
+  // authoritative record — this buffer is display-only and safe to clear.
+  const resetNudges = useCallback(() => {
+    queue.current = [];
+    hasCurrent.current = false;
+    setBloom(null);
+    setHistory([]);
+    setExpanded(false);
+  }, []);
+
   useEffect(() => {
     window.prompty
       .invoke("session:state", undefined as never)
@@ -97,19 +109,24 @@ export default function App(): JSX.Element {
       if (p.state === "starting") {
         setStatus("starting");
         // New call: clear any lingering note + history + queue so nothing from
-        // a previous call bleeds into this one.
-        queue.current = [];
-        hasCurrent.current = false;
-        setBloom(null);
-        setHistory([]);
-        setExpanded(false);
+        // a previous call (or the onboarding demo) bleeds into this one. The
+        // main process also sends an explicit overlay:reset when it shows the
+        // gem for a call — belt-and-suspenders, since this broadcast is timing-
+        // sensitive and can race the show.
+        resetNudges();
       }
       if (p.state === "ended" || p.state === "idle") {
         setStatus(null);
-        queue.current = [];
-        hasCurrent.current = false;
-        setBloom(null);
+        // Full reset: the overlay is hidden on call end, so retained history is
+        // unreachable anyway — no reason to keep it around for the next call.
+        resetNudges();
       }
+    });
+
+    // Explicit, deterministic reset from the main process (call start /
+    // onboarding complete). Not timing-dependent like session:state-changed.
+    const offReset = window.prompty.on("overlay:reset", () => {
+      resetNudges();
     });
 
     const offStatus = window.prompty.on("session:status", (p) => {
@@ -179,9 +196,10 @@ export default function App(): JSX.Element {
       offStatus();
       offNudge();
       offRuby();
+      offReset();
       clearInterval(tick);
     };
-  }, [show, dwellMs, hideMs, staleMs]);
+  }, [show, resetNudges, dwellMs, hideMs, staleMs]);
 
   // Resize the window to fit the current state (gem-only / gem+bloom /
   // gem+history). We measure the content wrapper's natural height and ask the
@@ -412,7 +430,7 @@ export default function App(): JSX.Element {
                   disabled={isEnding}
                   onClick={endCall}
                 >
-                  {isEnding ? "Ending…" : "End call"}
+                  {isEnding ? "Stopping…" : "Stop Listening"}
                 </button>
               </div>
             )}

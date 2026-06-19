@@ -30,8 +30,14 @@ export type StartTranscriptionOptions = {
   micStream: Readable;
   /** 16 kHz mono 16-bit LE PCM. Tagged as speaker "them". */
   tapStream: Readable;
-  /** Deepgram API key, read from `process.env.DEEPGRAM_API_KEY`. */
-  deepgramKey: string;
+  /**
+   * Resolves a usable Deepgram API key. Called on *every* socket connect,
+   * including reconnects — so a re-key past a relay key's 1h TTL gets a fresh
+   * key, while reconnects within the hour reuse the cached one (no extra mint).
+   * The provider, not this module, owns minting/caching. (See
+   * RUBY_AUTH_RELAY_PLAN.md §Phase B 2a.)
+   */
+  getKey: () => Promise<string>;
   onUtterance: (u: TranscriptUtterance) => void;
   onError?: (err: Error) => void;
   /** Connection status from either socket (open / reconnecting / error). */
@@ -85,12 +91,12 @@ export function reconnectDelay(attempt: number): number {
 export function startTranscription(opts: StartTranscriptionOptions): TranscriptionHandle {
   const onError = opts.onError ?? ((e) => console.error("[dg] error:", e.message));
 
-  const me = openDeepgramStream("me", opts.deepgramKey, {
+  const me = openDeepgramStream("me", opts.getKey, {
     onUtterance: opts.onUtterance,
     onError,
     onStatus: opts.onStatus,
   });
-  const them = openDeepgramStream("them", opts.deepgramKey, {
+  const them = openDeepgramStream("them", opts.getKey, {
     onUtterance: opts.onUtterance,
     onError,
     onStatus: opts.onStatus,
@@ -135,14 +141,14 @@ const MAX_PENDING_CHUNKS = 400;
 
 export function openDeepgramStream(
   speaker: Speaker,
-  apiKey: string,
+  getKey: () => Promise<string>,
   events: TranscribeEvents,
 ): DeepgramStream {
   if (process.env.PROMPTY_MOCK_DEEPGRAM === "1") {
     return openMockStream(speaker, events);
   }
 
-  let ws: WebSocket;
+  let ws: WebSocket | undefined;
   let bytesSent = 0;
   let chunksSeen = 0;
   let lastAudioSentAt = 0;
@@ -154,7 +160,7 @@ export function openDeepgramStream(
   // Periodically poke the socket if no real audio has gone out recently. A
   // single timer spans reconnects — it only ever inspects the current `ws`.
   const keepAliveTimer = setInterval(() => {
-    if (closing || ws.readyState !== WebSocket.OPEN) return;
+    if (closing || !ws || ws.readyState !== WebSocket.OPEN) return;
     if (Date.now() - lastAudioSentAt < KEEPALIVE_MS) return;
     try {
       ws.send(JSON.stringify({ type: "KeepAlive" }));
@@ -176,24 +182,38 @@ export function openDeepgramStream(
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       console.log(`[dg ${speaker}] reconnecting (attempt ${reconnectAttempts})`);
-      connect();
+      void connect();
     }, delay);
   };
 
-  function connect() {
-    ws = new WebSocket(DG_URL, {
+  async function connect() {
+    let apiKey: string;
+    try {
+      // Resolved on every connect so reconnects past the relay key's 1h TTL
+      // re-key, while reconnects within the hour reuse the cached key.
+      apiKey = await getKey();
+    } catch (e) {
+      console.error(`[dg ${speaker}] key fetch failed: ${(e as Error).message}`);
+      events.onError(e as Error);
+      if (!closing) scheduleReconnect();
+      return;
+    }
+    if (closing) return;
+
+    const sock = new WebSocket(DG_URL, {
       headers: { Authorization: `Token ${apiKey}` },
     });
+    ws = sock;
 
-    ws.on("open", () => {
+    sock.on("open", () => {
       reconnectAttempts = 0;
       console.log(`[dg ${speaker}] connected`);
       events.onStatus?.("open", speaker);
-      for (const chunk of pending) ws.send(chunk);
+      for (const chunk of pending) sock.send(chunk);
       pending.length = 0;
     });
 
-    ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
+    sock.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
       try {
         const text = Buffer.isBuffer(data)
           ? data.toString()
@@ -212,12 +232,12 @@ export function openDeepgramStream(
       }
     });
 
-    ws.on("error", (e: Error) => {
+    sock.on("error", (e: Error) => {
       console.log(`[dg ${speaker}] ws error: ${e.message}`);
       events.onError(e);
       // A 'close' event always follows; reconnect is handled there.
     });
-    ws.on("close", (code: number, reason: Buffer) => {
+    sock.on("close", (code: number, reason: Buffer) => {
       console.log(`[dg ${speaker}] ws closed code=${code} reason=${reason.toString().slice(0, 100)}`);
       // A clean, caller-initiated close (1000) is final. Anything else mid-call
       // — including Deepgram's 1011 idle timeout — should reconnect rather than
@@ -226,7 +246,7 @@ export function openDeepgramStream(
     });
   }
 
-  connect();
+  void connect();
 
   return {
     sendAudio(pcm16) {
@@ -246,9 +266,9 @@ export function openDeepgramStream(
         console.log(`[dg ${speaker}] first chunk: ${buf.byteLength} bytes, samples=[${samples.join(",")}]`);
       }
       if (chunksSeen % 25 === 1) {
-        console.log(`[dg ${speaker}] sent ${chunksSeen} chunks, ${bytesSent} bytes total, ws=${ws.readyState}`);
+        console.log(`[dg ${speaker}] sent ${chunksSeen} chunks, ${bytesSent} bytes total, ws=${ws?.readyState}`);
       }
-      if (ws.readyState === WebSocket.OPEN) ws.send(buf);
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
       else {
         pending.push(buf);
         // Drop the oldest frames if a reconnect drags on — bounded memory beats
@@ -263,15 +283,17 @@ export function openDeepgramStream(
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "CloseStream" }));
+      if (!ws) return;
+      const sock = ws;
+      if (sock.readyState === WebSocket.OPEN) {
+        sock.send(JSON.stringify({ type: "CloseStream" }));
       }
       await new Promise<void>((resolve) => {
-        if (ws.readyState === WebSocket.CLOSED) return resolve();
-        ws.once("close", () => resolve());
+        if (sock.readyState === WebSocket.CLOSED) return resolve();
+        sock.once("close", () => resolve());
         setTimeout(() => {
           try {
-            ws.terminate();
+            sock.terminate();
           } catch {}
           resolve();
         }, 3000);

@@ -1,6 +1,6 @@
 appId: app.prompty.desktop
-productName: Prompty
-copyright: Copyright © 2026 Prompty
+productName: Ruby
+copyright: Copyright © 2026 Ruby
 directories:
   output: release
   buildResources: build
