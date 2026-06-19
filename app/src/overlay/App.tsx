@@ -371,17 +371,23 @@ export default function App(): JSX.Element {
                 </ul>
               )}
             </div>
-            <div className="gem-actions">
-              <button
-                type="button"
-                className="gem-end-btn"
-                data-testid="gem-end"
-                disabled={isEnding}
-                onClick={endCall}
-              >
-                {isEnding ? "Ending…" : "End call"}
-              </button>
-            </div>
+            {/* End-call is a call control — only offer it during an actual
+                call. The history scrollback above stays available always (e.g.
+                reviewing the sample nudges during onboarding, where there's no
+                call to end). */}
+            {(liveish || isEnding) && (
+              <div className="gem-actions">
+                <button
+                  type="button"
+                  className="gem-end-btn"
+                  data-testid="gem-end"
+                  disabled={isEnding}
+                  onClick={endCall}
+                >
+                  {isEnding ? "Ending…" : "End call"}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
