@@ -13,3 +13,6 @@ tests/e2e/__screens__
 # Stray tsc output in the app root (source lives in src/, build emits to dist/)
 /*.js
 
+
+# Regenerable iconset intermediate (output icon.icns/icon.png are committed)
+build/icon.iconset/

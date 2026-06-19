@@ -1,4 +1,5 @@
-import { app, dialog, globalShortcut, Notification } from "electron";
+import { app, dialog, globalShortcut, nativeImage, Notification } from "electron";
+import path from "node:path";
 import {
   createOverlayWindow,
   configureOverlayWindow,
@@ -25,7 +26,7 @@ loadEnv();
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const E2E_MODE = process.env.PROMPTY_E2E === "1";
 
-// When Prompty is launched from Finder (or the dev wrapper exits), the stdout/
+// When Ruby is launched from Finder (or the dev wrapper exits), the stdout/
 // stderr pipe can close while the app keeps running. The next console.log then
 // throws EPIPE — and because it surfaces as an uncaught exception, it crashes
 // the whole main process. The in-call audio path logs frequently, so this fires
@@ -150,6 +151,20 @@ function maybePromptLoginItem(): void {
 }
 
 app.on("ready", () => {
+  // Dock icon. Packaged builds get this from build/icon.icns automatically;
+  // in dev the running binary is Electron's, so set it explicitly from the same
+  // generated art (build/ isn't bundled, so this path only resolves in dev).
+  if (!app.isPackaged && app.dock) {
+    try {
+      const devIcon = nativeImage.createFromPath(
+        path.join(__dirname, "../../../build/icon.png"),
+      );
+      if (!devIcon.isEmpty()) app.dock.setIcon(devIcon);
+    } catch {
+      // Non-fatal: dev dock icon is cosmetic.
+    }
+  }
+
   configureMainWindow(DEV_URL);
   configureOverlayWindow(DEV_URL);
   configureOnboardingWindow(DEV_URL);

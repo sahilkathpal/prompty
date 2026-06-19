@@ -688,7 +688,7 @@ function StepSignin({
       </StepIcon>
       <h1 className="ob-title">Last step.</h1>
       <p className="ob-body">
-        Create your Prompty account to save your calls, memory, and recap
+        Create your Ruby account to save your calls, memory, and recap
         history. Takes about five seconds.
       </p>
 
