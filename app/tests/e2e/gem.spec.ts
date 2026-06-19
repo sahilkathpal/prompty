@@ -9,6 +9,7 @@ import {
   showOverlay,
   getOverlayPage,
   emitNudge,
+  e2e,
 } from "./_helpers";
 
 // Phase 3 verification (RUBY_MVP decision #14): the in-call overlay is "the
@@ -103,6 +104,46 @@ test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async
     await gem.click();
     await expect(history).toHaveCount(0);
   } finally {
+    await app.close();
+  }
+});
+
+// Regression: nudges from before a call (e.g. the onboarding demo, or a prior
+// call) must NOT bleed into a new call's history. The overlay window is created
+// once and reused for the app's lifetime, so without an explicit reset its
+// React state survives across calls. doStartSession sends overlay:reset the
+// moment it shows the gem, so the new call starts with a clean history.
+test("the gem: starting a call wipes any leftover nudge history", async () => {
+  const dir = await freshUserDataDir("e2e-gem-reset");
+  await seedSettings(dir, { lastTab: "in-call" });
+
+  const app = await launchApp(dir);
+  try {
+    await waitForReady(app);
+    await showOverlay(app);
+    const overlay = await getOverlayPage(app);
+    const gem = overlay.locator('[data-testid="gem"]');
+    await expect(gem).toHaveCount(1);
+
+    // Leftover nudge from "before" lands in the gem's history.
+    await emitNudge(app, "LEFTOVER nudge from before this call");
+    await gem.click();
+    const history = overlay.locator('[data-testid="gem-history"]');
+    await expect(history).toContainText("LEFTOVER nudge from before this call");
+
+    // Start a real call: doStartSession shows the gem and sends overlay:reset.
+    await e2e(app, "startSession");
+
+    // The new call begins with empty history — the leftover is gone. Starting
+    // also collapses the gem and can race our re-expand, so poll: expand if
+    // collapsed, then assert the cleared empty-state shows.
+    await expect(async () => {
+      if ((await history.count()) === 0) await gem.click();
+      await expect(history).toContainText("No notes yet this call.");
+    }).toPass({ timeout: 6000 });
+    await expect(history).not.toContainText("LEFTOVER nudge from before this call");
+  } finally {
+    await e2e(app, "endSession").catch(() => {});
     await app.close();
   }
 });

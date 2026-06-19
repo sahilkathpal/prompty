@@ -296,6 +296,11 @@ export interface EventChannels {
   // renderers showing the Past Calls list re-read it. `name` is the log filename.
   "calls:updated": { name: string };
   "overlay:ruby-message": { text: string | null };
+  // Wipe the gem's ephemeral nudge state (bloom + history + queue + expanded).
+  // Sent deterministically when the overlay is shown for a new call and when
+  // onboarding completes, so demo/previous-call nudges can't linger. The call
+  // log is the authoritative record; this state is display-only.
+  "overlay:reset": { reason: "call-start" | "onboarding-complete" };
   // Prep chat streaming (RUBY B2 phase 2b).
   "prep:assistant-delta": { text: string };
   "prep:assistant": { text: string };

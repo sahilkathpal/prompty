@@ -304,6 +304,11 @@ async function doStartSession(
     // Show the gem overlay + broadcast setup.
     try {
       showOverlay();
+      // Deterministically wipe any stale nudge state the moment the gem is
+      // shown for this call — the overlay window is reused across calls and
+      // onboarding, so we can't rely on the timing-sensitive "starting"
+      // broadcast alone.
+      sendTo(getOverlayWindow(), "overlay:reset", { reason: "call-start" });
     } catch (e) {
       console.error("[ipc] showOverlay failed:", (e as Error).message);
     }
@@ -849,6 +854,9 @@ img.onload = () => {
     onboardingHotkeyArmed = false;
     updateSettings({ onboardingCompleted: true });
     sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
+    // Clear the canned onboarding demo nudge so it can't linger in the gem's
+    // history into the first real call.
+    sendTo(getOverlayWindow(), "overlay:reset", { reason: "onboarding-complete" });
     hideOverlay();
     closeOnboardingWindow();
     deps.onOnboardingComplete?.();
