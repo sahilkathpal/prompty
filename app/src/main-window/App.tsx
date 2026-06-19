@@ -116,7 +116,7 @@ function ChecklistCoverage(props: { components?: PrepComp[] }): JSX.Element | nu
 // Collapsible full transcript, collapsed by default — the summary is the
 // headline; the transcript is on-demand. Renders nothing for logs that predate
 // transcript capture.
-function TranscriptSection(props: { transcript?: Utterance[]; expanded?: boolean }): JSX.Element | null {
+function TranscriptSection(props: { transcript?: Utterance[] }): JSX.Element | null {
   const lines = props.transcript ?? [];
   if (lines.length === 0) return <div className="pcs-transcript-empty">No transcript available for this call.</div>;
   const baseMs = lines[0].startMs;
@@ -1128,8 +1128,8 @@ function PostCallScreen(props: {
       <div className="app-dragbar" />
       <div className="pcs-toprow app-drag">
         <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← Back</button>
-        {tab === "transcript" && (
-          <button className="pcs-copy-btn app-no-drag" onClick={copyTranscript}>
+        {tab === "transcript" && call && (
+          <button className="pcs-copy-btn app-no-drag" data-testid="post-call-copy-transcript" onClick={copyTranscript}>
             {copied ? (
               <>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -1149,15 +1149,16 @@ function PostCallScreen(props: {
           </button>
         )}
       </div>
+      {!loading && call && (
       <div className="pcs-tab-toggle">
-        <button className={`pcs-tab${tab === "summary" ? " active" : ""}`} onClick={() => setTab("summary")}>
+        <button className={`pcs-tab${tab === "summary" ? " active" : ""}`} data-testid="post-call-tab-summary" onClick={() => setTab("summary")}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M15 4H7M18 16L21 19L18 22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M3 4V17C3 17.5304 3.21071 18.0391 3.58579 18.4142C3.96086 18.7893 4.46957 19 5 19H21M7 14H14M7 9H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Summary
         </button>
-        <button className={`pcs-tab${tab === "transcript" ? " active" : ""}`} onClick={() => setTab("transcript")}>
+        <button className={`pcs-tab${tab === "transcript" ? " active" : ""}`} data-testid="post-call-tab-transcript" onClick={() => setTab("transcript")}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M5 16C5 15.7348 5.10536 15.4804 5.29289 15.2929C5.48043 15.1054 5.73478 15 6 15H14C14.2652 15 14.5196 15.1054 14.7071 15.2929C14.8946 15.4804 15 15.7348 15 16C15 16.2652 14.8946 16.5196 14.7071 16.7071C14.5196 16.8946 14.2652 17 14 17H6C5.73478 17 5.48043 16.8946 5.29289 16.7071C5.10536 16.5196 5 16.2652 5 16ZM18 11C18.2652 11 18.5196 11.1054 18.7071 11.2929C18.8946 11.4804 19 11.7348 19 12C19 12.2652 18.8946 12.5196 18.7071 12.7071C18.5196 12.8946 18.2652 13 18 13H10C9.73478 13 9.48043 12.8946 9.29289 12.7071C9.10536 12.5196 9 12.2652 9 12C9 11.7348 9.10536 11.4804 9.29289 11.2929C9.48043 11.1054 9.73478 11 10 11H18ZM16 16C16 15.7348 16.1054 15.4804 16.2929 15.2929C16.4804 15.1054 16.7348 15 17 15H18C18.2652 15 18.5196 15.1054 18.7071 15.2929C18.8946 15.4804 19 15.7348 19 16C19 16.2652 18.8946 16.5196 18.7071 16.7071C18.5196 16.8946 18.2652 17 18 17H17C16.7348 17 16.4804 16.8946 16.2929 16.7071C16.1054 16.5196 16 16.2652 16 16ZM7 11C7.26522 11 7.51957 11.1054 7.70711 11.2929C7.89464 11.4804 8 11.7348 8 12C8 12.2652 7.89464 12.5196 7.70711 12.7071C7.51957 12.8946 7.26522 13 7 13H6C5.73478 13 5.48043 12.8946 5.29289 12.7071C5.10536 12.5196 5 12.2652 5 12C5 11.7348 5.10536 11.4804 5.29289 11.2929C5.48043 11.1054 5.73478 11 6 11H7Z" fill="currentColor"/>
             <path fillRule="evenodd" clipRule="evenodd" d="M4 3C3.20435 3 2.44129 3.31607 1.87868 3.87868C1.31607 4.44129 1 5.20435 1 6V18C1 18.7956 1.31607 19.5587 1.87868 20.1213C2.44129 20.6839 3.20435 21 4 21H20C20.7956 21 21.5587 20.6839 22.1213 20.1213C22.6839 19.5587 23 18.7956 23 18V6C23 5.20435 22.6839 4.44129 22.1213 3.87868C21.5587 3.31607 20.7956 3 20 3H4ZM20 5H4C3.73478 5 3.48043 5.10536 3.29289 5.29289C3.10536 5.48043 3 5.73478 3 6V18C3 18.2652 3.10536 18.5196 3.29289 18.7071C3.48043 18.8946 3.73478 19 4 19H20C20.2652 19 20.5196 18.8946 20.7071 18.7071C20.8946 18.5196 21 18.2652 21 18V6C21 5.73478 20.8946 5.48043 20.7071 5.29289C20.5196 5.10536 20.2652 5 20 5Z" fill="currentColor"/>
@@ -1165,6 +1166,7 @@ function PostCallScreen(props: {
           Transcript
         </button>
       </div>
+      )}
       <div className={`pcs-scroll-edge${scrolled ? " visible" : ""}`} />
       <div className="pcs-body" ref={scrollRef} onScroll={handleScroll}>
         {loading ? (
@@ -1172,20 +1174,27 @@ function PostCallScreen(props: {
         ) : !call ? (
           <div className="pcs-loading">Couldn't load this call.</div>
         ) : call.summaryPending ? (
-          <div data-testid="call-summarizing">
-            <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
-            <ChecklistCoverage components={call.components} />
+          tab === "transcript" ? (
             <TranscriptSection transcript={call.transcript} />
-          </div>
+          ) : (
+            <div data-testid="call-summarizing">
+              <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
+              <ChecklistCoverage components={call.components} />
+            </div>
+          )
         ) : !summary ? (
-          <>
-            <div className="pcs-title">{title}</div>
-            {mins && <div className="pcs-meta">{mins} min</div>}
-            <div className="pcs-meta">No summary card for this call — showing the raw log.</div>
-            <ChecklistCoverage components={call.components} />
+          // Raw-log fallback — a dev-facing state for legacy/un-summarized logs.
+          tab === "transcript" ? (
             <TranscriptSection transcript={call.transcript} />
-            <pre className="pcs-raw">{call.raw}</pre>
-          </>
+          ) : (
+            <>
+              <div className="pcs-title">{title}</div>
+              {mins && <div className="pcs-meta">{mins} min</div>}
+              <div className="pcs-meta">No summary card for this call — showing the raw log.</div>
+              <ChecklistCoverage components={call.components} />
+              <pre className="pcs-raw">{call.raw}</pre>
+            </>
+          )
         ) : (
           <>
             <div className="pcs-hero" data-testid="call-card">
@@ -1203,7 +1212,7 @@ function PostCallScreen(props: {
               </div>
             </div>
 
-            {tab === "transcript" ? <TranscriptSection transcript={call.transcript} expanded /> : (<>
+            {tab === "transcript" ? <TranscriptSection transcript={call.transcript} /> : (<>
             <div className="pcs-stats" data-testid="call-stat">
               <div className="pcs-stat-card">
                 <div className="pcs-stat-num">{summary.stat.surfaced}</div>

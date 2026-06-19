@@ -116,6 +116,20 @@ test("a summary-pending call shows the 'Summarizing…' hint + placeholder card"
     await expect(page.getByTestId("call-summarizing")).toBeVisible();
     await expect(page.getByTestId("call-summarizing")).toContainText("Summarizing this call");
     await expect(page.getByTestId("call-card")).toHaveCount(0);
+
+    // The Transcript tab is usable even while the summary is still generating:
+    // it renders the captured transcript and replaces the "Summarizing…" state
+    // (the transcript must not bleed into the Summary tab).
+    await page.getByTestId("post-call-tab-transcript").click();
+    const transcript = page.getByTestId("call-transcript");
+    await expect(transcript).toBeVisible();
+    await expect(transcript.locator("text=hello")).toBeVisible();
+    await expect(page.getByTestId("call-summarizing")).toHaveCount(0);
+
+    // Back to Summary restores the summarizing placeholder.
+    await page.getByTestId("post-call-tab-summary").click();
+    await expect(page.getByTestId("call-summarizing")).toBeVisible();
+    await expect(page.getByTestId("call-transcript")).toHaveCount(0);
   } finally {
     await app.close();
   }
