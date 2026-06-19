@@ -18,6 +18,33 @@ import fs from "node:fs/promises";
 // Every IPC path those steps hit is still covered below by invoking it directly.
 
 type Bridge = { prompty: { invoke: (c: string, p?: unknown) => Promise<unknown> } };
+type ArmResult = { ok: boolean; registered: boolean; conflict: boolean };
+type TrayItem = { label?: string; enabled: boolean };
+
+// Read the tray's existence + menu template from the main process. The tray menu
+// is native (not DOM), so we reach into the (already-loaded, cached) tray module
+// and call its pure template builder rather than driving a real menu.
+async function readTray(
+  app: ElectronApplication,
+): Promise<{ hasTray: boolean; items: TrayItem[] }> {
+  return app.evaluate(() => {
+    // The tray module exposes a test seam on globalThis (the native menu can't
+    // be driven, and the live module instance can't be re-required here).
+    const tray = (
+      globalThis as unknown as {
+        __prompty_tray: {
+          hasTray: () => boolean;
+          buildTrayMenuTemplate: () => { label?: string; enabled?: boolean }[];
+        };
+      }
+    ).__prompty_tray;
+    const items = tray.buildTrayMenuTemplate().map((i) => ({
+      label: i.label,
+      enabled: i.enabled !== false, // undefined → enabled (Electron default)
+    }));
+    return { hasTray: tray.hasTray(), items };
+  });
+}
 
 async function findWindow(
   app: ElectronApplication,
@@ -102,6 +129,125 @@ test("onboarding: 5-step flow renders, advances, celebrates, and completes", asy
       .toBe(false);
 
     expect(consoleErrors, `console errors during onboarding:\n${consoleErrors.join("\n")}`).toEqual([]);
+  } finally {
+    await app.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The hotkey step lets the user actually experience the hotkey: pressing it
+// blooms a real nudge in the gem (the same dark-glass surface as in-call). The
+// OS-level global shortcut can't be driven from a test, but the fallback IPC
+// path (onboarding:fire-nudge) goes through the exact same fireOnboardingNudge →
+// nudge:received → overlay bloom plumbing, so it's the faithful proxy. We also
+// assert arm-hotkey registers the real shortcut and that repeat presses cycle
+// the sample question.
+test("onboarding: arming the hotkey blooms a real nudge in the gem", async () => {
+  test.setTimeout(60_000);
+
+  const dir = await freshUserDataDir("e2e-onboarding-hotkey");
+  await fs.writeFile(
+    path.join(dir, "prompty-settings.json"),
+    JSON.stringify({ onboardingCompleted: false, hotkey: "Alt+Shift+Space" }),
+    "utf8",
+  );
+
+  const app = await electron.launch({
+    args: [APP_ROOT, `--user-data-dir=${dir}`],
+    env: { ...process.env },
+  });
+
+  try {
+    const ob = await findWindow(app, "onboarding");
+    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
+    const overlay = await findWindow(app, "overlay");
+
+    // Arm the real global shortcut + enter onboarding-nudge mode. On a clean CI
+    // box Alt+Shift+Space is free, so it registers.
+    const arm = (await ob.evaluate(async () =>
+      (window as unknown as Bridge).prompty.invoke("onboarding:arm-hotkey", undefined),
+    )) as ArmResult;
+    expect(arm.ok).toBe(true);
+    expect(arm.registered).toBe(true);
+    expect(arm.conflict).toBe(false);
+
+    // Simulate the press (the fallback path == the real callback's body).
+    await ob.evaluate(async () =>
+      (window as unknown as Bridge).prompty.invoke("onboarding:fire-nudge", undefined),
+    );
+
+    // The real nudge surface blooms in the gem: dark-glass card, "Worth asking"
+    // tag, and one of the sample questions.
+    const bloom = overlay.locator('[data-testid="gem-bloom"]');
+    await expect(bloom).toBeVisible({ timeout: 5_000 });
+    await expect(bloom.locator(".gem-note-tag")).toHaveText("Worth asking");
+    const firstText = (await bloom.locator(".gem-note-q").textContent())?.trim() ?? "";
+    expect(firstText.length).toBeGreaterThan(0);
+
+    // A second press cycles to a different sample question.
+    await ob.evaluate(async () =>
+      (window as unknown as Bridge).prompty.invoke("onboarding:fire-nudge", undefined),
+    );
+    await expect
+      .poll(async () => (await bloom.locator(".gem-note-q").textContent())?.trim() ?? "", {
+        timeout: 5_000,
+      })
+      .not.toBe(firstText);
+  } finally {
+    await app.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The menu-bar tray must exist during onboarding (the app is already live then),
+// but "Open main window" stays disabled until onboarding completes so the tray
+// can't yank the user out of the guided flow. Quit is always available.
+test("onboarding: tray is present, with Open main window gated until complete", async () => {
+  test.setTimeout(60_000);
+
+  const dir = await freshUserDataDir("e2e-onboarding-tray");
+  const settingsPath = path.join(dir, "prompty-settings.json");
+  await fs.writeFile(
+    settingsPath,
+    JSON.stringify({ onboardingCompleted: false, hotkey: "Alt+Shift+Space" }),
+    "utf8",
+  );
+
+  const app = await electron.launch({
+    args: [APP_ROOT, `--user-data-dir=${dir}`],
+    env: { ...process.env },
+  });
+
+  try {
+    const ob = await findWindow(app, "onboarding");
+    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
+
+    // During onboarding: tray exists; "Open main window" disabled; Quit enabled.
+    const during = await readTray(app);
+    expect(during.hasTray).toBe(true);
+    const openDuring = during.items.find((i) => i.label === "Open main window");
+    expect(openDuring?.enabled).toBe(false);
+    expect(during.items.find((i) => i.label === "Quit Ruby")?.enabled).toBe(true);
+
+    // Complete onboarding (fire-and-forget: the handler tears down this window).
+    await ob
+      .evaluate(() => {
+        void (window as unknown as Bridge).prompty.invoke("onboarding:complete", undefined);
+      })
+      .catch(() => {});
+    await expect
+      .poll(async () => {
+        const raw = await fs.readFile(settingsPath, "utf8").catch(() => "{}");
+        return JSON.parse(raw).onboardingCompleted === true;
+      }, { timeout: 5_000 })
+      .toBe(true);
+
+    // After completion: "Open main window" becomes enabled.
+    await expect
+      .poll(async () => (await readTray(app)).items.find((i) => i.label === "Open main window")?.enabled, {
+        timeout: 5_000,
+      })
+      .toBe(true);
   } finally {
     await app.close();
     await fs.rm(dir, { recursive: true, force: true });
