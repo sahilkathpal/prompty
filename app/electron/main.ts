@@ -9,6 +9,8 @@ import { configureOnboardingWindow, openOnboardingWindow } from "./onboarding-wi
 import { createTray, rebuildMenu } from "./tray";
 import {
   getActiveSession,
+  fireOnboardingNudge,
+  isOnboardingHotkeyArmed,
   registerIpcHandlers,
   requestNudgeFromHotkey,
   shutdownIpc,
@@ -75,6 +77,35 @@ if (E2E_MODE) {
 
 let trayCreated = false;
 
+/**
+ * Register the global hotkey once. Idempotent: if it's already registered (e.g.
+ * armed early for the onboarding step), this is a no-op that reports success.
+ * The press callback branches — during the onboarding hotkey step (armed, no
+ * live session) it blooms a sample nudge; otherwise it asks the active session's
+ * agent for a real one. Returns whether the combo is ours and whether it failed
+ * because another app already owns it.
+ */
+function ensureHotkeyRegistered(): { registered: boolean; conflict: boolean } {
+  const hotkey = getSettings().hotkey || "Alt+Shift+Space";
+  if (globalShortcut.isRegistered(hotkey)) return { registered: true, conflict: false };
+  const ok = globalShortcut.register(hotkey, () => {
+    if (isOnboardingHotkeyArmed() && !getActiveSession()) {
+      // No live call during onboarding — bloom a canned sample nudge so the
+      // user experiences the real surface. Also tells the card it fired.
+      fireOnboardingNudge();
+      return;
+    }
+    // requestNudgeFromHotkey → triggerNudge broadcasts nudge:requested and
+    // asks the active session's agent for a nudge.
+    requestNudgeFromHotkey();
+  });
+  if (!ok) {
+    console.warn(`[main] failed to register global hotkey ${hotkey}`);
+    return { registered: false, conflict: true };
+  }
+  return { registered: true, conflict: false };
+}
+
 function startTrayAndOverlay(): void {
   // Create overlay (the gem) hidden — it only displays when showOverlay() is called.
   createOverlayWindow();
@@ -82,17 +113,10 @@ function startTrayAndOverlay(): void {
     createTray();
     trayCreated = true;
   }
-  const hotkey = getSettings().hotkey || "Alt+Shift+Space";
-  if (!globalShortcut.isRegistered(hotkey)) {
-    const ok = globalShortcut.register(hotkey, () => {
-      // requestNudgeFromHotkey → triggerNudge broadcasts nudge:requested and
-      // asks the active session's agent for a nudge.
-      requestNudgeFromHotkey();
-    });
-    if (!ok) {
-      console.warn(`[main] failed to register global hotkey ${hotkey}`);
-    }
-  }
+  // Refresh the menu so onboarding-gated items (e.g. "Open main window") pick up
+  // the now-completed state when this runs at onboarding:complete.
+  rebuildMenu();
+  ensureHotkeyRegistered();
 }
 
 function maybePromptLoginItem(): void {
@@ -135,6 +159,7 @@ app.on("ready", () => {
     onOnboardingComplete: () => {
       startTrayAndOverlay();
     },
+    ensureHotkeyRegistered,
   });
 
   // Salvage any call whose process crashed before end() wrote its log.
@@ -143,6 +168,17 @@ app.on("ready", () => {
   });
 
   const settings = getSettings();
+
+  // The menu-bar tray exists in every state, including onboarding — the app is
+  // already live then (global hotkey registered, gem overlay shown), so it
+  // should have a menu-bar home and a Quit affordance. Session-dependent items
+  // stay gated on getActiveSession(); "Open main window" stays gated on
+  // onboarding completion (see rebuildMenu).
+  if (!trayCreated) {
+    createTray();
+    trayCreated = true;
+  }
+
   if (E2E_MODE) {
     // Predictable starting state for E2E: skip onboarding, just bring up tray + overlay (hidden).
     if (!settings.onboardingCompleted) {

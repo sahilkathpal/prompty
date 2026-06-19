@@ -72,7 +72,9 @@
   flex-direction: column;
   align-items: center;
   gap: 11px;
-  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3);
+  /* No cast shadow — the overlay window clips to its content rect, so a drop
+     shadow reads boxy. Separation comes from the border + a faint inset sheen. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   position: relative;
 }
 .gem-pill .pgem {
@@ -83,15 +85,15 @@
 .gem-pill.is-idle .pgem {
   filter: grayscale(1) opacity(0.45);
 }
+/* State is signalled by the border accent (+ the gem face), not a cast glow. */
 .gem-pill.is-worth-asking {
-  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3), 0 0 24px rgba(255, 45, 85, 0.5);
+  border-color: rgba(255, 45, 85, 0.6);
 }
 .gem-pill.is-saved {
-  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3), 0 0 22px rgba(255, 184, 77, 0.45);
+  border-color: rgba(255, 184, 77, 0.55);
 }
 .gem-pill.is-attention {
   border-color: rgba(255, 170, 60, 0.6);
-  box-shadow: 0 10px 24px rgba(40, 20, 10, 0.3), 0 0 18px rgba(255, 170, 60, 0.35);
 }
 
 /* ---- The waveform ---- */

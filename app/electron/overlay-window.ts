@@ -83,6 +83,14 @@ export function createOverlayWindow(): BrowserWindow {
   // shared screen (RUBY_MVP decision #15).
   overlay.setContentProtection(true);
 
+  // The window is a transparent rectangle far larger than the visible gem, so by
+  // default it must NOT swallow mouse events — clicks pass through the empty area
+  // to whatever's behind it. The renderer re-enables capture (via
+  // setOverlayMouseIgnore(false)) only while the cursor is over the gem / note /
+  // panel. `forward: true` keeps move events flowing so the renderer can still
+  // detect when the cursor enters an interactive surface.
+  overlay.setIgnoreMouseEvents(true, { forward: true });
+
   // Test-only bloom-pacing overrides (the renderer can't read process.env),
   // passed as query params: PROMPTY_OVERLAY_{DWELL,HIDE,STALE}_MS → ?dwellMs=
   // &hideMs=&staleMs=. The gem's App.tsx reads these (readParam) to shrink the
@@ -144,6 +152,14 @@ export function setOverlayHeight(targetHeight: number): void {
   const clamped = Math.round(Math.min(maxH, Math.max(GEM_ONLY_H, targetHeight)));
   const [width, height] = overlay.getSize();
   if (clamped !== height) overlay.setSize(width, clamped, false);
+}
+
+// Toggle whether the overlay swallows mouse events. Driven by the renderer:
+// ignore (click-through) over empty space, capture over the gem/note/panel.
+// Keep `forward: true` while ignoring so move events still reach the renderer.
+export function setOverlayMouseIgnore(ignore: boolean): void {
+  if (!overlay || overlay.isDestroyed()) return;
+  overlay.setIgnoreMouseEvents(ignore, ignore ? { forward: true } : undefined);
 }
 
 export function showOverlay(): void {

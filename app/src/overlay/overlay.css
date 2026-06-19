@@ -24,10 +24,11 @@ html, body, #root {
 }
 
 /* The measured wrapper (overlay:set-height fits the window to this). A
-   flow-root so child margins are contained in the measurement. The whole
-   surface is a drag region; interactive children opt out with no-drag. */
+   flow-root so child margins are contained in the measurement. No longer a
+   drag region — the window is click-through over its transparent area (see the
+   mouse-ignore hit-test in App.tsx), and the gem is moved by its own JS drag
+   (onGemMouseDown → overlay:move-by). */
 .gem-content {
-  -webkit-app-region: drag;
   display: flow-root;
   width: 100%;
   box-sizing: border-box;
@@ -48,7 +49,6 @@ html, body, #root {
 
 /* ---- The gem button (wraps the dark-glass pill) ---- */
 .gem {
-  -webkit-app-region: no-drag;
   appearance: none;
   border: none;
   cursor: grab;
@@ -61,20 +61,24 @@ html, body, #root {
 .gem:hover { transform: scale(1.05); }
 .gem-expanded { transform: scale(1.03); }
 
-/* ---- Ruby onboarding speech bubble ---- */
+/* ---- Ruby onboarding speech bubble ----
+   Shares the in-call nudge's dark-glass material (see .gem-bloom) so Ruby's
+   voice looks the same during onboarding as it does mid-call. The only thing
+   that sets it apart is the tail pointing up toward the gem. */
 .gem-ruby-bubble {
-  -webkit-app-region: no-drag;
   position: relative;
-  margin-top: 8px;
-  padding: 11px 14px;
-  border-radius: 10px 10px 10px 2px;
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid rgba(187, 22, 61, 0.18);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-  animation: gem-ruby-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  margin-top: 10px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(46, 18, 26, 0.96), rgba(28, 12, 18, 0.96));
+  border: 1px solid rgba(255, 45, 85, 0.5);
+  /* No cast shadow — matches .gem-bloom (the window clips it boxy). Depth from
+     the dark fill + ruby edge + a faint inset top sheen. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: gem-bloom-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 
-/* Tail pointing up toward the gem */
+/* Tail pointing up toward the gem — matches the bubble's dark glass + ruby edge */
 .gem-ruby-bubble::before {
   content: '';
   position: absolute;
@@ -82,28 +86,22 @@ html, body, #root {
   right: 18px;
   width: 10px;
   height: 10px;
-  background: rgba(255, 255, 255, 0.97);
-  border-top: 1px solid rgba(187, 22, 61, 0.18);
-  border-right: 1px solid rgba(187, 22, 61, 0.18);
+  background: rgba(46, 18, 26, 0.96);
+  border-top: 1px solid rgba(255, 45, 85, 0.5);
+  border-right: 1px solid rgba(255, 45, 85, 0.5);
   transform: rotate(-45deg);
   border-radius: 2px 0 0 0;
 }
 
 .gem-ruby-bubble-text {
-  font-family: 'New York', 'Georgia', ui-serif, serif;
-  font-size: 14px;
-  line-height: 1.55;
-  color: #1a1a1a;
-}
-
-@keyframes gem-ruby-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #ffe9ee;
 }
 
 /* ---- The bloomed note: one ephemeral card beneath the gem ---- */
 .gem-bloom {
-  -webkit-app-region: no-drag;
   position: relative;
   overflow: hidden;
   margin-top: 10px;
@@ -111,12 +109,17 @@ html, body, #root {
   border-radius: 14px;
   background: linear-gradient(160deg, rgba(46, 18, 26, 0.96), rgba(28, 12, 18, 0.96));
   border: 1px solid rgba(255, 45, 85, 0.5);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(255, 45, 85, 0.18);
+  /* No cast shadow: the window is sized tight to content with the root clipped,
+     so any drop shadow gets cut to the window rect and reads "boxy". Depth comes
+     from the dark fill + bright ruby edge + a faint inset top sheen — insets
+     render inside the box, so they never clip. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   animation: gem-bloom-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 .gem-bloom-high {
-  border-color: rgba(255, 45, 85, 0.7);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 30px rgba(255, 45, 85, 0.34);
+  /* High urgency reads through a brighter ruby edge, not a glow. */
+  border-color: rgba(255, 45, 85, 0.85);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 @keyframes gem-bloom-in {
   from { opacity: 0; transform: translateY(-10px) scale(0.92); }
@@ -170,7 +173,6 @@ html, body, #root {
 
 /* ---- Faint expand affordance under the gem ---- */
 .gem-expand-hint {
-  -webkit-app-region: no-drag;
   margin-top: 2px;
   text-align: center;
   font-size: 11px;
@@ -186,12 +188,12 @@ html, body, #root {
 
 /* ---- Expanded panel: dark-glass scrollback + End-call footer ---- */
 .gem-panel {
-  -webkit-app-region: no-drag;
   margin-top: 10px;
   border-radius: 14px;
   background: linear-gradient(160deg, rgba(34, 16, 22, 0.96), rgba(22, 11, 15, 0.96));
   border: 1px solid rgba(255, 45, 85, 0.25);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  /* No cast shadow — consistent with .gem-bloom / .gem-ruby-bubble. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   overflow: hidden;
   /* Flex column capped so the whole overlay (gem header ~111 + margin 10 +
      panel) stays within the window's max height (520), leaving the End-call
@@ -251,7 +253,6 @@ html, body, #root {
 
 /* ---- End-call footer (pinned below the scrollback) ---- */
 .gem-actions {
-  -webkit-app-region: no-drag;
   flex: 0 0 auto;
   padding: 9px 12px 11px;
   border-top: 1px solid rgba(255, 45, 85, 0.14);

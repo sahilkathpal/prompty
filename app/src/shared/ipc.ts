@@ -209,7 +209,29 @@ export interface InvokeChannels {
     request: { height: number };
     response: void;
   };
+  // Toggle whether the (mostly-transparent) overlay window swallows mouse events.
+  // The renderer ignores by default so clicks pass through the empty rectangle to
+  // apps behind it, and only captures while the cursor is over the gem/note/panel.
+  "overlay:set-mouse-ignore": {
+    request: { ignore: boolean };
+    response: void;
+  };
   "onboarding:celebrate": {
+    request: void;
+    response: void;
+  };
+  // Register the real global hotkey for the onboarding hotkey step and put the
+  // main process into "onboarding nudge" mode. `registered` is false (and
+  // `conflict` true) when the combo is already claimed by another app, in which
+  // case the card falls back to a focused-window keydown listener for the demo.
+  "onboarding:arm-hotkey": {
+    request: void;
+    response: { ok: boolean; registered: boolean; conflict: boolean };
+  };
+  // Fallback for when the global shortcut couldn't be registered: the card's
+  // focused-window keydown listener asks main to bloom a sample nudge, so the
+  // demo path is identical to the real one (same bloom + onboarding:hotkey-fired).
+  "onboarding:fire-nudge": {
     request: void;
     response: void;
   };
@@ -233,6 +255,10 @@ export type InvokeResponse<C extends InvokeChannel> = InvokeChannels[C]["respons
 export interface EventChannels {
   "nudge:received": Nudge;
   "nudge:requested": { source: "hotkey" | "tray" | "panel" };
+  // The onboarding hotkey step's global shortcut fired — the card sets its
+  // "done" state, restores itself, and reveals Continue. Carries the sample
+  // nudge that simultaneously bloomed in the overlay.
+  "onboarding:hotkey-fired": { nudge: Nudge };
   "panel:state": PanelState;
   "settings:changed": AppSettings;
   "call:status": { status: "idle" | "armed" | "live" | "ended"; reason?: string };

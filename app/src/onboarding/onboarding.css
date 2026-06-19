@@ -392,49 +392,30 @@ html, body, #root {
   transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
 }
 
-.ob4-key-active {
-  background: rgba(187, 22, 61, 0.7);
-  border-color: rgba(187, 22, 61, 0.9);
-  color: #fff;
-}
-
-.ob4-btn-done {
-  animation: ob4-celebrate 1.8s ease both;
-  border-color: #bb163d !important;
-  color: #bb163d !important;
-  opacity: 1 !important;
-}
-
-@keyframes ob4-celebrate {
-  0%   { background: #fff;                border-color: #d1d5db; color: #374151; transform: scale(1); }
-  10%  { background: #bb163d;             border-color: #bb163d; color: #fff;    transform: scale(1.06); }
-  22%  { background: #fff;                border-color: #bb163d; color: #bb163d; transform: scale(1); }
-  34%  { background: rgba(187,22,61,0.15); border-color: #bb163d; color: #bb163d; transform: scale(1.03); }
-  50%  { background: #fff;                border-color: #bb163d; color: #bb163d; transform: scale(1); }
-  100% { background: #fff;                border-color: #bb163d; color: #bb163d; transform: scale(1); }
-}
-
-.ob4-response {
-  background: #bb163d;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-family: 'New York', 'Georgia', ui-serif, serif;
-  font-size: 13px;
-  color: #fff;
-  line-height: 1.5;
+.ob4-fallback-note {
   margin-top: 12px;
-  animation: ob-nudge-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
 }
 
-@keyframes ob-nudge-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Quiet escape hatch: only fades in after a delay for users who can't press
+   the combo. Deliberately understated so it isn't the primary action. */
+.ob-btn-skip {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  color: #9ca3af;
+  padding: 6px 4px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ob-btn-skip:hover {
+  color: #6b7280;
 }
 
 /* ── Step 5 — Google sign in ── */
