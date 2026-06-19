@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Gem from "../shared/Gem";
-import RubyLogo from "./RubyLogo";
+import { RubyLogo } from "../shared/RubyLogo";
 import "../shared/tokens.css";
 import "./main-window.css";
 
