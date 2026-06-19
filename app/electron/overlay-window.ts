@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from "electron";
+import { app, BrowserWindow, screen } from "electron";
 import path from "node:path";
 import { getSettings, setPanelPosition, setPanelSize } from "./settings-store";
 
@@ -82,6 +82,14 @@ export function createOverlayWindow(): BrowserWindow {
   // excluded from captured/shared output, so private notes never leak onto a
   // shared screen (RUBY_MVP decision #15).
   overlay.setContentProtection(true);
+
+  // The gem is a `type: "panel"` NSPanel — a non-activating accessory window.
+  // On macOS, once it exists and no ordinary window is showing (the resting
+  // menubar state), the app gets demoted to an "accessory" (UIElement) app and
+  // drops out of the Dock entirely. That makes `app.dock.setIcon()` a no-op,
+  // since there's no tile to put an icon on. Re-assert "regular" activation so
+  // the Dock tile we want (see main.ts) actually appears.
+  app.dock?.show();
 
   // The window is a transparent rectangle far larger than the visible gem, so by
   // default it must NOT swallow mouse events — clicks pass through the empty area
