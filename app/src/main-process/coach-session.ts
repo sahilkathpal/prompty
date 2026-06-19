@@ -22,6 +22,7 @@ import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
 import { spawnSidecar, type SidecarHandle } from "./sidecar";
 import { startTranscription, type TranscriptionHandle } from "./deepgram";
+import { getDeepgramToken } from "./relay-client";
 import { createMicSilenceDetector } from "./mic-silence";
 import type {
   CallSetup,
@@ -35,20 +36,20 @@ export type SessionState = "starting" | "live" | "ending" | "ended" | "error";
 export type EndReason = "user" | "error";
 
 /**
- * Resolve the Deepgram API key from the environment. Replaces the old relay
- * token-minting path: a design partner puts `DEEPGRAM_API_KEY=...` in the
- * gitignored `.env` (loaded at startup) or the process environment. Throws a
- * clear, user-facing message when it's missing so the session start fails
- * loudly instead of opening a dead, silent overlay.
+ * Build the Deepgram key provider for a session. Called on every socket connect
+ * (incl. reconnects) so a re-key past the relay key's 1h TTL gets a fresh key.
+ *
+ * Three paths, in priority order:
+ *   - mock: a stub key (the mock stream never actually uses it).
+ *   - dev local: `DEEPGRAM_API_KEY` in the gitignored `.env`/env — a static key
+ *     for local/E2E, bypassing the relay entirely (plan §Phase B 2).
+ *   - relay: mint/reuse a short-lived ephemeral key via the Google-auth'd relay.
  */
-function resolveDeepgramKey(): string {
-  const key = process.env.DEEPGRAM_API_KEY?.trim();
-  if (!key) {
-    throw new Error(
-      "Set DEEPGRAM_API_KEY in the app's .env to enable transcription.",
-    );
-  }
-  return key;
+function makeDeepgramKeyProvider(usingMockDeepgram: boolean): () => Promise<string> {
+  if (usingMockDeepgram) return async () => "mock";
+  const localKey = process.env.DEEPGRAM_API_KEY?.trim();
+  if (localKey) return async () => localKey;
+  return getDeepgramToken;
 }
 
 /** Default ms of audio silence before the status flips to "no-audio". */
@@ -350,10 +351,21 @@ export async function startSession(
   };
 
   // ---- Deepgram key ----
-  // Resolve up-front, before spawning the sidecar, so a missing key fails the
-  // session start cleanly (throws out of startSession → surfaced by the IPC
-  // layer) instead of leaving an orphaned sidecar and a silent overlay.
-  const deepgramKey = usingMockDeepgram ? "mock" : resolveDeepgramKey();
+  // Resolve up-front, before spawning the sidecar, so an unobtainable key (not
+  // signed in, mint failure, missing dev key) fails the session start cleanly
+  // (throws out of startSession → surfaced by the IPC layer) instead of leaving
+  // an orphaned sidecar and a silent overlay. The same provider is then handed
+  // to startTranscription, which re-invokes it on every (re)connect.
+  const getDeepgramKey = makeDeepgramKeyProvider(usingMockDeepgram);
+  if (!usingMockDeepgram) {
+    try {
+      await getDeepgramKey();
+    } catch (e) {
+      throw new Error(
+        `Couldn't get a transcription key: ${(e as Error).message}`,
+      );
+    }
+  }
 
   // ---- Sidecar ----
   if (!usingMockAudio) {
@@ -374,7 +386,7 @@ export async function startSession(
       transcription = startTranscription({
         micStream: sidecar.micStream,
         tapStream: sidecar.tapStream,
-        deepgramKey,
+        getKey: getDeepgramKey,
         onUtterance: handleUtterance,
         onError: (e) => {
           console.error("[coach-session] dg error:", e.message);

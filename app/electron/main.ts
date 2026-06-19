@@ -207,6 +207,10 @@ app.on("ready", () => {
         const { e2eStartSession } = require("./ipc-handlers");
         return e2eStartSession();
       },
+      authStatus: async () => {
+        const { e2eAuthStatus } = require("./ipc-handlers");
+        return e2eAuthStatus();
+      },
       endSession: async () => {
         const { e2eEndSession } = require("./ipc-handlers");
         return e2eEndSession();
