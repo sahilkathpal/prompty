@@ -1,8 +1,9 @@
-import { app, Menu, Tray, nativeImage } from "electron";
+import { app, Menu, Tray, nativeImage, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { showOverlay } from "./overlay-window";
 import { openMainWindow } from "./main-window";
 import { getActiveSession, endActiveSession } from "./ipc-handlers";
+import { getSettings } from "./settings-store";
 
 let tray: Tray | null = null;
 
@@ -23,15 +24,25 @@ export function createTray(): Tray {
   return tray;
 }
 
-export function rebuildMenu(): void {
-  if (!tray) return;
+/** True once the menu-bar tray has been created (exists from app ready, incl.
+ *  onboarding). Exported for the e2e guard. */
+export function hasTray(): boolean {
+  return tray !== null;
+}
+
+/** The tray context-menu template. Pure (reads live settings/session state) so
+ *  the e2e suite can assert the gating without driving a native menu. */
+export function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
   let sessionActive = false;
   try {
     sessionActive = !!getActiveSession();
   } catch {}
-  const menu = Menu.buildFromTemplate([
+  return [
     {
       label: "Open main window",
+      // The main app window isn't part of the guided onboarding flow — keep it
+      // out of reach until onboarding completes so the tray can't derail it.
+      enabled: getSettings().onboardingCompleted,
       click: () => openMainWindow(),
     },
     {
@@ -51,6 +62,18 @@ export function rebuildMenu(): void {
       label: "Quit Ruby",
       click: () => app.quit(),
     },
-  ]);
-  tray.setContextMenu(menu);
+  ];
 }
+
+export function rebuildMenu(): void {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate(buildTrayMenuTemplate()));
+}
+
+// Test seam: the tray menu is native (not DOM) and the running module instance
+// can't be re-required from a Playwright evaluate callback, so expose the pure
+// inspectors here. Two function references — harmless in production.
+(globalThis as unknown as { __prompty_tray?: unknown }).__prompty_tray = {
+  hasTray,
+  buildTrayMenuTemplate,
+};

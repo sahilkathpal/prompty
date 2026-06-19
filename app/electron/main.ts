@@ -113,6 +113,9 @@ function startTrayAndOverlay(): void {
     createTray();
     trayCreated = true;
   }
+  // Refresh the menu so onboarding-gated items (e.g. "Open main window") pick up
+  // the now-completed state when this runs at onboarding:complete.
+  rebuildMenu();
   ensureHotkeyRegistered();
 }
 
@@ -165,6 +168,17 @@ app.on("ready", () => {
   });
 
   const settings = getSettings();
+
+  // The menu-bar tray exists in every state, including onboarding — the app is
+  // already live then (global hotkey registered, gem overlay shown), so it
+  // should have a menu-bar home and a Quit affordance. Session-dependent items
+  // stay gated on getActiveSession(); "Open main window" stays gated on
+  // onboarding completion (see rebuildMenu).
+  if (!trayCreated) {
+    createTray();
+    trayCreated = true;
+  }
+
   if (E2E_MODE) {
     // Predictable starting state for E2E: skip onboarding, just bring up tray + overlay (hidden).
     if (!settings.onboardingCompleted) {
