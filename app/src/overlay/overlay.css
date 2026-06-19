@@ -24,10 +24,11 @@ html, body, #root {
 }
 
 /* The measured wrapper (overlay:set-height fits the window to this). A
-   flow-root so child margins are contained in the measurement. The whole
-   surface is a drag region; interactive children opt out with no-drag. */
+   flow-root so child margins are contained in the measurement. No longer a
+   drag region — the window is click-through over its transparent area (see the
+   mouse-ignore hit-test in App.tsx), and the gem is moved by its own JS drag
+   (onGemMouseDown → overlay:move-by). */
 .gem-content {
-  -webkit-app-region: drag;
   display: flow-root;
   width: 100%;
   box-sizing: border-box;
@@ -48,7 +49,6 @@ html, body, #root {
 
 /* ---- The gem button (wraps the dark-glass pill) ---- */
 .gem {
-  -webkit-app-region: no-drag;
   appearance: none;
   border: none;
   cursor: grab;
@@ -66,7 +66,6 @@ html, body, #root {
    voice looks the same during onboarding as it does mid-call. The only thing
    that sets it apart is the tail pointing up toward the gem. */
 .gem-ruby-bubble {
-  -webkit-app-region: no-drag;
   position: relative;
   margin-top: 10px;
   padding: 13px 15px;
@@ -103,7 +102,6 @@ html, body, #root {
 
 /* ---- The bloomed note: one ephemeral card beneath the gem ---- */
 .gem-bloom {
-  -webkit-app-region: no-drag;
   position: relative;
   overflow: hidden;
   margin-top: 10px;
@@ -175,7 +173,6 @@ html, body, #root {
 
 /* ---- Faint expand affordance under the gem ---- */
 .gem-expand-hint {
-  -webkit-app-region: no-drag;
   margin-top: 2px;
   text-align: center;
   font-size: 11px;
@@ -191,7 +188,6 @@ html, body, #root {
 
 /* ---- Expanded panel: dark-glass scrollback + End-call footer ---- */
 .gem-panel {
-  -webkit-app-region: no-drag;
   margin-top: 10px;
   border-radius: 14px;
   background: linear-gradient(160deg, rgba(34, 16, 22, 0.96), rgba(22, 11, 15, 0.96));
@@ -257,7 +253,6 @@ html, body, #root {
 
 /* ---- End-call footer (pinned below the scrollback) ---- */
 .gem-actions {
-  -webkit-app-region: no-drag;
   flex: 0 0 auto;
   padding: 9px 12px 11px;
   border-top: 1px solid rgba(255, 45, 85, 0.14);

@@ -17,6 +17,7 @@ import {
   showOverlay,
   hideOverlay,
   setOverlayHeight,
+  setOverlayMouseIgnore,
   getOverlayWindow,
 } from "./overlay-window";
 import { rebuildMenu } from "./tray";
@@ -311,6 +312,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("overlay:set-height", (payload) => {
     setOverlayHeight(payload.height);
     return { ok: true };
+  });
+
+  handle("overlay:set-mouse-ignore", (payload) => {
+    setOverlayMouseIgnore(payload.ignore);
   });
 
   handle("overlay:move-by", (payload) => {

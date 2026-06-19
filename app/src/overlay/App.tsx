@@ -212,10 +212,10 @@ export default function App(): JSX.Element {
     void window.prompty.invoke("call:end", undefined as never);
   }, [sessionState]);
 
-  // Drag-to-move vs click-to-expand on the pill. A native app-region drag region
-  // can't also receive the expand click, so we drive movement ourselves: press
-  // and move the pill past a small threshold to drag the window (overlay:move-by
-  // with the screen-space delta); a press with no movement is a plain click.
+  // Drag-to-move vs click-to-expand on the pill. We drive movement ourselves so
+  // the same press can either move or expand: press and move the pill past a
+  // small threshold to drag the window (overlay:move-by with the screen-space
+  // delta); a press with no movement is a plain click.
   const drag = useRef({ active: false, lastX: 0, lastY: 0, moved: false });
   const onGemMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -255,6 +255,34 @@ export default function App(): JSX.Element {
     if (e.target === e.currentTarget || e.target === contentRef.current) {
       setExpanded(false);
     }
+  }, []);
+
+  // Click-through: the overlay window is a transparent rectangle far larger than
+  // the visible gem, so it ignores mouse events by default (clicks pass to apps
+  // behind it) and only captures while the cursor is over an interactive surface
+  // (gem / note / panel). Move events are forwarded even while ignoring, so we
+  // hit-test on move and flip the window flag only on transitions. During a gem
+  // drag we always capture so the drag isn't dropped.
+  const ignoreMouseRef = useRef(true);
+  useEffect(() => {
+    const apply = (ignore: boolean) => {
+      if (ignoreMouseRef.current === ignore) return;
+      ignoreMouseRef.current = ignore;
+      void window.prompty.invoke("overlay:set-mouse-ignore", { ignore });
+    };
+    const onMove = (e: MouseEvent) => {
+      if (drag.current.active) {
+        apply(false);
+        return;
+      }
+      const el = e.target as HTMLElement | null;
+      const overInteractive = !!el?.closest(
+        ".gem, .gem-ruby-bubble, .gem-bloom, .gem-panel",
+      );
+      apply(!overInteractive);
+    };
+    document.addEventListener("mousemove", onMove);
+    return () => document.removeEventListener("mousemove", onMove);
   }, []);
 
   const meta = status ? STATUS_META[status] : null;

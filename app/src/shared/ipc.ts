@@ -209,6 +209,13 @@ export interface InvokeChannels {
     request: { height: number };
     response: void;
   };
+  // Toggle whether the (mostly-transparent) overlay window swallows mouse events.
+  // The renderer ignores by default so clicks pass through the empty rectangle to
+  // apps behind it, and only captures while the cursor is over the gem/note/panel.
+  "overlay:set-mouse-ignore": {
+    request: { ignore: boolean };
+    response: void;
+  };
   "onboarding:celebrate": {
     request: void;
     response: void;
