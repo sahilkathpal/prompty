@@ -201,6 +201,18 @@ export interface InvokeChannels {
     request: void;
     response: { ok: boolean };
   };
+  "onboarding:set-ruby-message": {
+    request: { text: string | null };
+    response: void;
+  };
+  "onboarding:set-height": {
+    request: { height: number };
+    response: void;
+  };
+  "onboarding:celebrate": {
+    request: void;
+    response: void;
+  };
   "session:state": {
     request: void;
     response: {
@@ -239,6 +251,7 @@ export interface EventChannels {
   // A saved call changed on disk (e.g. the background summary pass landed) —
   // renderers showing the Past Calls list re-read it. `name` is the log filename.
   "calls:updated": { name: string };
+  "overlay:ruby-message": { text: string | null };
   // Prep chat streaming (RUBY B2 phase 2b).
   "prep:assistant-delta": { text: string };
   "prep:assistant": { text: string };

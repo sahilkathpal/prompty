@@ -18,11 +18,11 @@ export function openOnboardingWindow(): BrowserWindow {
   }
 
   onboardingWin = new BrowserWindow({
-    width: 720,
-    height: 540,
+    width: 420,
+    height: 500,
     title: "Welcome to Ruby",
     show: false,
-    backgroundColor: "#faf7e9",
+    backgroundColor: "#ffffff",
     // Match the main window's frameless warm chrome (see main-window.ts).
     titleBarStyle: "hidden",
     trafficLightPosition: { x: 16, y: 14 },
@@ -43,7 +43,9 @@ export function openOnboardingWindow(): BrowserWindow {
     onboardingWin.loadFile(path.join(__dirname, "../../renderer/onboarding/index.html"));
   }
 
-  onboardingWin.once("ready-to-show", () => onboardingWin?.show());
+  // Window is shown by the first onboarding:set-height IPC call so it
+  // appears at the correct size immediately rather than flashing at the
+  // initial placeholder height.
   onboardingWin.on("closed", () => {
     onboardingWin = null;
   });
