@@ -1245,19 +1245,21 @@ function PostCallScreen(props: {
               <p className="pcs-recap">{summary.recap}</p>
             </div>
 
-            {summary.insights.length > 0 && (
-              <div className="pcs-section">
+            <div className="pcs-section">
+              {summary.insights.length > 0 && (
                 <div className="pcs-section-label">Insights &amp; quotes</div>
-                <div className="pcs-stats" data-testid="call-stat">
-                  <div className="pcs-stat-card">
-                    <div className="pcs-stat-num">{summary.stat.surfaced}</div>
-                    <div className="pcs-stat-label">Nudges surfaced</div>
-                  </div>
-                  <div className="pcs-stat-card">
-                    <div className="pcs-stat-num">{summary.stat.used}</div>
-                    <div className="pcs-stat-label">Used by you</div>
-                  </div>
+              )}
+              <div className="pcs-stats" data-testid="call-stat">
+                <div className="pcs-stat-card">
+                  <div className="pcs-stat-num">{summary.stat.surfaced}</div>
+                  <div className="pcs-stat-label">Nudges surfaced</div>
                 </div>
+                <div className="pcs-stat-card">
+                  <div className="pcs-stat-num">{summary.stat.used}</div>
+                  <div className="pcs-stat-label">Used by you</div>
+                </div>
+              </div>
+              {summary.insights.length > 0 && (
                 <ul className="pcs-insight-list">
                   {summary.insights.map((ins, i) => (
                     <li key={i} className="pcs-insight-item">
@@ -1268,8 +1270,8 @@ function PostCallScreen(props: {
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              )}
+            </div>
 
             {summary.questionsNotAsked.length > 0 && (
               <div className="pcs-section">
