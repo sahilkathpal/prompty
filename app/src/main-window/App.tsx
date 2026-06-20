@@ -1239,7 +1239,7 @@ function PostCallScreen(props: {
             </div>
             <hr className="pcs-divider" />
 
-            {tab === "transcript" ? <TranscriptSection transcript={call.transcript} expanded /> : (<>
+            {tab === "transcript" ? <TranscriptSection transcript={call.transcript} /> : (<>
             <div className="pcs-section">
               <div className="pcs-section-label">Recap</div>
               <p className="pcs-recap">{summary.recap}</p>
