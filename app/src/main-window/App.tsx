@@ -591,37 +591,40 @@ function HomeScreen(props: {
 
       {/* Topbar */}
       <header className="home-topbar app-drag">
-        <div className="home-brand">
-          <svg width="40" height="16" viewBox="0 0 361 147" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Ruby">
-            <path d="M288.453 55.7333C284.622 46.2691 282.894 44.6918 275.608 43.2646V35.9788H317.972V43.2646C308.132 44.0909 306.705 45.8185 309.86 54.5315L323.154 90.8107L337.2 54.5315C340.505 45.8185 339.078 44.0158 329.163 43.2646V35.9788H360.11V43.2646C352.598 44.4664 351.096 45.4429 346.89 55.7333L330.44 95.8432L323.68 112.368L311.212 146.919H291.983V146.469C297.391 137.756 305.728 123.935 311.888 113.269L288.453 55.7333Z" fill="#1a1814"/>
-            <path d="M275.079 73.1593C275.079 98.0214 259.005 114.095 238.8 114.095C228.134 114.095 219.346 108.988 214.989 103.054L207.252 112.368H198.014V18.4776C198.014 14.1962 197.338 13.0695 193.056 11.9428L187.423 10.5157V3.90583L218.97 0V47.6962C222.951 39.7343 232.64 34.2512 243.982 34.2512C261.183 34.2512 275.079 48.8229 275.079 73.1593ZM253.446 74.8869C253.446 56.7848 245.56 46.3442 233.692 46.3442C227.007 46.3442 221.524 49.2736 218.97 54.0808V97.1952C221.223 100.725 226.256 103.955 233.241 103.955C245.109 103.955 253.446 93.2894 253.446 74.8869Z" fill="#1a1814"/>
-            <path d="M128.977 35.0024V84.8769C128.977 95.9936 134.76 101.927 144.675 101.927C151.586 101.927 156.768 98.6976 159.172 94.7166V53.3298C159.172 49.1235 158.496 47.9969 154.29 46.9453L148.581 45.443V38.8332L180.203 35.0024V95.0922C180.203 99.3736 180.879 100.5 185.236 101.627L190.869 103.054V109.664L159.547 113.344V100.876C155.341 108.237 146.478 114.096 133.859 114.096C118.386 114.096 108.021 104.932 108.021 88.933V53.3298C108.021 49.1235 107.344 47.9969 103.138 46.9453L97.4297 45.443V38.8332L128.977 35.0024Z" fill="#1a1814"/>
-            <path d="M93.2894 33.1247C93.3645 46.7951 83.9003 56.109 71.8073 59.1886L85.5528 85.3276C94.3409 101.627 97.6459 104.406 102.077 105.533V112.368H76.0135L51.7523 65.1224H35.3027V96.1438C35.3027 102.528 36.7299 103.88 47.2456 105.082V112.368H0V105.082C11.4171 103.88 12.694 102.453 12.694 95.7682V20.5058C12.694 13.8208 11.4171 12.3937 0 11.1919V3.90601H49.6492C78.7927 3.90601 93.2894 15.1728 93.2894 33.1247ZM70.7557 34.9273C70.7557 21.0316 61.7422 13.1448 43.5651 12.5439L35.3027 12.3186V56.785L44.9922 56.4845C61.3667 56.0339 70.7557 48.8231 70.7557 34.9273Z" fill="#1a1814"/>
-          </svg>
-        </div>
-        <div className="home-topbar-actions app-no-drag">
-          {isLive && (
-            <button
-              className={`home-live-btn${isEnding ? " busy" : ""}`}
-              onClick={onEndCall}
-              disabled={isEnding}
-            >
-              <span className="home-live-dot" />
-              {isEnding ? "Stopping…" : "Stop Listening"}
+        <div className="home-topbar-inner">
+          <div className="home-brand">
+            <svg width="44" height="18" viewBox="0 0 361 147" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Ruby">
+              <path d="M288.453 55.7333C284.622 46.2691 282.894 44.6918 275.608 43.2646V35.9788H317.972V43.2646C308.132 44.0909 306.705 45.8185 309.86 54.5315L323.154 90.8107L337.2 54.5315C340.505 45.8185 339.078 44.0158 329.163 43.2646V35.9788H360.11V43.2646C352.598 44.4664 351.096 45.4429 346.89 55.7333L330.44 95.8432L323.68 112.368L311.212 146.919H291.983V146.469C297.391 137.756 305.728 123.935 311.888 113.269L288.453 55.7333Z" fill="#1a1814"/>
+              <path d="M275.079 73.1593C275.079 98.0214 259.005 114.095 238.8 114.095C228.134 114.095 219.346 108.988 214.989 103.054L207.252 112.368H198.014V18.4776C198.014 14.1962 197.338 13.0695 193.056 11.9428L187.423 10.5157V3.90583L218.97 0V47.6962C222.951 39.7343 232.64 34.2512 243.982 34.2512C261.183 34.2512 275.079 48.8229 275.079 73.1593ZM253.446 74.8869C253.446 56.7848 245.56 46.3442 233.692 46.3442C227.007 46.3442 221.524 49.2736 218.97 54.0808V97.1952C221.223 100.725 226.256 103.955 233.241 103.955C245.109 103.955 253.446 93.2894 253.446 74.8869Z" fill="#1a1814"/>
+              <path d="M128.977 35.0024V84.8769C128.977 95.9936 134.76 101.927 144.675 101.927C151.586 101.927 156.768 98.6976 159.172 94.7166V53.3298C159.172 49.1235 158.496 47.9969 154.29 46.9453L148.581 45.443V38.8332L180.203 35.0024V95.0922C180.203 99.3736 180.879 100.5 185.236 101.627L190.869 103.054V109.664L159.547 113.344V100.876C155.341 108.237 146.478 114.096 133.859 114.096C118.386 114.096 108.021 104.932 108.021 88.933V53.3298C108.021 49.1235 107.344 47.9969 103.138 46.9453L97.4297 45.443V38.8332L128.977 35.0024Z" fill="#1a1814"/>
+              <path d="M93.2894 33.1247C93.3645 46.7951 83.9003 56.109 71.8073 59.1886L85.5528 85.3276C94.3409 101.627 97.6459 104.406 102.077 105.533V112.368H76.0135L51.7523 65.1224H35.3027V96.1438C35.3027 102.528 36.7299 103.88 47.2456 105.082V112.368H0V105.082C11.4171 103.88 12.694 102.453 12.694 95.7682V20.5058C12.694 13.8208 11.4171 12.3937 0 11.1919V3.90601H49.6492C78.7927 3.90601 93.2894 15.1728 93.2894 33.1247ZM70.7557 34.9273C70.7557 21.0316 61.7422 13.1448 43.5651 12.5439L35.3027 12.3186V56.785L44.9922 56.4845C61.3667 56.0339 70.7557 48.8231 70.7557 34.9273Z" fill="#1a1814"/>
+            </svg>
+          </div>
+          <div className="home-topbar-actions app-no-drag">
+            {isLive && (
+              <button
+                className={`home-live-btn${isEnding ? " busy" : ""}`}
+                onClick={onEndCall}
+                disabled={isEnding}
+              >
+                <span className="home-live-dot" />
+                {isEnding ? "Stopping…" : "Stop Listening"}
+              </button>
+            )}
+            <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <path d="M3.5 2h8a.5.5 0 01.5.5v10.5l-4.5-2.5L3 13V2.5a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </button>
-          )}
-          <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-              <circle cx="7.5" cy="5" r="3.25" stroke="currentColor" strokeWidth="1.25"/>
-              <path d="M1.5 13.5c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-            </svg>
-          </button>
-          <button className="home-icon-btn" onClick={onSettings} title="Settings" aria-label="Settings">
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-              <circle cx="7.5" cy="7.5" r="2.25" stroke="currentColor" strokeWidth="1.25"/>
-              <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M3.05 3.05l1.06 1.06M10.89 10.89l1.06 1.06M10.89 4.11l1.06-1.06M3.05 11.95l1.06-1.06" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-            </svg>
-          </button>
+            <button className="home-icon-btn" onClick={onSettings} title="Settings" aria-label="Settings">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <path d="M2 4.5h3M7 4.5h6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                <circle cx="5.5" cy="4.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
+                <path d="M2 10.5h6M10.5 10.5h2.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                <circle cx="9" cy="10.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -663,7 +666,7 @@ function HomeScreen(props: {
               aria-label="Send"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 12V2M7 2L2.5 6.5M7 2L11.5 6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 7H12M12 7L7.5 2.5M12 7L7.5 11.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
             </div>
@@ -709,9 +712,13 @@ function HomeScreen(props: {
                           data-testid="call-row"
                           onClick={() => onViewCall(c.name)}
                         >
-                          <span className={`home-call-dot${prepped ? " prepped" : ""}`} />
                           <span className="home-call-title">{c.title || "Untitled call"}</span>
-                          <span className="home-call-time">{c.summaryPending ? "Summarizing…" : fmtClock(when)}</span>
+                          <span className="home-call-rhs">
+                            <span className="home-call-time">{c.summaryPending ? "Summarizing…" : fmtClock(when)}</span>
+                            <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M3 7h8M7.5 3.5L11 7l-3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </span>
                         </button>
                       </li>
                     );
@@ -1065,6 +1072,7 @@ function PostCallScreen(props: {
   // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c) — never a
   // reflexive pre-filled suggestion.
   const [tab, setTab] = useState<"summary" | "transcript">("summary");
+  const [questionsOpen, setQuestionsOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
@@ -1131,27 +1139,29 @@ function PostCallScreen(props: {
     <div className="pcs-root">
       <div className="app-dragbar" />
       <div className="pcs-toprow app-drag">
-        <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← Back</button>
-        {tab === "transcript" && call && (
-          <button className="pcs-copy-btn app-no-drag" data-testid="post-call-copy-transcript" onClick={copyTranscript}>
-            {copied ? (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Copied!
-              </>
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="2"/>
-                </svg>
-                Copy transcript
-              </>
-            )}
-          </button>
-        )}
+        <div className="pcs-toprow-inner">
+          <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← Back</button>
+          {tab === "transcript" && call && (
+            <button className="pcs-copy-btn app-no-drag" data-testid="post-call-copy-transcript" onClick={copyTranscript}>
+              {copied ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="2"/>
+                  </svg>
+                  Copy transcript
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
       {!loading && call && (
       <div className="pcs-tab-toggle">
@@ -1207,43 +1217,49 @@ function PostCallScreen(props: {
               )}
               <h1 className="pcs-title">{title}</h1>
               <div className="pcs-meta-row">
-                {mins && <span className="pcs-meta-chip">{mins} min</span>}
+                {mins && (
+                  <span className="pcs-meta-chip">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75"/>
+                      <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    {mins} min
+                  </span>
+                )}
                 {call.startedAt && (
                   <span className="pcs-meta-chip">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                      <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.75"/>
+                      <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                    </svg>
                     {new Date(call.startedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
                   </span>
                 )}
               </div>
             </div>
+            <hr className="pcs-divider" />
 
             {tab === "transcript" ? <TranscriptSection transcript={call.transcript} /> : (<>
-            <div className="pcs-stats" data-testid="call-stat">
-              <div className="pcs-stat-card">
-                <div className="pcs-stat-num">{summary.stat.surfaced}</div>
-                <div className="pcs-stat-label">Nudges surfaced</div>
-              </div>
-              <div className="pcs-stat-card">
-                <div className="pcs-stat-num">{summary.stat.used}</div>
-                <div className="pcs-stat-label">Used by you</div>
-              </div>
-              <div className="pcs-stat-card">
-                <div className="pcs-stat-num">{(() => {
-                  const cl = call.components?.find((c) => c.type === "checklist") as { items: ChecklistItemR[] } | undefined;
-                  if (!cl || cl.items.length === 0) return "—";
-                  return `${cl.items.filter((it) => it.done).length}/${cl.items.length}`;
-                })()}</div>
-                <div className="pcs-stat-label">Checklist done</div>
-              </div>
-            </div>
-
             <div className="pcs-section">
               <div className="pcs-section-label">Recap</div>
               <p className="pcs-recap">{summary.recap}</p>
             </div>
 
-            {summary.insights.length > 0 && (
-              <div className="pcs-section">
+            <div className="pcs-section">
+              {summary.insights.length > 0 && (
                 <div className="pcs-section-label">Insights &amp; quotes</div>
+              )}
+              <div className="pcs-stats" data-testid="call-stat">
+                <div className="pcs-stat-card">
+                  <div className="pcs-stat-num">{summary.stat.surfaced}</div>
+                  <div className="pcs-stat-label">Nudges surfaced</div>
+                </div>
+                <div className="pcs-stat-card">
+                  <div className="pcs-stat-num">{summary.stat.used}</div>
+                  <div className="pcs-stat-label">Used by you</div>
+                </div>
+              </div>
+              {summary.insights.length > 0 && (
                 <ul className="pcs-insight-list">
                   {summary.insights.map((ins, i) => (
                     <li key={i} className="pcs-insight-item">
@@ -1254,20 +1270,30 @@ function PostCallScreen(props: {
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              )}
+            </div>
 
             {summary.questionsNotAsked.length > 0 && (
               <div className="pcs-section">
-                <div className="pcs-section-label pcs-label-missed">Questions you didn't ask</div>
-                <ul className="pcs-q-list">
-                  {summary.questionsNotAsked.map((q, i) => (
-                    <li key={i} className="pcs-q-item">
-                      <span className="pcs-q-mark">?</span>
-                      <span className="pcs-q-text">{q.text}</span>
-                    </li>
-                  ))}
-                </ul>
+                <button className="pcs-collapsible-header" onClick={() => setQuestionsOpen((o) => !o)}>
+                  <span className="pcs-section-label pcs-label-missed" style={{ margin: 0 }}>Questions you didn't ask</span>
+                  <svg
+                    className={`pcs-chevron${questionsOpen ? " open" : ""}`}
+                    width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  >
+                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                {questionsOpen && (
+                  <ul className="pcs-q-list">
+                    {summary.questionsNotAsked.map((q, i) => (
+                      <li key={i} className="pcs-q-item">
+                        <span className="pcs-q-mark">?</span>
+                        <span className="pcs-q-text">{q.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -1346,41 +1372,79 @@ function MemoryScreen(props: {
   return (
     <div className="fullscreen-root">
       <div className="app-dragbar" />
-      <header className="fullscreen-topbar app-drag">
-        <button className="fullscreen-back app-no-drag" onClick={onBack}>← Back</button>
-        <span className="fullscreen-title">Memory</span>
-        <span />
-      </header>
-      <div className="fullscreen-body">
-        <p className="fullscreen-intro">Tell Ruby how to coach you. These apply to every call.</p>
-        <div className="mem-add-row">
-          <input className="mem-input" data-testid="memory-input" value={newMemory} placeholder="e.g. Nudge me rarely — only when it really matters."
-            onChange={(e) => setNewMemory(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") addMemory(); }} />
-          <button className="mem-add-btn" data-testid="memory-add" onClick={addMemory} disabled={!newMemory.trim()}>Add</button>
+      <div className="pcs-toprow app-drag">
+        <div className="pcs-toprow-inner">
+          <button className="pcs-back app-no-drag" onClick={onBack}>← Back</button>
         </div>
-        {memories.length === 0
-          ? <div className="fullscreen-empty" data-testid="memory-empty">No memories yet.</div>
-          : <ul className="mem-list" data-testid="memory-list">{memories.map((m) => {
-            const isEdit = editingMem?.id === m.id;
-            return (
-              <li key={m.id} className="mem-item" data-testid="memory-item">
-                {isEdit ? (
-                  <input autoFocus className="mem-edit-input" value={editingMem.draft}
-                    onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
-                    onKeyDown={(e) => { if (e.key === "Enter") saveMemoryEdit(); if (e.key === "Escape") setEditingMem(null); }}
-                    onBlur={saveMemoryEdit} />
-                ) : (
-                  <>
-                    <span className="mem-text">{m.text}</span>
-                    {m.source === "suggested" && <span className="mem-tag">suggested</span>}
-                    <button className="mem-action-btn" aria-label="Edit memory" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>✎</button>
-                    <button className="mem-action-btn" data-testid="memory-delete" aria-label="Delete memory" onClick={() => deleteMemory(m.id)}>✕</button>
-                  </>
-                )}
-              </li>
-            );
-          })}</ul>}
+      </div>
+      <div className="fullscreen-body" style={{ paddingTop: 60 }}>
+        <h1 className="mem-title">Memory</h1>
+        <p className="fullscreen-intro">Tell Ruby how to coach you. These apply to every call.</p>
+
+        <div className="mem-add-card">
+          <input
+            className="mem-add-input"
+            data-testid="memory-input"
+            value={newMemory}
+            placeholder="e.g. Nudge me rarely — only when it really matters."
+            onChange={(e) => setNewMemory(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addMemory(); }}
+          />
+          <button className="mem-add-btn" data-testid="memory-add" onClick={addMemory} disabled={!newMemory.trim()} aria-label="Add memory">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        {memories.length === 0 ? (
+          <div className="mem-empty" data-testid="memory-empty">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="currentColor" opacity=".2"/>
+            </svg>
+            No memories yet — add one above.
+          </div>
+        ) : (
+          <>
+            <div className="mem-section-label">{memories.length} {memories.length === 1 ? "memory" : "memories"}</div>
+            <ul className="mem-list" data-testid="memory-list">
+              {memories.map((m) => {
+                const isEdit = editingMem?.id === m.id;
+                return (
+                  <li key={m.id} className="mem-item" data-testid="memory-item">
+                    {isEdit ? (
+                      <input autoFocus className="mem-edit-input" value={editingMem.draft}
+                        onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveMemoryEdit(); if (e.key === "Escape") setEditingMem(null); }}
+                        onBlur={saveMemoryEdit} />
+                    ) : (
+                      <>
+                        <span className="mem-text">{m.text}</span>
+                        <div className="mem-actions">
+                          {m.source === "suggested" && <span className="mem-tag">suggested</span>}
+                          <button className="mem-action-btn" aria-label="Edit memory" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                          <button className="mem-action-btn mem-action-del" data-testid="memory-delete" aria-label="Delete memory" onClick={() => deleteMemory(m.id)}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                              <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1438,12 +1502,13 @@ function SettingsScreen(props: {
   return (
     <div className="fullscreen-root">
       <div className="app-dragbar" />
-      <header className="fullscreen-topbar app-drag">
-        <button className="fullscreen-back app-no-drag" onClick={onBack}>← Back</button>
-        <span className="fullscreen-title">Settings</span>
-        <span />
-      </header>
-      <div className="fullscreen-body">
+      <div className="pcs-toprow app-drag">
+        <div className="pcs-toprow-inner">
+          <button className="pcs-back app-no-drag" onClick={onBack}>← Back</button>
+        </div>
+      </div>
+      <div className="fullscreen-body" style={{ paddingTop: 60 }}>
+        <h1 className="mem-title">Settings</h1>
         <div className="set-group">
           <SettingRow label="Microphone" value={micStatus ?? "checking…"} tone={micOk ? "green" : micBlocked ? "red" : "amber"}>
             {!micOk && (micBlocked
@@ -1468,7 +1533,7 @@ function SettingsScreen(props: {
           </SettingRow>
         </div>
         <div className="set-group">
-          <SettingRow label="Hotkey (ask)" value={hotkey} tone="muted" />
+          <SettingRow label="Hotkey — nudge on demand" value={hotkey} tone="muted" />
           <SettingRow label="Debug logs" value="~/.prompty/debug" tone="muted">
             <button className="set-btn" onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}>Open folder</button>
           </SettingRow>
@@ -1483,9 +1548,19 @@ function SettingRow(props: { label: string; value: string; tone: "green" | "red"
     <div className="set-row">
       <div className="set-row-main">
         <div className="set-label">{props.label}</div>
-        <div className={`set-val set-val-${props.tone}`}>{props.value}</div>
+        <div className={`set-val set-val-${props.tone}`}>
+          {props.tone === "green" && (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ marginRight: 5, verticalAlign: 'middle', marginBottom: 1, flexShrink: 0 }}>
+              <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+          {props.value}
+        </div>
       </div>
-      {props.children && <div className="set-control">{props.children}</div>}
+      <div className="set-row-right">
+        {props.tone === "green" && <span className="set-connected-pill">Connected</span>}
+        {props.children && <div className="set-control">{props.children}</div>}
+      </div>
     </div>
   );
 }
