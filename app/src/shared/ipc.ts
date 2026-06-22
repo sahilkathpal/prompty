@@ -49,6 +49,9 @@ export interface InvokeChannels {
         endedAt?: number;
         // True while the background summary pass is still running for this call.
         summaryPending?: boolean;
+        // The other party's name, when known — a provisional anchor for rows
+        // whose title is still being summarized.
+        attendee?: string;
       }[];
     };
   };
@@ -191,6 +194,12 @@ export interface InvokeChannels {
   "debug:reveal": {
     request: void;
     response: { ok: boolean; path: string };
+  };
+  // Whether the `PROMPTY_DEBUG=1` env switch is on. Gates the Settings
+  // "Debug logs" row so it's invisible to ordinary users.
+  "debug:enabled": {
+    request: void;
+    response: { enabled: boolean };
   };
   "onboarding:check-claude": {
     request: void;

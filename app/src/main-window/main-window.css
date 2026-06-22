@@ -112,6 +112,7 @@ html, body, #root {
 }
 
 .home-icon-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -123,6 +124,9 @@ html, body, #root {
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
+/* H13/X6: keep the 30px visual but extend the clickable target to ~40px. */
+.home-icon-btn::after { content: ""; position: absolute; inset: -5px; }
+.home-icon-btn:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
 .home-icon-btn:hover {
   background: rgba(26, 24, 20, 0.12);
   color: #1a1814;
@@ -222,6 +226,7 @@ html, body, #root {
 }
 .home-bar-input::placeholder { color: #b0a898; }
 .home-bar-send {
+  position: relative;
   flex-shrink: 0;
   width: 30px; height: 30px;
   display: inline-flex;
@@ -234,17 +239,58 @@ html, body, #root {
   cursor: pointer;
   transition: background 120ms ease, opacity 120ms ease;
 }
+.home-bar-send::after { content: ""; position: absolute; inset: -5px; }
+.home-bar-send:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
 .home-bar-send:hover:not(:disabled) { background: rgba(237, 12, 72, 0.18); }
 .home-bar-send:disabled { opacity: 0.35; cursor: default; }
 
-.home-error {
-  font-size: 13px;
-  color: #ED0C48;
-  margin: -16px auto 20px;
-  padding: 0 2px;
+/* H3: a soft inset banner — cream bg, ruby left-border, alert glyph, retry +
+   dismiss — instead of a lone floating red sentence. */
+.home-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 20px;
+  padding: 11px 12px 11px 14px;
   max-width: 600px;
   width: 100%;
+  box-sizing: border-box;
+  background: #fbeceedf;
+  border: 1px solid #f3c9d2;
+  border-left: 3px solid #ED0C48;
+  border-radius: 10px;
 }
+.home-error-icon { color: #ED0C48; flex-shrink: 0; }
+.home-error-msg { flex: 1; min-width: 0; font-size: 13px; color: #8a2333; line-height: 1.45; }
+.home-error-retry {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ED0C48;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.home-error-retry:hover { background: rgba(237,12,72,0.1); }
+.home-error-retry:focus-visible { outline: 2px solid #ED0C48; outline-offset: 1px; }
+.home-error-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: #b5747f;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.home-error-dismiss:hover { color: #ED0C48; background: rgba(237,12,72,0.08); }
+.home-error-dismiss:focus-visible { outline: 2px solid #ED0C48; outline-offset: 1px; }
 
 /* ── Empty state ─────────────────────────────────────────────────────────────── */
 
@@ -281,7 +327,7 @@ html, body, #root {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #b0b0b0;
+  color: #a89f92;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -302,16 +348,34 @@ html, body, #root {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 16px 0px;
+  /* Constant padding with a matching negative margin keeps the title flush with
+     the column at rest, so the hover background fades in (H11) without sliding
+     the text. */
+  padding: 15px 12px;
+  margin: 0 -12px;
+  position: relative;
+  z-index: 0;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: background 300ms ease, padding 300ms ease;
 }
-.home-call-row:hover { background: rgba(255, 255, 255, 0.7); padding: 16px 12px; }
+.home-call-row::before {
+  content: "";
+  position: absolute;
+  inset: 2px 0;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  z-index: -1;
+}
+.home-call-row:hover::before { opacity: 1; }
+.home-call-row:focus-visible { outline: 2px solid #ED0C48; outline-offset: -2px; }
+.home-call-row:focus-visible::before { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .home-call-row::before { transition: none; } }
 
 .home-call-dot {
   width: 6px; height: 6px;
@@ -332,7 +396,6 @@ html, body, #root {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.home-live-row:hover .home-live-time { opacity: 0; }
 
 .home-call-title {
   flex: 1;
@@ -346,31 +409,31 @@ html, body, #root {
 }
 
 .home-call-rhs {
-  position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  width: 60px;
+  gap: 8px;
 }
 
+/* H2: keep the timestamp visible — don't swap it out on hover. The arrow simply
+   fades in alongside it, on hover and on keyboard focus alike. */
 .home-call-time {
   font-size: 12px;
   color: #b0a898;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-  transition: opacity 280ms ease;
+  white-space: nowrap;
 }
 
 .home-call-arrow {
-  position: absolute;
-  right: 0;
   color: #b0a898;
   opacity: 0;
-  transition: opacity 280ms ease;
+  flex-shrink: 0;
+  transition: opacity 200ms ease;
 }
 
-.home-call-row:hover .home-call-time { opacity: 0; }
-.home-call-row:hover .home-call-arrow { opacity: 1; }
+.home-call-row:hover .home-call-arrow,
+.home-call-row:focus-visible .home-call-arrow { opacity: 1; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    PREP SCREEN
@@ -862,6 +925,7 @@ html, body, #root {
   -webkit-app-region: no-drag;
 }
 .pcs-back:hover { background: rgba(26, 24, 20, 0.12); color: #1a1814; }
+.pcs-back:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
 
 .pcs-copy-btn {
   display: flex;
@@ -1196,7 +1260,7 @@ html, body, #root {
 
 .fullscreen-root { display: flex; flex-direction: column; height: 100vh; background: transparent; color: #1a1814; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; position: relative; z-index: 1; }
 
-.mem-title {
+.mem-title, .fullscreen-h1 {
   font-family: 'New York', 'Georgia', serif;
   font-size: 28px;
   font-weight: 500;
@@ -1205,6 +1269,8 @@ html, body, #root {
   line-height: 1.15;
   margin: 0 0 16px;
 }
+/* When an intro line follows the heading, tighten the gap. */
+.fullscreen-h1 + .fullscreen-intro { margin-top: -8px; }
 .fullscreen-topbar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 20px 0 80px; background: #fff; border-bottom: 1px solid #e2ddd5; }
 .fullscreen-back { font-family: inherit; font-size: 13px; color: #888078; background: transparent; border: none; cursor: pointer; padding: 0; }
 .fullscreen-back:hover { color: #1a1814; }
@@ -1280,14 +1346,16 @@ html, body, #root {
 }
 .mem-list li:first-child { border-top: 1px solid #d4cec5; }
 .mem-item:hover { background: transparent; }
-.mem-item:hover .mem-actions { opacity: 1; }
+/* M7: reveal actions for keyboard users too, not just on mouse hover. */
+.mem-item:hover .mem-actions,
+.mem-item:focus-within .mem-actions { opacity: 1; }
 
 .mem-text { flex: 1; min-width: 0; font-size: 14px; color: #1a1814; line-height: 1.5; }
 
 .mem-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 120ms ease;
@@ -1295,11 +1363,51 @@ html, body, #root {
 
 .mem-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c98e2e; border: 1px solid #c98e2e; border-radius: 999px; padding: 2px 7px; }
 
-.mem-action-btn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: #b0a898; border-radius: 7px; cursor: pointer; font-size: 13px; transition: background 120ms ease, color 120ms ease; }
+.mem-action-btn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: #b0a898; border-radius: 7px; cursor: pointer; font-size: 13px; transition: background 120ms ease, color 120ms ease; }
 .mem-action-btn:hover { background: #f2ebe0; color: #1a1814; }
+.mem-action-btn:focus-visible { opacity: 1; outline: 2px solid #ED0C48; outline-offset: 1px; color: #1a1814; }
 .mem-action-del:hover { background: rgba(237,12,72,0.08); color: #ED0C48; }
 
-.mem-edit-input { flex: 1; padding: 7px 10px; font-family: inherit; font-size: 14px; color: #1a1814; background: #fff; border: 1.5px solid #ED0C48; border-radius: 8px; outline: none; }
+.mem-add-hint { font-size: 11.5px; color: #b0a898; margin: 6px 0 0 4px; }
+
+.mem-edit-wrap { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
+.mem-edit-input { flex: 1; min-width: 0; padding: 7px 10px; font-family: inherit; font-size: 14px; color: #1a1814; background: #fff; border: 1.5px solid #ED0C48; border-radius: 8px; outline: none; }
+.mem-edit-hint { font-size: 11px; color: #b0a898; white-space: nowrap; flex-shrink: 0; }
+
+/* M2: deletes are reversible via this toast (auto-dismisses after a few seconds). */
+.mem-undo-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 14px 11px 18px;
+  background: #1a1814;
+  color: #f3ede2;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+  font-size: 13px;
+  z-index: 20;
+  animation: mem-undo-in 160ms ease;
+}
+@keyframes mem-undo-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.mem-undo-text { font-weight: 500; }
+.mem-undo-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ff9bb3;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.mem-undo-btn:hover { color: #ffc0d0; }
+.mem-undo-btn:focus-visible { outline: 2px solid #ff9bb3; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .mem-undo-toast { animation: none; } }
 
 .mem-empty {
   display: flex;
@@ -1323,6 +1431,14 @@ html, body, #root {
 }
 
 /* Settings */
+.set-group-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b0a898;
+  margin: 0 0 8px 2px;
+}
 .set-group { margin-bottom: 24px; background: #e8e1d6; border: 1px solid #d0c9be; border-radius: 12px; overflow: hidden; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid #d0c9be; }
 .set-row:last-child { border-bottom: none; }
@@ -1333,6 +1449,7 @@ html, body, #root {
 .set-val-red   { color: #ED0C48; }
 .set-val-amber { color: #a06c18; }
 .set-val-muted { color: #6b6560; }
+.set-hint { font-size: 11.5px; color: #8a8276; line-height: 1.5; margin-top: 4px; max-width: 360px; }
 
 
 .set-row-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
@@ -1343,10 +1460,15 @@ html, body, #root {
   padding: 6px 0;
 }
 .set-control { flex-shrink: 0; }
-.set-btn { font-family: inherit; font-size: 13px; font-weight: 500; padding: 6px 13px; background: rgba(255,255,255,0.55); color: #1a1814; border: 1px solid rgba(0,0,0,0.14); border-radius: 8px; cursor: pointer; transition: background 120ms ease; white-space: nowrap; }
+.set-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.set-confirm-text { font-size: 11.5px; color: #8a8276; line-height: 1.45; max-width: 220px; text-align: right; }
+.set-btn { font-family: inherit; font-size: 13px; font-weight: 500; padding: 6px 13px; min-height: 32px; background: rgba(255,255,255,0.55); color: #1a1814; border: 1px solid rgba(0,0,0,0.14); border-radius: 8px; cursor: pointer; transition: background 120ms ease; white-space: nowrap; }
 .set-btn:hover { background: rgba(255,255,255,0.8); }
+.set-btn:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
 .set-btn-accent { background: #ED0C48; color: #fff; border-color: transparent; }
 .set-btn-accent:hover { background: #c40a3c; }
+.set-btn-danger { background: #ED0C48; color: #fff; border-color: transparent; }
+.set-btn-danger:hover { background: #c40a3c; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    PREP — SKILL / PLAYBOOK PICKER
@@ -1568,3 +1690,4 @@ html, body, #root {
   padding: 0;
 }
 .home-pinned-clear:hover { text-decoration: underline; text-underline-offset: 2px; }
+.home-pinned-clear:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; border-radius: 4px; }

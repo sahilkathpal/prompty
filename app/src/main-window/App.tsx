@@ -13,6 +13,7 @@ type CallMeta = {
   startedAt?: number;
   endedAt?: number;
   summaryPending?: boolean;
+  attendee?: string;
 };
 type Mem = { id: string; text: string; createdAt: number; source?: "manual" | "suggested" };
 type SkillOpt = { name: string; title: string; description: string };
@@ -349,9 +350,32 @@ export default function App(): JSX.Element {
     });
   }, [editingMem]);
 
+  // Delete is reversible (M2): the row goes immediately, but the deleted memory
+  // lingers as an Undo toast for a few seconds. Undo re-adds it (a fresh id, same
+  // text) — there's no soft-delete on the backend, so this re-persists it.
+  const memUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [memUndo, setMemUndo] = useState<Mem | null>(null);
   const deleteMemory = useCallback((id: string) => {
+    const victim = memories.find((m) => m.id === id);
     void window.prompty.invoke("memory:delete", { id }).then((r) => {
-      if (r.ok) setMemories((list) => list.filter((m) => m.id !== id));
+      if (!r.ok) return;
+      setMemories((list) => list.filter((m) => m.id !== id));
+      if (victim) {
+        setMemUndo(victim);
+        if (memUndoTimer.current) clearTimeout(memUndoTimer.current);
+        memUndoTimer.current = setTimeout(() => setMemUndo(null), 6000);
+      }
+    });
+  }, [memories]);
+  const undoDeleteMemory = useCallback(() => {
+    setMemUndo((victim) => {
+      if (memUndoTimer.current) clearTimeout(memUndoTimer.current);
+      if (victim) {
+        void window.prompty.invoke("memory:add", { text: victim.text }).then((r) => {
+          if (r.item) setMemories((list) => [...list, r.item as Mem]);
+        });
+      }
+      return null;
     });
   }, []);
 
@@ -554,6 +578,8 @@ export default function App(): JSX.Element {
         addMemory={addMemory}
         saveMemoryEdit={saveMemoryEdit}
         deleteMemory={deleteMemory}
+        memUndo={memUndo}
+        onUndoDelete={undoDeleteMemory}
         onBack={() => setScreen({ id: "home" })}
       />
     );
@@ -578,6 +604,8 @@ export default function App(): JSX.Element {
       isLive={isLive}
       liveTimer={liveTimer}
       error={error}
+      onDismissError={() => setError(null)}
+      onRetryError={() => { window.prompty.invoke("preflight:get", undefined as never).then((pf) => setError(pf?.message ?? null)).catch(() => {}); }}
       direction={direction}
       setDirection={setDirection}
       components={prepComponents}
@@ -602,6 +630,8 @@ function HomeScreen(props: {
   isLive: boolean;
   liveTimer: string;
   error: string | null;
+  onDismissError: () => void;
+  onRetryError: () => void;
   direction: string;
   setDirection: (d: string) => void;
   components: PrepComp[];
@@ -612,7 +642,7 @@ function HomeScreen(props: {
   onMemory: () => void;
   onSettings: () => void;
 }): JSX.Element {
-  const { calls, isLive, liveTimer, error, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
+  const { calls, isLive, liveTimer, error, onDismissError, onRetryError, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -655,12 +685,12 @@ function HomeScreen(props: {
           </div>
           <div className="home-topbar-actions app-no-drag">
             <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
                 <path d="M3.5 2h8a.5.5 0 01.5.5v10.5l-4.5-2.5L3 13V2.5a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
-            <button className="home-icon-btn" onClick={onSettings} title="Settings" aria-label="Settings">
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <button className="home-icon-btn" data-testid="nav-settings" onClick={onSettings} title="Settings" aria-label="Settings">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
                 <path d="M2 4.5h3M7 4.5h6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
                 <circle cx="5.5" cy="4.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
                 <path d="M2 10.5h6M10.5 10.5h2.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
@@ -709,7 +739,7 @@ function HomeScreen(props: {
               aria-label="Prepare for this call"
               title="Set up your prep"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                 <path d="M2 7H12M12 7L7.5 2.5M12 7L7.5 11.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
@@ -737,7 +767,22 @@ function HomeScreen(props: {
         </div>
         </div>
 
-        {error && <div className="home-error">{error}</div>}
+        {error && (
+          <div className="home-error-banner" data-testid="home-error" role="alert">
+            <svg className="home-error-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+              <path d="M12 7v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <circle cx="12" cy="16.5" r="1" fill="currentColor"/>
+            </svg>
+            <span className="home-error-msg">{error}</span>
+            <button className="home-error-retry" data-testid="home-error-retry" onClick={onRetryError}>Try again</button>
+            <button className="home-error-dismiss" aria-label="Dismiss" onClick={onDismissError}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Past calls list — with the live call (if any) pinned to the top. */}
         {!isLive && calls.length === 0 ? (
@@ -756,7 +801,7 @@ function HomeScreen(props: {
                     <span className="home-call-title">Current call</span>
                     <span className="home-call-rhs">
                       <span className="home-call-time home-live-time">Live · {liveTimer}</span>
-                      <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                         <path d="M3 7h8M7.5 3.5L11 7l-3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </span>
@@ -773,6 +818,11 @@ function HomeScreen(props: {
                 <ul className="home-call-list">
                   {group.items.map((c) => {
                     const when = c.startedAt ?? c.mtimeMs;
+                    // H6: give summarizing rows an anchor (the attendee's name) so
+                    // they aren't an indistinct stack of "Untitled call", and show
+                    // the duration next to the clock.
+                    const rowTitle = c.title?.trim() || c.attendee || "Untitled call";
+                    const dur = fmtDur(c.startedAt, c.endedAt);
                     return (
                       <li key={c.name}>
                         <button
@@ -780,10 +830,12 @@ function HomeScreen(props: {
                           data-testid="call-row"
                           onClick={() => onViewCall(c.name)}
                         >
-                          <span className="home-call-title">{c.title || "Untitled call"}</span>
+                          <span className="home-call-title">{rowTitle}</span>
                           <span className="home-call-rhs">
-                            <span className="home-call-time">{c.summaryPending ? "Summarizing…" : fmtClock(when)}</span>
-                            <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <span className="home-call-time">
+                              {c.summaryPending ? "Summarizing…" : fmtClock(when)}{dur ? ` · ${dur}` : ""}
+                            </span>
+                            <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                               <path d="M3 7h8M7.5 3.5L11 7l-3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           </span>
@@ -1612,9 +1664,11 @@ function MemoryScreen(props: {
   addMemory: () => void;
   saveMemoryEdit: () => void;
   deleteMemory: (id: string) => void;
+  memUndo: Mem | null;
+  onUndoDelete: () => void;
   onBack: () => void;
 }): JSX.Element {
-  const { memories, newMemory, setNewMemory, editingMem, setEditingMem, addMemory, saveMemoryEdit, deleteMemory, onBack } = props;
+  const { memories, newMemory, setNewMemory, editingMem, setEditingMem, addMemory, saveMemoryEdit, deleteMemory, memUndo, onUndoDelete, onBack } = props;
   return (
     <div className="fullscreen-root">
       <div className="app-dragbar" />
@@ -1633,15 +1687,17 @@ function MemoryScreen(props: {
             data-testid="memory-input"
             value={newMemory}
             placeholder="e.g. Nudge me rarely — only when it really matters."
+            aria-label="Add a memory — how Ruby should nudge you"
             onChange={(e) => setNewMemory(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") addMemory(); }}
           />
           <button className="mem-add-btn" data-testid="memory-add" onClick={addMemory} disabled={!newMemory.trim()} aria-label="Add memory">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
+        {newMemory.trim() && <div className="mem-add-hint">Press Enter to add</div>}
 
         {memories.length === 0 ? (
           <div className="mem-empty" data-testid="memory-empty">
@@ -1664,23 +1720,27 @@ function MemoryScreen(props: {
                 return (
                   <li key={m.id} className="mem-item" data-testid="memory-item">
                     {isEdit ? (
-                      <input autoFocus className="mem-edit-input" value={editingMem.draft}
-                        onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
-                        onKeyDown={(e) => { if (e.key === "Enter") saveMemoryEdit(); if (e.key === "Escape") setEditingMem(null); }}
-                        onBlur={saveMemoryEdit} />
+                      <div className="mem-edit-wrap">
+                        <input autoFocus className="mem-edit-input" value={editingMem.draft}
+                          aria-label="Edit memory"
+                          onChange={(e) => setEditingMem({ id: m.id, draft: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") saveMemoryEdit(); if (e.key === "Escape") setEditingMem(null); }}
+                          onBlur={saveMemoryEdit} />
+                        <span className="mem-edit-hint">Enter to save · Esc to cancel</span>
+                      </div>
                     ) : (
                       <>
                         <span className="mem-text">{m.text}</span>
                         <div className="mem-actions">
                           {m.source === "suggested" && <span className="mem-tag">suggested</span>}
                           <button className="mem-action-btn" aria-label="Edit memory" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           </button>
                           <button className="mem-action-btn mem-action-del" data-testid="memory-delete" aria-label="Delete memory" onClick={() => deleteMemory(m.id)}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                               <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                               <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                               <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1697,6 +1757,12 @@ function MemoryScreen(props: {
           </>
         )}
       </div>
+      {memUndo && (
+        <div className="mem-undo-toast" data-testid="memory-undo" role="status" aria-live="polite">
+          <span className="mem-undo-text">Memory deleted</span>
+          <button className="mem-undo-btn" data-testid="memory-undo-btn" onClick={onUndoDelete}>Undo</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1716,11 +1782,44 @@ function SettingsScreen(props: {
   const { micStatus, claude, hotkey, refreshMic, refreshClaude, onBack } = props;
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
+  // M11: map the raw permission enum to plain language.
+  const micFriendly =
+    micStatus === "granted" ? "Allowed"
+    : micStatus === "denied" ? "Blocked"
+    : micStatus === "restricted" ? "Restricted by your device"
+    : micStatus ?? "checking…";
+
+  // M4: the Swift sidecar always follows the macOS default input device — there
+  // is no in-app picker. Make that legible by naming the live device. Labels
+  // only populate once mic permission is granted, so re-read on micStatus change.
+  const [defaultInput, setDefaultInput] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    navigator.mediaDevices?.enumerateDevices?.().then((devs) => {
+      if (!active) return;
+      const inputs = devs.filter((d) => d.kind === "audioinput");
+      const def = inputs.find((d) => d.deviceId === "default") ?? inputs[0];
+      const label = def?.label?.replace(/^Default\s*[-–]\s*/i, "").trim();
+      setDefaultInput(label || null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [micStatus]);
+
+  // M4b: only surface the Debug logs row when the PROMPTY_DEBUG switch is on.
+  const [debugEnabled, setDebugEnabled] = useState(false);
+  useEffect(() => {
+    let active = true;
+    window.prompty.invoke("debug:enabled", undefined as never)
+      .then((r) => { if (active) setDebugEnabled(r.enabled); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // Account (Google sign-in). Self-contained: query on mount, stay in sync via
   // the auth:state-changed broadcast.
   const [account, setAccount] = useState<{ signedIn: boolean; email?: string } | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   useEffect(() => {
     let active = true;
     window.prompty.invoke("auth:status", undefined as never).then((s) => {
@@ -1759,57 +1858,100 @@ function SettingsScreen(props: {
         </div>
       </div>
       <div className="fullscreen-body" style={{ paddingTop: 60 }}>
-        <h1 className="mem-title">Settings</h1>
+        <h1 className="mem-title fullscreen-h1">Settings</h1>
+        <p className="fullscreen-intro">How Ruby connects to your mic, Claude Code, and account.</p>
+
+        <div className="set-group-label">Permissions</div>
         <div className="set-group">
-          <SettingRow label="Microphone" value={micStatus ?? "checking…"} tone={micOk ? "green" : micBlocked ? "red" : "amber"}>
+          <SettingRow
+            label="Microphone"
+            value={micFriendly}
+            tone={micOk ? "green" : micBlocked ? "red" : "amber"}
+            pill={micOk ? "Allowed" : undefined}
+            hint={micOk ? `Listening to: ${defaultInput ?? "your default microphone"}` : undefined}
+          >
             {!micOk && (micBlocked
               ? <button className="set-btn" onClick={() => window.prompty.invoke("onboarding:open-external", { url: MIC_SETTINGS_URL })}>Open System Settings</button>
               : <button className="set-btn set-btn-accent" onClick={() => { window.prompty.invoke("onboarding:request-mic", undefined as never).catch(() => {}); refreshMic(); }}>Grant access</button>
             )}
           </SettingRow>
-          <SettingRow label="Claude Code" value={claude ? (claude.found ? claude.path ?? "found" : "not found") : "checking…"} tone={claude?.found ? "green" : claude ? "red" : "amber"}>
+          <SettingRow
+            label="Claude Code"
+            value={claude ? (claude.found ? "Connected" : "Not found") : "checking…"}
+            tone={claude?.found ? "green" : claude ? "red" : "amber"}
+            pill={claude?.found ? "Connected" : undefined}
+            valueTitle={claude?.path ?? undefined}
+            hint="Ruby thinks with Claude Code — it drafts your prep and live nudges."
+          >
             <button className="set-btn" onClick={refreshClaude}>Re-check</button>
           </SettingRow>
         </div>
+
+        <div className="set-group-label">Account</div>
         <div className="set-group">
           <SettingRow
             label="Account"
-            value={account ? (account.signedIn ? account.email ?? "signed in" : "not signed in") : "checking…"}
+            value={account ? (account.signedIn ? account.email ?? "Signed in" : "Not signed in") : "checking…"}
             tone={account?.signedIn ? "green" : account ? "amber" : "muted"}
+            pill={account?.signedIn ? "Signed in" : undefined}
           >
             {account && (account.signedIn
-              ? <button className="set-btn" disabled={authBusy} onClick={signOut}>Sign out</button>
+              ? (confirmingSignOut
+                  ? <div className="set-confirm">
+                      <span className="set-confirm-text">Sign out? You'll need to sign in again to use transcription and the relay.</span>
+                      <button className="set-btn" onClick={() => setConfirmingSignOut(false)}>Cancel</button>
+                      <button className="set-btn set-btn-danger" disabled={authBusy} onClick={() => { setConfirmingSignOut(false); signOut(); }}>Sign out</button>
+                    </div>
+                  : <button className="set-btn" disabled={authBusy} onClick={() => setConfirmingSignOut(true)}>Sign out</button>)
               : <button className="set-btn set-btn-accent" disabled={authBusy} onClick={signIn}>Sign in with Google</button>
             )}
           </SettingRow>
         </div>
+
+        <div className="set-group-label">Advanced</div>
         <div className="set-group">
-          <SettingRow label="Hotkey — nudge on demand" value={hotkey} tone="muted" />
-          <SettingRow label="Debug logs" value="~/.prompty/debug" tone="muted">
-            <button className="set-btn" onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}>Open folder</button>
-          </SettingRow>
+          <SettingRow
+            label="Hotkey — nudge on demand"
+            value={hotkey}
+            tone="muted"
+            hint="Press it anywhere to ask Ruby for a nudge mid-call."
+          />
+          {debugEnabled && (
+            <SettingRow label="Debug logs" value="~/.prompty/debug" tone="muted">
+              <button className="set-btn" onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}>Open folder</button>
+            </SettingRow>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function SettingRow(props: { label: string; value: string; tone: "green" | "red" | "amber" | "muted"; children?: React.ReactNode }): JSX.Element {
+function SettingRow(props: {
+  label: string;
+  value: string;
+  tone: "green" | "red" | "amber" | "muted";
+  pill?: string;        // right-side status pill, e.g. "Connected" / "Signed in" / "Allowed"
+  hint?: string;        // one-line explanation below the value
+  valueTitle?: string;  // tooltip on the value (e.g. the full Claude path)
+  children?: React.ReactNode;
+}): JSX.Element {
   return (
     <div className="set-row">
       <div className="set-row-main">
         <div className="set-label">{props.label}</div>
-        <div className={`set-val set-val-${props.tone}`}>
+        <div className={`set-val set-val-${props.tone}`} title={props.valueTitle}>
           {props.tone === "green" && (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ marginRight: 5, verticalAlign: 'middle', marginBottom: 1, flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ marginRight: 5, verticalAlign: 'middle', marginBottom: 1, flexShrink: 0 }}>
               <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           )}
           {props.value}
         </div>
+        {props.hint && <div className="set-hint">{props.hint}</div>}
       </div>
       <div className="set-row-right">
-        {props.tone === "green" && <span className="set-connected-pill">Connected</span>}
+        {props.pill && <span className="set-connected-pill">{props.pill}</span>}
         {props.children && <div className="set-control">{props.children}</div>}
       </div>
     </div>

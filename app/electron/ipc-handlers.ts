@@ -380,6 +380,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
             let startedAt: number | undefined;
             let endedAt: number | undefined;
             let summaryPending = false;
+            let attendee: string | undefined;
             try {
               const obj = JSON.parse(await fs.readFile(full, "utf8")) as {
                 title?: string;
@@ -388,15 +389,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
                 startedAt?: number;
                 endedAt?: number;
                 summaryPending?: boolean;
+                attendee?: { name?: string };
               };
               title = deriveCallTitle(obj.title, obj.summary?.title, obj.direction);
               startedAt = obj.startedAt;
               endedAt = obj.endedAt;
               summaryPending = obj.summaryPending === true;
+              attendee = obj.attendee?.name;
             } catch {
               // Unreadable/corrupt log — list it with an empty title.
             }
-            return { name: e.name, mtimeMs: stat.mtimeMs, title, startedAt, endedAt, summaryPending };
+            return { name: e.name, mtimeMs: stat.mtimeMs, title, startedAt, endedAt, summaryPending, attendee };
           }),
       );
       // Newest first, by when the call happened (fall back to file mtime).
@@ -586,6 +589,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     if (!tok) return { signedIn: false };
     const uid = (await getUserId()) ?? undefined;
     return { signedIn: true, userId: uid };
+  });
+
+  // Whether verbose debug capture is on (the `PROMPTY_DEBUG=1` env switch). The
+  // Settings "Debug logs" row is only rendered when this is true — it's a
+  // developer affordance, not a user-facing control. Kept here (not on a static
+  // window field) so a renderer reload always reflects the live env.
+  handle("debug:enabled", async () => {
+    return { enabled: process.env.PROMPTY_DEBUG === "1" };
   });
 
   handle("debug:reveal", async () => {
