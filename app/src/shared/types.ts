@@ -129,6 +129,11 @@ export interface AppSettings {
   signedIn: boolean;
   signedInUserId: string | null;
   signedInEmail: string | null;
+  // Product analytics (PostHog). Opt-out: capture is on by default, this turns
+  // it off. analyticsAnonId is the stable pre-sign-in distinct_id (empty until
+  // first use). Neither ever holds call content — see electron/analytics.ts.
+  analyticsOptOut: boolean;
+  analyticsAnonId: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -146,6 +151,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   signedIn: false,
   signedInUserId: null,
   signedInEmail: null,
+  analyticsOptOut: false,
+  analyticsAnonId: "",
 };
 
 /** Display metadata for a pickable skill — name (folder) + frontmatter title/description. */

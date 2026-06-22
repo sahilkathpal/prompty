@@ -6,6 +6,7 @@ import {
   getOverlayWindow,
 } from "./overlay-window";
 import { configureMainWindow, openMainWindow } from "./main-window";
+import { capture as analyticsCapture, identifyUser, shutdownAnalytics } from "./analytics";
 import { configureOnboardingWindow, openOnboardingWindow } from "./onboarding-window";
 import { createTray, rebuildMenu } from "./tray";
 import {
@@ -188,6 +189,14 @@ app.on("ready", () => {
 
   const settings = getSettings();
 
+  // Re-identify an already-signed-in user on every launch — sign-in only runs
+  // once, so without this returning users would stay "anonymous" in PostHog even
+  // though we capture against their id. identify is what flips is_identified.
+  if (settings.signedIn && settings.signedInUserId) {
+    identifyUser(settings.signedInUserId, { signed_in: true });
+  }
+  analyticsCapture("app_launched", { onboarded: settings.onboardingCompleted });
+
   // The menu-bar tray exists in every state, including onboarding — the app is
   // already live then (global hotkey registered, gem overlay shown), so it
   // should have a menu-bar home and a Quit affordance. Session-dependent items
@@ -251,6 +260,10 @@ app.on("ready", () => {
         const { e2eGetStatusLog } = require("./ipc-handlers");
         return e2eGetStatusLog();
       },
+      getAnalyticsEvents: () => {
+        const { getRecentEvents } = require("./analytics");
+        return getRecentEvents();
+      },
       forceDeepgramError: (reason?: string) => {
         const { e2eForceTransportError } = require("./ipc-handlers");
         return e2eForceTransportError(reason);
@@ -272,27 +285,32 @@ app.on("ready", () => {
   }
 });
 
-let endingSessionForQuit = false;
+let quitting = false;
 
 // On an orderly quit (Cmd-Q, tray Quit, window close), end any live session
 // first so it writes a clean consolidated log (with summary) rather than
-// leaning on next-launch journal recovery. end() is async, so we defer the
-// quit until it resolves. A true crash never runs this — that's what the
-// journal is for.
+// leaning on next-launch journal recovery, then flush queued analytics so the
+// last events (call_ended, the final action) aren't dropped. Both are async, so
+// we defer the quit until they resolve. A true crash never runs this — that's
+// what the journal is for, and analytics flush is best-effort by design.
 app.on("before-quit", (e) => {
+  if (quitting) return; // our own app.quit() below — let this pass through
+  e.preventDefault();
+  quitting = true;
   const session = getActiveSession();
-  if (session && !endingSessionForQuit) {
-    e.preventDefault();
-    endingSessionForQuit = true;
-    // background:false — wait for the summary pass inline so quitting doesn't
-    // exit before the consolidated log (with summary) is written.
-    void session
-      .end("user", { background: false })
-      .catch((err) =>
-        console.error("[main] end session on quit failed:", (err as Error).message),
-      )
-      .finally(() => app.quit());
-  }
+  // background:false — wait for the summary pass inline so quitting doesn't
+  // exit before the consolidated log (with summary) is written.
+  const endStep = session
+    ? session
+        .end("user", { background: false })
+        .catch((err) =>
+          console.error("[main] end session on quit failed:", (err as Error).message),
+        )
+    : Promise.resolve();
+  void endStep
+    .then(() => shutdownAnalytics())
+    .catch(() => {})
+    .finally(() => app.quit());
 });
 
 app.on("will-quit", () => {

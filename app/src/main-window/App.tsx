@@ -282,6 +282,7 @@ export default function App(): JSX.Element {
   // persists firstRunCoach:false so the coachmarks never return on relaunch.
   const dismissFirstRun = useCallback(() => {
     setFirstRun(false);
+    track("first_run_dismissed");
     void window.prompty.invoke("settings:set", { firstRunCoach: false });
   }, []);
 
@@ -312,6 +313,7 @@ export default function App(): JSX.Element {
   // debounce — immune to the directionDraft quick-close race).
   const pickSkill = useCallback((name: string) => {
     setSkill(name);
+    track("playbook_selected", { skill: name || "none" });
     void window.prompty.invoke("settings:set", { skill: name });
   }, []);
 
@@ -329,6 +331,7 @@ export default function App(): JSX.Element {
   const enterPrep = useCallback(async () => {
     const brief = direction.trim();
     if (!brief) return;
+    track("prep_started", { skill: skill || "none" });
     setPrepError(null);
     setPrepMessages([{ role: "user", text: brief }]);
     streamingRef.current = false;
@@ -336,7 +339,7 @@ export default function App(): JSX.Element {
     setScreen({ id: "prep" });
     const r = await window.prompty.invoke("prep:start", { direction: brief });
     if (!r.ok) setPrepError("Couldn't start prep — is Claude Code installed?");
-  }, [direction]);
+  }, [direction, skill]);
 
   // "Start fresh" — discard the whole pending prep (direction + components),
   // state and persisted, returning home to a clean slate.
@@ -699,6 +702,47 @@ let homeFocusedOnce = false;
 const FIRST_RUN_EXAMPLE =
   "Intro call with a designer who's thinking about switching tools. I want to understand what's not working for them today.";
 
+// Fire a product-analytics event. The main process owns identity + base props
+// and allowlists the event name (see electron/analytics.ts). Never pass call
+// content — metadata only.
+function track(event: string, properties?: Record<string, unknown>): void {
+  void window.prompty.invoke("analytics:capture", { event, properties });
+}
+
+// Time-on-screen. Each top-level screen is its own mounted component (the router
+// swaps them), so this hook stamps entry and emits `screen_viewed { screen,
+// duration_s }` when the screen unmounts (navigation away) or the window is
+// hidden/closed. Pass a changing `screen` (e.g. `post-call:${tab}`) to also
+// capture sub-tab dwell — the effect re-runs, emitting the prior segment first.
+function useScreenDwell(screen: string): void {
+  const enteredAt = useRef<number>(Date.now());
+  useEffect(() => {
+    enteredAt.current = Date.now();
+    const emit = () => {
+      const duration_s = Math.round((Date.now() - enteredAt.current) / 1000);
+      track("screen_viewed", { screen, duration_s });
+    };
+    const onVisibility = () => {
+      // Hidden (backgrounded / window closing): bank the time so far. Becoming
+      // visible again just restarts the clock so we don't count idle time.
+      if (document.visibilityState === "hidden") emit();
+      enteredAt.current = Date.now();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      emit();
+    };
+  }, [screen]);
+}
+
+// "Speak to founders" — opens the founders' scheduling page in the browser.
+const FOUNDERS_URL = "https://calendly.com/sahil-revise";
+const openFounders = (where: "home" | "prep") => {
+  track("speak_to_founders_clicked", { where });
+  void window.prompty.invoke("onboarding:open-external", { url: FOUNDERS_URL });
+};
+
 function HomeScreen(props: {
   calls: CallMeta[];
   isLive: boolean;
@@ -727,6 +771,7 @@ function HomeScreen(props: {
   onDismissFirstRun: () => void;
 }): JSX.Element {
   const { calls, isLive, liveTimer, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings, firstRun, onDismissFirstRun } = props;
+  useScreenDwell("home");
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -788,6 +833,9 @@ function HomeScreen(props: {
             </svg>
           </div>
           <div className="home-topbar-actions app-no-drag">
+            <button className="home-founders-btn" data-testid="speak-to-founders" onClick={() => openFounders("home")} title="Book a call with the Ruby founders">
+              Speak to founders
+            </button>
             <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M7 21h10a2 2 0 0 0 2 -2v-14a2 2 0 0 0 -2 -2h-6.172a2 2 0 0 0 -1.414 .586l-3.828 3.828a2 2 0 0 0 -.586 1.414v10.172a2 2 0 0 0 2 2" />
@@ -1155,6 +1203,7 @@ function PrepScreen(props: {
     sendPrep, onClose, onBeginCall, skills, skill, pickSkill, error,
     firstRun, onDismissFirstRun,
   } = props;
+  useScreenDwell("prep");
   const selectedSkill = skills.find((s) => s.name === skill);
 
   const editGoal = (id: string, text: string) =>
@@ -1386,6 +1435,16 @@ function PrepScreen(props: {
                   {selectedSkill.description}
                 </div>
               )}
+              <div className="prep-add-playbook" data-testid="prep-add-playbook">
+                Want to add your own playbook?{" "}
+                <button
+                  className="prep-add-playbook-link"
+                  data-testid="prep-speak-to-founders"
+                  onClick={() => openFounders("prep")}
+                >
+                  Speak to founders
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1418,6 +1477,7 @@ function InProgressScreen(props: {
   onBack: () => void;
 }): JSX.Element {
   const { timer, isEnding, plan, onEnd, onBack } = props;
+  useScreenDwell("in-progress");
   const direction = plan?.direction ?? "";
   const goal = plan?.components.find((c) => c.type === "goal") as { type: "goal"; id: string; text: string } | undefined;
   const checklist = plan?.components.find((c) => c.type === "checklist") as { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] } | undefined;
@@ -1540,6 +1600,19 @@ function PostCallScreen(props: {
   }, [callName, readCall]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The post-call recap was opened (once per mount — back to Home unmounts it).
+  useEffect(() => { track("post_call_opened"); }, []);
+
+  // Track which recap view is open: summary_opened on mount (the default tab)
+  // and on each switch back, transcript_opened when the transcript tab is shown.
+  useEffect(() => {
+    track(tab === "transcript" ? "transcript_opened" : "summary_opened");
+  }, [tab]);
+
+  // Dwell time per recap sub-tab — emits screen_viewed for "post-call:summary" /
+  // "post-call:transcript" on tab switch, unmount, and window hide.
+  useScreenDwell(`post-call:${tab}`);
 
   // The background summary pass lands after the call ends — if we're viewing it
   // while it's still "Summarizing…", re-read so the placeholder fills in.
@@ -1858,6 +1931,7 @@ function MemoryScreen(props: {
   onBack: () => void;
 }): JSX.Element {
   const { memories, newMemory, setNewMemory, editingMem, setEditingMem, addMemory, saveMemoryEdit, deleteMemory, memUndo, onUndoDelete, onBack } = props;
+  useScreenDwell("memory");
   return (
     <div className="fullscreen-root">
       <div className="app-dragbar" />
@@ -1973,6 +2047,7 @@ function SettingsScreen(props: {
   onBack: () => void;
 }): JSX.Element {
   const { micStatus, claude, hotkey, account, authBusy, signIn, signOut, refreshMic, refreshClaude, onBack } = props;
+  useScreenDwell("settings");
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
   // M11: map the raw permission enum to plain language.
@@ -2011,6 +2086,21 @@ function SettingsScreen(props: {
   // Account (Google sign-in) is owned by App (so Home can react to it too); this
   // screen just drives the local confirm-before-sign-out interaction.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+
+  // Analytics opt-out (capture is on by default). Read once; persist on toggle.
+  const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
+  useEffect(() => {
+    let active = true;
+    window.prompty.invoke("settings:get", undefined as never)
+      .then((s) => { if (active) setAnalyticsOptOut((s as { analyticsOptOut?: boolean }).analyticsOptOut === true); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+  const toggleAnalytics = () => {
+    const next = !analyticsOptOut;
+    setAnalyticsOptOut(next);
+    void window.prompty.invoke("settings:set", { analyticsOptOut: next });
+  };
 
   return (
     <div className="fullscreen-root">
@@ -2084,6 +2174,20 @@ function SettingsScreen(props: {
               <button className="set-btn" onClick={() => window.prompty.invoke("debug:reveal", undefined as never)}>Open folder</button>
             </SettingRow>
           )}
+        </div>
+
+        <div className="set-group-label">Privacy</div>
+        <div className="set-group">
+          <SettingRow
+            label="Share anonymous usage data"
+            value={analyticsOptOut ? "Off" : "On"}
+            tone={analyticsOptOut ? "muted" : "green"}
+            hint="Anonymous product analytics that help improve Ruby — usage events only, never your call audio, transcripts, or notes."
+          >
+            <button className="set-btn" data-testid="set-analytics-toggle" onClick={toggleAnalytics}>
+              {analyticsOptOut ? "Turn on" : "Turn off"}
+            </button>
+          </SettingRow>
         </div>
       </div>
     </div>

@@ -33,6 +33,16 @@ test("first run: complete onboarding opens Home with the prep + playbook coachma
   });
 
   try {
+    // Stub shell.openExternal so "Speak to founders" records its URL instead of
+    // launching a real browser during the test.
+    await app.evaluate(({ shell }) => {
+      (globalThis as unknown as { __opened: string[] }).__opened = [];
+      shell.openExternal = (url: string) => {
+        (globalThis as unknown as { __opened: string[] }).__opened.push(url);
+        return Promise.resolve();
+      };
+    });
+
     const ob = await findWindow(app, "onboarding");
     await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
 
@@ -66,10 +76,21 @@ test("first run: complete onboarding opens Home with the prep + playbook coachma
     await expect(main.getByTestId("home-direction")).not.toHaveValue("");
     await main.screenshot({ path: path.join(APP_ROOT, "tests/e2e/__screens__/verify-home-coach.png") });
 
+    // "Speak to founders" on Home opens the scheduling link.
+    await expect(main.getByTestId("speak-to-founders")).toHaveText("Speak to founders");
+    await main.getByTestId("speak-to-founders").click();
+
     // Enter prep → the playbook coachmark is shown there.
     await main.getByTestId("home-send").click();
     await expect(main.getByTestId("prep-skill-coach")).toBeVisible({ timeout: 8_000 });
     await main.screenshot({ path: path.join(APP_ROOT, "tests/e2e/__screens__/verify-prep-coach.png") });
+
+    // "Want to add your own playbook? Speak to founders." under the note opens it too.
+    await expect(main.getByTestId("prep-add-playbook")).toContainText("add your own playbook");
+    await main.getByTestId("prep-speak-to-founders").click();
+
+    const opened = await app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened);
+    expect(opened.filter((u) => u.includes("calendly.com/sahil-revise")).length).toBe(2);
 
     // "Got it" ends the tour and persists firstRunCoach:false so it never returns.
     await main.getByTestId("prep-skill-coach-dismiss").click();

@@ -132,6 +132,24 @@ html, body, #root {
   color: #1a1814;
 }
 
+/* "Speak to founders" — a quiet ruby pill that sits left of the nav icons. */
+.home-founders-btn {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ED0C48;
+  background: rgba(237, 12, 72, 0.08);
+  border: none;
+  border-radius: 999px;
+  height: 30px;
+  padding: 0 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease;
+}
+.home-founders-btn:hover { background: rgba(237, 12, 72, 0.14); }
+.home-founders-btn:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
+
 /* ── Body ───────────────────────────────────────────────────────────────────── */
 
 .home-body {
@@ -1583,6 +1601,30 @@ html, body, #root {
 
 .prep-skill { display: flex; flex-direction: column; gap: 8px; padding: 16px 0 4px; }
 .prep-skill-caption { font-size: 12px; line-height: 1.5; color: #92794a; margin-top: 6px; }
+
+/* "Want to add your own playbook? Speak to founders." — under the note. */
+.prep-add-playbook {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(146, 121, 74, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #92794a;
+}
+.prep-add-playbook-link {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ED0C48;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prep-add-playbook-link:hover { color: #c40a3c; }
+.prep-add-playbook-link:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; border-radius: 3px; }
 .prep-skill-hint { font-size: 12px; line-height: 1.5; color: #888078; }
 .prep-note-skill .prep-skill-hint { color: #92794a; margin-top: 6px; }
 

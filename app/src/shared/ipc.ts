@@ -221,6 +221,12 @@ export interface InvokeChannels {
     request: { url: string };
     response: void;
   };
+  // Renderer-emitted product-analytics event. Properties must be metadata only
+  // (no call content) — the main process forwards them to PostHog. Fire-and-forget.
+  "analytics:capture": {
+    request: { event: string; properties?: Record<string, unknown> };
+    response: void;
+  };
   "onboarding:complete": {
     request: void;
     response: { ok: boolean };

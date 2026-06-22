@@ -12,6 +12,7 @@ import type {
   EventPayload,
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
+import { capture as analyticsCapture, identifyUser } from "./analytics";
 import { openMainWindow, getMainWindow } from "./main-window";
 import {
   showOverlay,
@@ -102,8 +103,23 @@ function permissionStatus(): PermissionStatus {
   };
 }
 
+// Analytics events a renderer is allowed to emit via analytics:capture. Keep in
+// sync with the renderer call sites; anything else is dropped (see handler).
+const RENDERER_EVENTS = new Set<string>([
+  "prep_started",
+  "playbook_selected",
+  "first_run_dismissed",
+  "speak_to_founders_clicked",
+  "post_call_opened",
+  "summary_opened",
+  "transcript_opened",
+  "screen_viewed",
+]);
+
 let activeSession: SessionHandle | null = null;
 let activeSessionSetup: CallSetup | null = null;
+// Wall-clock start of the active call, for the call_ended analytics duration.
+let sessionStartedAt = 0;
 // The current prep chat session (RUBY B2 phase 2b). At most one at a time.
 let activePrep: PrepAgent | null = null;
 // Components (goal/checklist) armed by the current/last prep, awaiting the next
@@ -288,6 +304,13 @@ async function doStartSession(
       onStateChange: (s) => {
         broadcastSessionState(s);
         if (s === "ended" || s === "error") {
+          // Metadata only — duration, outcome, and which playbook; never content.
+          analyticsCapture("call_ended", {
+            reason: s,
+            duration_s: sessionStartedAt ? Math.round((Date.now() - sessionStartedAt) / 1000) : null,
+            skill: setup.skill || null,
+          });
+          sessionStartedAt = 0;
           activeSession = null;
           activeSessionSetup = null;
           try {
@@ -301,6 +324,11 @@ async function doStartSession(
       },
     });
     activeSession = session;
+    sessionStartedAt = Date.now();
+    analyticsCapture("call_started", {
+      skill: setup.skill || null,
+      component_count: setup.components?.length ?? 0,
+    });
     // Show the gem overlay + broadcast setup.
     try {
       showOverlay();
@@ -549,6 +577,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         signedInEmail: session.email,
       });
       broadcast("settings:changed", next);
+      // Stitch pre-sign-in activity to this user, then mark them identified.
+      identifyUser(session.userId, { signed_in: true });
+      analyticsCapture("signed_in");
       broadcast("auth:state-changed", {
         signedIn: true,
         userId: session.userId,
@@ -704,6 +735,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle("onboarding:open-external", (payload) => {
     void shell.openExternal(payload.url);
+  });
+
+  // Renderer-emitted analytics. Allowlisted so only known, content-free events
+  // can be sent from a window — the main process owns the distinct_id + base
+  // props (see analytics.ts). Unknown names are dropped with a warning.
+  handle("analytics:capture", (payload) => {
+    if (!payload || !RENDERER_EVENTS.has(payload.event)) {
+      console.warn(`[analytics] dropped non-allowlisted renderer event: ${payload?.event}`);
+      return;
+    }
+    analyticsCapture(payload.event, payload.properties ?? {});
   });
 
   handle("onboarding:set-height", (payload) => {
@@ -865,6 +907,7 @@ img.onload = () => {
     onboardingHotkeyArmed = false;
     // Arm the one-time guided first run in Home (prep + playbook coachmarks).
     updateSettings({ onboardingCompleted: true, firstRunCoach: true });
+    analyticsCapture("onboarding_completed");
     sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
     // Clear the canned onboarding demo nudge so it can't linger in the gem's
     // history into the first real call.
@@ -893,6 +936,7 @@ export function triggerNudge(source: "hotkey" | "tray" | "panel"): boolean {
   if (!activeSession) return false;
   try {
     activeSession.requestNudge();
+    analyticsCapture("nudge_fired", { source });
     return true;
   } catch (e) {
     console.error(`[ipc] triggerNudge(${source}) failed:`, (e as Error).message);
