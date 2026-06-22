@@ -968,16 +968,22 @@ function PrepScreen(props: {
       <div className="prep-body">
         <section className="prep-chat-col">
           <div className="prep-chat-toprow">
-            <button className="pcs-back app-no-drag" data-testid="prep-back" onClick={onClose}>← Back</button>
+            <button className="pcs-back app-no-drag" data-testid="prep-back" onClick={onClose}>← Home</button>
             <div className="prep-chat-label"><span className="prep-chat-dot" />Prep with Ruby</div>
           </div>
-          <div className="prep-chat-log" ref={chatLogRef} data-testid="prep-log">
+          <div className="prep-chat-log" ref={chatLogRef} data-testid="prep-log" role="log" aria-live="polite">
             {prepMessages.length === 0 && !prepThinking
-              ? <div className="prep-chat-empty">Tell Ruby about the call you're about to have.</div>
+              ? <div className="prep-chat-empty">What's this call about? Tell Ruby and she'll help you prep.</div>
               : prepMessages.map((m, i) => (
                 <div key={i} data-testid={`prep-msg-${m.role}`} className={m.role === "user" ? "prep-bubble-user" : "prep-bubble-asst"}>{m.text}</div>
               ))}
-            {prepThinking && <div className="prep-bubble-asst prep-thinking" data-testid="prep-thinking">…</div>}
+            {prepThinking && (
+              <div className="prep-bubble-asst prep-thinking" data-testid="prep-thinking" aria-label="Ruby is thinking">
+                <span className="prep-think-dot" />
+                <span className="prep-think-dot" />
+                <span className="prep-think-dot" />
+              </div>
+            )}
           </div>
           {prepError && <div className="prep-chat-error">{prepError}</div>}
           <div className="prep-chat-input-row">
@@ -997,7 +1003,7 @@ function PrepScreen(props: {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrep(); } }}
               />
-              <button className="prep-send-btn" data-testid="prep-send" onClick={sendPrep} disabled={!prepInput.trim() || prepThinking}>
+              <button className="prep-send-btn" data-testid="prep-send" onClick={sendPrep} disabled={!prepInput.trim() || prepThinking} aria-label="Send message to Ruby">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
               </button>
             </div>
@@ -1031,14 +1037,21 @@ function PrepScreen(props: {
             </svg>
             <div className="prep-sticky-header">
               <div className="prep-sticky-label">Game plan</div>
-              <div className="prep-sticky-help">
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M6.5 6C6.5 5.17 7.17 4.5 8 4.5C8.83 4.5 9.5 5.17 9.5 6C9.5 6.83 8 7.5 8 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  <circle cx="8" cy="11" r="0.75" fill="currentColor"/>
-                </svg>
-                <div className="prep-sticky-tooltip">Tap on the note to edit it</div>
-              </div>
+              {prepThinking ? (
+                <div className="prep-sticky-updating" data-testid="prep-panel-updating">
+                  <span className="prep-shimmer-dot" />
+                  Ruby is updating your plan…
+                </div>
+              ) : (
+                <div className="prep-sticky-help" tabIndex={0} aria-label="How to edit the game plan">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
+                    <path d="M6.5 6C6.5 5.17 7.17 4.5 8 4.5C8.83 4.5 9.5 5.17 9.5 6C9.5 6.83 8 7.5 8 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="8" cy="11" r="0.75" fill="currentColor"/>
+                  </svg>
+                  <div className="prep-sticky-tooltip">Click anywhere in the note to edit it</div>
+                </div>
+              )}
             </div>
             <textarea
               className="prep-direction-input"
@@ -1059,17 +1072,30 @@ function PrepScreen(props: {
                   c.type === "goal" ? (
                     <div key={c.id} className="prep-comp-block" data-testid="component-goal">
                       <div className="prep-comp-head">
-                        <span className="prep-comp-kind">Goal</span>
+                        <span className="prep-comp-kind">
+                          <svg className="prep-comp-glyph" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+                            <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="2"/>
+                            <circle cx="12" cy="12" r="1" fill="currentColor"/>
+                          </svg>
+                          Goal
+                        </span>
                         <CompMenu onDelete={() => deleteComponent(c.id)} />
                       </div>
                       <textarea className="prep-comp-goal-input" data-testid="goal-input" value={c.text} rows={2}
-                        placeholder="The one outcome that makes this call a success…"
+                        placeholder="The outcome that makes this call a win…"
                         onChange={(e) => editGoal(c.id, e.target.value)} />
                     </div>
                   ) : (
                     <div key={c.id} className="prep-comp-block" data-testid="component-checklist">
                       <div className="prep-comp-head">
-                        <span className="prep-comp-kind">{c.title?.trim() || "Checklist"}</span>
+                        <span className="prep-comp-kind">
+                          <svg className="prep-comp-glyph" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2"/>
+                            <path d="M8 12l2.5 2.5L16 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          {c.title?.trim() || "Checklist"}
+                        </span>
                         <CompMenu onDelete={() => deleteComponent(c.id)} />
                       </div>
                       <ul className="prep-comp-list">
