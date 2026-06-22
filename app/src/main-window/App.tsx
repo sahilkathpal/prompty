@@ -735,6 +735,106 @@ function HomeScreen(props: {
 
 // ─── Prep screen ──────────────────────────────────────────────────────────────
 
+function CompMenu(props: { onDelete: () => void }): JSX.Element {
+  const { onDelete } = props;
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="comp-menu" ref={ref}>
+      <button className="comp-menu-trigger" onClick={() => setOpen((o) => !o)} type="button" aria-label="Options">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="2" cy="7" r="1.25" fill="currentColor"/>
+          <circle cx="7" cy="7" r="1.25" fill="currentColor"/>
+          <circle cx="12" cy="7" r="1.25" fill="currentColor"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="comp-menu-popover">
+          <button className="comp-menu-delete" onClick={() => { onDelete(); setOpen(false); }} type="button">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillDropdown(props: {
+  skills: SkillOpt[];
+  value: string;
+  onChange: (name: string) => void;
+  noteStyle?: boolean;
+}): JSX.Element {
+  const { skills, value, onChange, noteStyle } = props;
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = skills.find((s) => s.name === value);
+  const label = selected?.title ?? "No playbook";
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const base = noteStyle ? "skill-dd note-style" : "skill-dd";
+
+  return (
+    <div className={`${base}${open ? " open" : ""}`} ref={ref} data-testid="playground-skill">
+      <button
+        className="skill-dd-trigger"
+        onClick={() => setOpen((o) => !o)}
+        type="button"
+      >
+        <span className="skill-dd-label">{label}</span>
+        <svg className={`skill-dd-chevron${open ? " open" : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="skill-dd-menu">
+          <div className="skill-dd-divider" />
+          <button
+            className={`skill-dd-item${!value ? " active" : ""}`}
+            onClick={() => { onChange(""); setOpen(false); }}
+            type="button"
+          >
+            No playbook
+          </button>
+          {skills.map((s) => (
+            <button
+              key={s.name}
+              className={`skill-dd-item${value === s.name ? " active" : ""}`}
+              onClick={() => { onChange(s.name); setOpen(false); }}
+              type="button"
+            >
+              {s.title}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PrepScreen(props: {
   direction: string;
   setDirection: (d: string) => void;
@@ -813,7 +913,7 @@ function PrepScreen(props: {
       <div className="prep-body">
         <section className="prep-chat-col">
           <div className="prep-chat-toprow">
-            <button className="prep-back app-no-drag" data-testid="prep-back" onClick={onClose}>← Back</button>
+            <button className="pcs-back app-no-drag" data-testid="prep-back" onClick={onClose}>← Back</button>
             <div className="prep-chat-label"><span className="prep-chat-dot" />Prep with Ruby</div>
           </div>
           <div className="prep-chat-log" ref={chatLogRef} data-testid="prep-log">
@@ -905,7 +1005,7 @@ function PrepScreen(props: {
                     <div key={c.id} className="prep-comp-block" data-testid="component-goal">
                       <div className="prep-comp-head">
                         <span className="prep-comp-kind">Goal</span>
-                        <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
+                        <CompMenu onDelete={() => deleteComponent(c.id)} />
                       </div>
                       <textarea className="prep-comp-goal-input" data-testid="goal-input" value={c.text} rows={2}
                         placeholder="The one outcome that makes this call a success…"
@@ -915,59 +1015,44 @@ function PrepScreen(props: {
                     <div key={c.id} className="prep-comp-block" data-testid="component-checklist">
                       <div className="prep-comp-head">
                         <span className="prep-comp-kind">{c.title?.trim() || "Checklist"}</span>
-                        <button className="prep-comp-del" onClick={() => deleteComponent(c.id)}>✕</button>
+                        <CompMenu onDelete={() => deleteComponent(c.id)} />
                       </div>
                       <ul className="prep-comp-list">
-                        {c.items.map((it) => (
+                        {c.items.map((it, idx) => (
                           <li key={it.id} className="prep-comp-item" data-testid="checklist-item">
                             <span className="prep-comp-dot">○</span>
-                            <input className="prep-comp-item-input" value={it.text}
-                              onChange={(e) => editItem(c.id, it.id, e.target.value)} />
-                            <button className="prep-comp-del" data-testid="checklist-item-delete" onClick={() => deleteItem(c.id, it.id)}>✕</button>
+                            <textarea className="prep-comp-item-input" value={it.text} rows={1}
+                              placeholder={!it.text ? "Type to add a new item…" : undefined}
+                              ref={(el) => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } }}
+                              onChange={(e) => { editItem(c.id, it.id, e.target.value); const el = e.target; el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }} />
+                            <button className="prep-comp-del" data-testid="checklist-item-delete" onClick={() => deleteItem(c.id, it.id)}>
+                              <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 1l9 9M10 1L1 10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/></svg>
+                            </button>
                           </li>
                         ))}
                       </ul>
-                      <button className="prep-add-item" data-testid="checklist-add" onClick={() => addItem(c.id)}>+ Add item</button>
+                      <button className="prep-add-item" data-testid="checklist-add" onClick={() => addItem(c.id)}>
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/></svg>
+                        Add a new item
+                      </button>
                     </div>
                   ),
                 )}
               </div>
             )}
-          </div>
 
-          <div className="prep-skill">
-            <label className="prep-skill-label" htmlFor="prep-skill-select">Playbook</label>
-            <select
-              id="prep-skill-select"
-              data-testid="playground-skill"
-              className="prep-skill-select"
-              value={skill}
-              onChange={(e) => pickSkill(e.target.value)}
-            >
-              <option value="">No playbook</option>
-              {skills.map((s) => (
-                <option key={s.name} value={s.name}>{s.title}</option>
-              ))}
-            </select>
-            {selectedSkill?.description && (
-              <div className="prep-skill-hint" data-testid="playground-skill-hint">
-                {selectedSkill.description}
-              </div>
-            )}
-          </div>
-
-          {prepComponents.length === 0 && (
-            <div className="prep-empty-state">
-              <svg width="20" height="20" viewBox="0 0 28 28" fill="none" className="prep-empty-sparkle">
-                <path d="M10.0599 18.701C10.2571 18.8403 10.4829 18.9339 10.7207 18.9752C10.9586 19.0165 11.2027 19.0043 11.4353 18.9396C11.6679 18.8749 11.8832 18.7593 12.0656 18.6011C12.248 18.4429 12.3929 18.2461 12.4899 18.025L13.2599 15.685C13.4472 15.122 13.763 14.6104 14.1824 14.1907C14.6017 13.771 15.1131 13.4548 15.6759 13.267L17.9139 12.54C18.232 12.4294 18.5071 12.2211 18.6999 11.945C18.8488 11.7357 18.9458 11.4939 18.9829 11.2397C19.0199 10.9855 18.996 10.7262 18.9131 10.483C18.8301 10.2399 18.6906 10.02 18.5059 9.84138C18.3212 9.66282 18.0967 9.53073 17.8509 9.45602L15.6359 8.73602C15.0728 8.54922 14.5609 8.23381 14.1408 7.8148C13.7208 7.39579 13.4041 6.88469 13.2159 6.32202L12.4889 4.08502C12.3771 3.76808 12.1695 3.49374 11.8949 3.30002C11.6186 3.10952 11.291 3.00751 10.9554 3.00751C10.6198 3.00751 10.2922 3.10952 10.0159 3.30002C9.73703 3.49724 9.52715 3.77708 9.41591 4.10002L8.67991 6.36502C8.49216 6.91308 8.18221 7.41126 7.77352 7.82186C7.36482 8.23246 6.86809 8.54472 6.32091 8.73502L4.08091 9.46102C3.76217 9.5737 3.48647 9.78292 3.29218 10.0596C3.09789 10.3362 2.99466 10.6666 2.99686 11.0046C2.99906 11.3427 3.10658 11.6717 3.30446 11.9458C3.50234 12.2199 3.78073 12.4255 4.10091 12.534L6.31691 13.254C7.03536 13.4951 7.66694 13.9424 8.13291 14.54C8.39891 14.883 8.60391 15.268 8.73891 15.68L9.46691 17.914C9.57891 18.232 9.78691 18.507 10.0619 18.701M19.8059 24.781C20.0094 24.9249 20.2527 25.0017 20.5019 25.001C20.7494 25.0018 20.9911 24.926 21.1939 24.784C21.4027 24.6366 21.5589 24.4264 21.6399 24.184L22.0119 23.041C22.0906 22.8037 22.2235 22.588 22.4 22.4109C22.5765 22.2339 22.7918 22.1004 23.0289 22.021L24.1949 21.643C24.4301 21.5595 24.6336 21.4053 24.7777 21.2016C24.9219 20.9979 24.9995 20.7546 24.9999 20.505C24.9999 20.2489 24.918 19.9996 24.7661 19.7934C24.6143 19.5872 24.4005 19.435 24.1559 19.359L23.0119 18.989C22.7745 18.9102 22.5587 18.7772 22.3817 18.6005C22.2046 18.4238 22.0712 18.2083 21.9919 17.971L21.6119 16.808C21.53 16.5707 21.3756 16.365 21.1706 16.22C20.9656 16.075 20.7203 15.9979 20.4692 15.9997C20.2181 16.0014 19.9738 16.0819 19.7709 16.2298C19.568 16.3777 19.4165 16.5855 19.3379 16.824L18.9639 17.97C18.8873 18.2042 18.7579 18.4177 18.5857 18.594C18.4136 18.7704 18.2032 18.9048 17.9709 18.987L16.8049 19.365C16.5692 19.4483 16.3651 19.6025 16.2206 19.8064C16.0761 20.0104 15.9983 20.2541 15.9979 20.504C15.9982 20.7561 16.0778 21.0017 16.2255 21.206C16.3733 21.4103 16.5816 21.5628 16.8209 21.642L17.9649 22.014C18.2032 22.0926 18.4198 22.2261 18.5969 22.4039C18.7741 22.5816 18.907 22.7985 18.9849 23.037L19.3639 24.2C19.4466 24.435 19.6004 24.6384 19.8039 24.782" fill="currentColor"/>
-              </svg>
-              <p className="prep-empty-message">Ruby fills these in as you chat.</p>
-              <div className="prep-empty-pills">
-                <span className="prep-empty-pill">Goal</span>
-                <span className="prep-empty-pill">Checklist</span>
-              </div>
+            <div className="prep-note-divider" />
+            <div className="prep-note-skill">
+              <div className="prep-note-skill-label">Playbook</div>
+              <SkillDropdown skills={skills} value={skill} onChange={pickSkill} noteStyle />
+              {selectedSkill?.description && (
+                <div className="prep-skill-hint" data-testid="playground-skill-hint">
+                  {selectedSkill.description}
+                </div>
+              )}
             </div>
-          )}
+          </div>
+
           </div>
           <div className="prep-panel-begin">
             <button className="prep-begin-btn" data-testid="prep-begin" onClick={onBeginCall}>

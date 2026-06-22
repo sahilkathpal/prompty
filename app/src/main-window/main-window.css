@@ -516,8 +516,8 @@ html, body, #root {
   height: 30px;
   pointer-events: none;
 }
-.prep-sticky-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.prep-sticky-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #92794a; }
+.prep-sticky-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.prep-sticky-label { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #92794a; }
 .prep-sticky-help { position: relative; display: inline-flex; align-items: center; color: #b8a98a; cursor: default; }
 .prep-sticky-help:hover { color: #92794a; }
 .prep-sticky-tooltip {
@@ -586,36 +586,83 @@ html, body, #root {
 .prep-components { display: flex; flex-direction: column; gap: 10px; }
 .prep-comp-block { background: #fff; border: 1px solid #e8e3dc; border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .prep-comp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.prep-comp-kind { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #ED0C48; }
-.prep-comp-del { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: #c8c2b8; cursor: pointer; border-radius: 6px; font-size: 11px; }
-.prep-comp-del:hover { background: #f2ebe0; color: #1a1814; }
-.prep-comp-goal-input { width: 100%; padding: 0; font-family: inherit; font-size: 15px; line-height: 1.6; color: #1a1814; background: transparent; border: none; outline: none; resize: none; box-sizing: border-box; field-sizing: content; }
+.prep-comp-kind { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #ED0C48; }
+.prep-comp-del { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: #c8c2b8; cursor: pointer; border-radius: 6px; transition: background 100ms ease, color 100ms ease; }
+.prep-comp-del:hover { background: rgba(196, 160, 82, 0.15); color: #92794a; }
+
+.comp-menu { position: relative; }
+.comp-menu-trigger {
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: #b8a98a; cursor: pointer; border-radius: 6px;
+  transition: background 100ms ease, color 100ms ease;
+}
+.comp-menu-trigger:hover { background: rgba(146, 121, 74, 0.12); color: #92794a; }
+.comp-menu-popover {
+  position: absolute; top: calc(100% + 4px); right: 0;
+  background: #fff;
+  border: 1px solid #e2ddd5;
+  border-radius: 9px;
+  box-shadow: 0 6px 20px rgba(92, 62, 28, 0.12), 0 2px 6px rgba(92, 62, 28, 0.06);
+  padding: 4px;
+  z-index: 200;
+  min-width: 110px;
+}
+.comp-menu-delete {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  font-family: inherit; font-size: 13px;
+  color: #c0392b; background: transparent; border: none;
+  border-radius: 7px; padding: 7px 10px;
+  cursor: pointer; text-align: left;
+  transition: background 100ms ease;
+}
+.comp-menu-delete:hover { background: #fdf0ef; }
+.prep-comp-goal-input { width: 100%; padding: 0; font-family: 'New York', 'Georgia', serif; font-size: 16px; line-height: 1.65; color: #1a1814; background: transparent; border: none; outline: none; resize: none; box-sizing: border-box; field-sizing: content; }
 .prep-comp-goal-input::placeholder { color: #c8c2b8; }
-.prep-comp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.prep-comp-item { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
-.prep-comp-dot { font-size: 14px; color: #d4cec5; flex-shrink: 0; }
-.prep-comp-item-input { flex: 1; min-width: 0; padding: 2px 0; font-family: inherit; font-size: 14px; line-height: 1.5; color: #1a1814; background: transparent; border: none; outline: none; overflow: visible; }
-.prep-add-item { font-family: inherit; font-size: 13px; color: #ED0C48; background: transparent; border: none; cursor: pointer; padding: 8px 0 0; margin-top: 4px; display: block; }
-.prep-add-item:hover { text-decoration: underline; text-underline-offset: 2px; }
+.prep-comp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.prep-comp-item { display: flex; align-items: flex-start; gap: 10px; }
+.prep-comp-dot { font-size: 14px; line-height: 1.6; color: #d4cec5; flex-shrink: 0; }
+.prep-comp-item-input { flex: 1; min-width: 0; padding: 0; font-family: 'New York', 'Georgia', serif; font-size: 16px; line-height: 1.65; color: #1a1814; background: transparent; border: none; outline: none; resize: none; overflow: hidden; field-sizing: content; }
+.prep-comp-item-input::placeholder { color: #c4a052; font-style: italic; }
+.prep-add-item {
+  font-family: inherit;
+  font-size: 13px;
+  color: #a09080;
+  background: transparent;
+  border: 1.5px dashed rgba(160, 144, 128, 0.5);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 10px 12px;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.prep-add-item:hover { background: rgba(160, 144, 128, 0.07); border-style: solid; border-color: #a09080; color: #6b6560; }
 
 /* Goal + checklist folded into the sticky note: render as sections of the one
  * document — transparent, divided by faint rules in the note's amber, with the
  * note's brown accent — rather than detached white cards. */
-.prep-note-components { margin-top: 16px; gap: 0; }
+.prep-note-components { margin-top: 0; gap: 0; }
 .prep-note-components .prep-comp-block {
   background: transparent;
   border: none;
   border-top: 1px solid rgba(146, 121, 74, 0.28);
   border-radius: 0;
   box-shadow: none;
-  padding: 14px 0 0;
-  margin-top: 14px;
+  padding: 16px 0 0;
+  margin-top: 16px;
 }
 .prep-note-components .prep-comp-kind { color: #92794a; }
-.prep-note-components .prep-add-item { color: #92794a; }
+.prep-note-components .prep-add-item { color: #c4a052; border-color: rgba(196, 160, 82, 0.4); }
+.prep-note-components .prep-add-item:hover { background: rgba(196, 160, 82, 0.1); border-color: rgba(196, 160, 82, 0.7); border-style: solid; color: #92794a; }
 .prep-note-components .prep-comp-dot { color: #b8a98a; }
-.prep-note-components .prep-comp-del { color: #b8a98a; }
-.prep-note-components .prep-comp-del:hover { color: #92794a; }
+.prep-note-components .prep-comp-del { color: #c4a87a; }
+.prep-note-components .prep-comp-del:hover { background: rgba(196, 160, 82, 0.15); color: #92794a; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    LIVE SCREEN
@@ -679,9 +726,11 @@ html, body, #root {
   max-width: 600px;
   width: 100%;
   margin: 0 auto;
+  padding: 0 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  box-sizing: border-box;
 }
 
 .pcs-tab-toggle {
@@ -751,6 +800,7 @@ html, body, #root {
 
 @media (max-width: 739px) {
   .pcs-toprow { padding-left: 90px; }
+  .pcs-toprow-inner { padding-left: 0; }
 }
 
 .pcs-back {
@@ -1252,22 +1302,106 @@ html, body, #root {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 .prep-skill { display: flex; flex-direction: column; gap: 8px; padding: 16px 0 4px; }
-.prep-skill-label { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #ED0C48; }
-.prep-skill-select {
+.prep-skill-hint { font-size: 12px; line-height: 1.5; color: #888078; }
+.prep-note-skill .prep-skill-hint { color: #92794a; margin-top: 6px; }
+
+.prep-note-divider {
+  height: 1px;
+  background: rgba(146, 121, 74, 0.25);
+  margin: 16px 0;
+}
+
+.prep-note-skill {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prep-note-skill-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #92794a;
+}
+
+.skill-dd {
   width: 100%;
-  font-family: inherit;
-  font-size: 14px;
-  color: #1a1814;
   background: #fff;
   border: 1px solid #e2ddd5;
   border-radius: 9px;
-  padding: 9px 12px;
-  outline: none;
-  cursor: pointer;
+  overflow: hidden;
   transition: border-color 120ms ease;
 }
-.prep-skill-select:focus { border-color: #ED0C48; }
-.prep-skill-hint { font-size: 12px; line-height: 1.5; color: #888078; }
+.skill-dd.open { border-color: #c8c2b8; }
+
+.skill-dd-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #1a1814;
+  background: transparent;
+  border: none;
+  padding: 9px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.skill-dd-trigger:focus-visible { outline: none; }
+
+.skill-dd-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.skill-dd-chevron { flex-shrink: 0; color: #888078; transition: transform 150ms ease; }
+.skill-dd-chevron.open { transform: rotate(180deg); }
+
+.skill-dd-divider { height: 1px; background: #e2ddd5; margin: 0 0 4px; }
+
+.skill-dd-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 1px;
+}
+
+.skill-dd-item {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: #1a1814;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+.skill-dd-item:hover { background: #f5f0e8; }
+.skill-dd-item.active { background: #f5f0e8; font-weight: 500; }
+
+/* Note-style variant — matches the sticky note's warm yellow palette */
+.skill-dd.note-style {
+  background: transparent;
+  border-color: rgba(146, 121, 74, 0.3);
+}
+.skill-dd.note-style.open { border-color: rgba(146, 121, 74, 0.5); }
+.skill-dd.note-style .skill-dd-trigger {
+  font-family: 'New York', 'Georgia', serif;
+  font-size: 15px;
+  color: #4a3a1a;
+}
+.skill-dd.note-style .skill-dd-chevron { color: #92794a; }
+.skill-dd.note-style .skill-dd-divider { background: rgba(146, 121, 74, 0.25); margin-bottom: 4px; }
+.skill-dd.note-style .skill-dd-item {
+  font-family: 'New York', 'Georgia', serif;
+  font-size: 14px;
+  color: #4a3a1a;
+}
+.skill-dd.note-style .skill-dd-item:hover { background: rgba(146, 121, 74, 0.12); }
+.skill-dd.note-style .skill-dd-item.active { background: rgba(146, 121, 74, 0.18); font-weight: 600; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    POST-CALL — CHECKLIST COVERAGE / TRANSCRIPT / USER-AUTHORED NOTE
