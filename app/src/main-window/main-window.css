@@ -354,6 +354,69 @@ html, body, #root {
   margin-top: 8px;
 }
 
+/* ── First-run coachmark (Home) ──────────────────────────────────────────────── */
+
+.home-coach {
+  position: relative;
+  margin: 16px auto 0;
+  max-width: 600px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  background: #fff6f8;
+  border: 1px solid #f4cdd8;
+  border-left: 3px solid #ED0C48;
+  border-radius: 10px;
+}
+.home-coach-body { padding-right: 18px; }
+.home-coach-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #8a2333;
+  margin-bottom: 4px;
+}
+.home-coach-text {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b6258;
+}
+.home-coach-text strong { color: #4a443c; font-weight: 600; }
+.home-coach-example {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ED0C48;
+  background: #fff;
+  border: 1px solid #f0b9c6;
+  border-radius: 8px;
+  padding: 6px 12px;
+  min-height: 30px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.home-coach-example:hover { background: #fdeef1; border-color: #ED0C48; }
+.home-coach-example:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
+.home-coach-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #c79aa4;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.home-coach-dismiss:hover { color: #ED0C48; background: rgba(237,12,72,0.08); }
+.home-coach-dismiss:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
+
 /* ── Past calls list ─────────────────────────────────────────────────────────── */
 
 .home-calls { display: flex; flex-direction: column; gap: 0; max-width: 600px; margin: 0 auto; width: 100%; }
@@ -1534,6 +1597,53 @@ html, body, #root {
   flex-direction: column;
   gap: 12px;
 }
+
+/* First-run highlight on the Playbook picker + its coachmark. A white card with
+   a ruby ring that briefly pulses to pull the eye, then settles. */
+.prep-note-skill.coach {
+  margin: -10px -12px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 0 0 2px #ED0C48, 0 6px 18px rgba(237, 12, 72, 0.16);
+  animation: coachPulse 1.8s ease-in-out 3;
+}
+@keyframes coachPulse {
+  0%, 100% { box-shadow: 0 0 0 2px #ED0C48, 0 6px 18px rgba(237, 12, 72, 0.16); }
+  50% { box-shadow: 0 0 0 5px rgba(237, 12, 72, 0.40), 0 8px 22px rgba(237, 12, 72, 0.30); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prep-note-skill.coach { animation: none; }
+}
+/* Filled ruby callout — white text reads clearly against the cream panel. */
+.prep-skill-coach {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: #ED0C48;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #fff;
+}
+.prep-skill-coach-text { flex: 1; }
+.prep-skill-coach-dismiss {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ED0C48;
+  background: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 5px 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+.prep-skill-coach-dismiss:hover { background: #ffe2e9; }
+.prep-skill-coach-dismiss:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 .prep-note-skill-label {
   font-size: 12px;

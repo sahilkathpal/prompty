@@ -863,7 +863,8 @@ img.onload = () => {
     pendingRubyMessage = null;
     // Hand the global hotkey back to the live nudge path.
     onboardingHotkeyArmed = false;
-    updateSettings({ onboardingCompleted: true });
+    // Arm the one-time guided first run in Home (prep + playbook coachmarks).
+    updateSettings({ onboardingCompleted: true, firstRunCoach: true });
     sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
     // Clear the canned onboarding demo nudge so it can't linger in the gem's
     // history into the first real call.

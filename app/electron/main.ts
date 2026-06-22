@@ -173,6 +173,10 @@ app.on("ready", () => {
     getOverlayWindow,
     onOnboardingComplete: () => {
       startTrayAndOverlay();
+      // Drop straight into Home — the onboarding card promised "Take me to Ruby".
+      // Without this the onboarding window just closes to an empty desktop and the
+      // user has to find "Open main window" in the tray.
+      openMainWindow();
     },
     ensureHotkeyRegistered,
   });

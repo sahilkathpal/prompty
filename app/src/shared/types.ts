@@ -106,6 +106,11 @@ export interface AppSettings {
   hotkey: string;
   onboardingCompleted: boolean;
   loginItemPrompted: boolean;
+  // Set true the moment onboarding completes; drives the one-time guided first
+  // run in Home (prep-bar coachmark + playbook coachmark on the prep screen).
+  // Cleared the first time the user engages or dismisses, and never returns.
+  // Defaults false so existing installs don't suddenly see the tour.
+  firstRunCoach: boolean;
   lastTab: MainTab;
   // The working direction, persisted as a draft so a prepped brief survives
   // closing/reopening the window. Empty until the user types or preps one.
@@ -133,6 +138,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hotkey: "Alt+Shift+Space",
   onboardingCompleted: false,
   loginItemPrompted: false,
+  firstRunCoach: false,
   lastTab: "prep",
   directionDraft: "",
   skill: "",

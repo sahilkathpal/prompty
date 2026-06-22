@@ -172,6 +172,10 @@ export default function App(): JSX.Element {
   const [authBusy, setAuthBusy] = useState(false);
   const [memories, setMemories] = useState<Mem[]>([]);
   const [newMemory, setNewMemory] = useState("");
+  // One-time guided first run: armed at onboarding-complete, drives the prep-bar
+  // coachmark on Home and the playbook coachmark on the prep screen. Cleared the
+  // first time the user dismisses or starts a call, and never shown again.
+  const [firstRun, setFirstRun] = useState(false);
   const [editingMem, setEditingMem] = useState<{ id: string; draft: string } | null>(null);
 
   // Prep state
@@ -274,6 +278,13 @@ export default function App(): JSX.Element {
 
   // ── Session ─────────────────────────────────────────────────────────────────
 
+  // End the one-time guided first run. Idempotent: flips local state off and
+  // persists firstRunCoach:false so the coachmarks never return on relaunch.
+  const dismissFirstRun = useCallback(() => {
+    setFirstRun(false);
+    void window.prompty.invoke("settings:set", { firstRunCoach: false });
+  }, []);
+
   const startCall = useCallback(async (dir: string) => {
     setError(null);
     if (!dir.trim()) { setError("Describe the call first."); return; }
@@ -293,7 +304,9 @@ export default function App(): JSX.Element {
     // match. Skill is sticky and deliberately left as-is.
     setDirection("");
     setPrepComponents([]);
-  }, [refreshMic, skill, prepComponents]);
+    // Starting a call means the loop has been learned — retire the first-run tour.
+    if (firstRun) dismissFirstRun();
+  }, [refreshMic, skill, prepComponents, firstRun, dismissFirstRun]);
 
   // Sticky skill: a discrete pick, so persist it synchronously on change (no
   // debounce — immune to the directionDraft quick-close race).
@@ -485,9 +498,10 @@ export default function App(): JSX.Element {
       }
     }).catch(() => {}).finally(() => { draftReady.current = true; });
     window.prompty.invoke("settings:get", undefined as never).then((s) => {
-      const set = s as { hotkey?: string; skill?: string; prepComponents?: PrepComp[] };
+      const set = s as { hotkey?: string; skill?: string; prepComponents?: PrepComp[]; firstRunCoach?: boolean };
       if (set.hotkey) setHotkey(set.hotkey);
       if (typeof set.skill === "string") setSkill(set.skill);
+      if (set.firstRunCoach) setFirstRun(true);
       // Restore a brief prepped before an app restart. Persisted components are []
       // during/after a call, so this is safe mid-session.
       if (Array.isArray(set.prepComponents)) setPrepComponents(set.prepComponents);
@@ -590,6 +604,8 @@ export default function App(): JSX.Element {
         skill={skill}
         pickSkill={pickSkill}
         error={error}
+        firstRun={firstRun}
+        onDismissFirstRun={dismissFirstRun}
       />
     );
   }
@@ -666,6 +682,8 @@ export default function App(): JSX.Element {
       onViewLive={() => setScreen({ id: "in-progress" })}
       onMemory={() => setScreen({ id: "memory" })}
       onSettings={() => setScreen({ id: "settings" })}
+      firstRun={firstRun}
+      onDismissFirstRun={dismissFirstRun}
     />
   );
 }
@@ -675,6 +693,11 @@ export default function App(): JSX.Element {
 // Session-scoped guard so the home bar is auto-focused only on the first Home
 // render (the post-onboarding / launch landing), never on later returns.
 let homeFocusedOnce = false;
+
+// Seeded into the prep bar by the first-run coachmark's "Use an example" button —
+// a concrete, ordinary brief so the user sees what a useful one looks like.
+const FIRST_RUN_EXAMPLE =
+  "Intro call with a designer who's thinking about switching tools. I want to understand what's not working for them today.";
 
 function HomeScreen(props: {
   calls: CallMeta[];
@@ -700,8 +723,10 @@ function HomeScreen(props: {
   onViewLive: () => void;
   onMemory: () => void;
   onSettings: () => void;
+  firstRun: boolean;
+  onDismissFirstRun: () => void;
 }): JSX.Element {
-  const { calls, isLive, liveTimer, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
+  const { calls, isLive, liveTimer, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings, firstRun, onDismissFirstRun } = props;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -828,6 +853,44 @@ function HomeScreen(props: {
           {focused && (
             <div className="home-bar-hint" data-testid="home-bar-hint">
               Enter to start prepping · Shift+Enter for a new line
+            </div>
+          )}
+
+          {firstRun && !isLive && components.length === 0 && (
+            <div className="home-coach" data-testid="home-coach" role="status">
+              <button
+                className="home-coach-dismiss"
+                data-testid="home-coach-dismiss"
+                aria-label="Dismiss"
+                onClick={onDismissFirstRun}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </button>
+              <div className="home-coach-body">
+                <span className="home-coach-title">Try your first prep</span>
+                <p className="home-coach-text">
+                  Tell me what your next call's about and I'll help you prep —
+                  getting clear on what you want out of it. Next, pick a{" "}
+                  <strong>playbook</strong> for the kind of call.
+                </p>
+                <button
+                  className="home-coach-example"
+                  data-testid="home-coach-example"
+                  onClick={() => {
+                    setDirection(FIRST_RUN_EXAMPLE);
+                    const el = textareaRef.current;
+                    if (el) {
+                      el.focus();
+                      el.style.height = "auto";
+                      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                    }
+                  }}
+                >
+                  Use an example
+                </button>
+              </div>
             </div>
           )}
 
@@ -1083,11 +1146,14 @@ function PrepScreen(props: {
   skill: string;
   pickSkill: (name: string) => void;
   error: string | null;
+  firstRun: boolean;
+  onDismissFirstRun: () => void;
 }): JSX.Element {
   const {
     direction, setDirection, prepMessages, prepThinking, prepError,
     prepInput, setPrepInput, prepInputRef, chatLogRef, prepComponents, syncComponents,
     sendPrep, onClose, onBeginCall, skills, skill, pickSkill, error,
+    firstRun, onDismissFirstRun,
   } = props;
   const selectedSkill = skills.find((s) => s.name === skill);
 
@@ -1297,8 +1363,22 @@ function PrepScreen(props: {
             )}
 
             <div className="prep-note-divider" />
-            <div className="prep-note-skill">
+            <div className={`prep-note-skill${firstRun ? " coach" : ""}`}>
               <div className="prep-note-skill-label">Playbook</div>
+              {firstRun && (
+                <div className="prep-skill-coach" data-testid="prep-skill-coach" role="status">
+                  <span className="prep-skill-coach-text">
+                    Pick a playbook — it shapes how I prep and nudge for this kind of call.
+                  </span>
+                  <button
+                    className="prep-skill-coach-dismiss"
+                    data-testid="prep-skill-coach-dismiss"
+                    onClick={onDismissFirstRun}
+                  >
+                    Got it
+                  </button>
+                </div>
+              )}
               <SkillDropdown skills={skills} value={skill} onChange={pickSkill} noteStyle />
               <div className="prep-skill-caption">Shapes how Ruby helps on this call.</div>
               {selectedSkill?.description && (
