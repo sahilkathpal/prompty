@@ -292,6 +292,50 @@ html, body, #root {
 .home-error-dismiss:hover { color: #ED0C48; background: rgba(237,12,72,0.08); }
 .home-error-dismiss:focus-visible { outline: 2px solid #ED0C48; outline-offset: 1px; }
 
+/* Readiness / setup banner — a CALM proactive prompt (not an error). Surfaces
+   the unmet call-start requirements (sign in, mic, Claude) with an action each.
+   Warm card + ruby left-accent; red is reserved for real errors. */
+.home-setup {
+  margin: 0 auto 20px;
+  padding: 14px 16px;
+  max-width: 600px;
+  width: 100%;
+  box-sizing: border-box;
+  background: #f3ede2;
+  border: 1px solid #e2dac9;
+  border-left: 3px solid #ED0C48;
+  border-radius: 10px;
+}
+.home-setup-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.home-setup-icon { color: #c08a2e; flex-shrink: 0; }
+.home-setup-title { font-size: 13px; font-weight: 600; color: #4a443c; }
+.home-setup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.home-setup-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.home-setup-text { font-size: 13px; color: #6b6258; line-height: 1.45; }
+.home-setup-action {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  background: #ED0C48;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 12px;
+  min-height: 30px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 120ms ease;
+}
+.home-setup-action:hover:not(:disabled) { background: #c40a3c; }
+.home-setup-action:disabled { opacity: 0.5; cursor: default; }
+.home-setup-action:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
+
 /* ── Empty state ─────────────────────────────────────────────────────────────── */
 
 .home-empty {

@@ -166,6 +166,10 @@ export default function App(): JSX.Element {
   const [skill, setSkill] = useState("");
   const [micStatus, setMicStatus] = useState<string | null>(null);
   const [claude, setClaude] = useState<{ found: boolean; path: string | null } | null>(null);
+  // Account lives at the App level (not just in Settings) so Home can surface a
+  // "sign in" prompt and react live to sign-out via the auth:state-changed event.
+  const [account, setAccount] = useState<{ signedIn: boolean; email?: string } | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
   const [memories, setMemories] = useState<Mem[]>([]);
   const [newMemory, setNewMemory] = useState("");
   const [editingMem, setEditingMem] = useState<{ id: string; draft: string } | null>(null);
@@ -204,6 +208,29 @@ export default function App(): JSX.Element {
   }, []);
   const refreshClaude = useCallback(() => {
     window.prompty.invoke("onboarding:check-claude", undefined as never).then((r) => setClaude(r)).catch(() => {});
+  }, []);
+  const refreshAccount = useCallback(() => {
+    window.prompty.invoke("auth:status", undefined as never)
+      .then((s) => setAccount({ signedIn: s.signedIn, email: s.email }))
+      .catch(() => {});
+  }, []);
+  const signIn = useCallback(async () => {
+    setAuthBusy(true);
+    try {
+      const res = await window.prompty.invoke("auth:google-sign-in", undefined as never);
+      if (res.ok) setAccount({ signedIn: true, email: res.email });
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
+  const signOut = useCallback(async () => {
+    setAuthBusy(true);
+    try {
+      await window.prompty.invoke("auth:sign-out", undefined as never);
+      setAccount({ signedIn: false });
+    } finally {
+      setAuthBusy(false);
+    }
   }, []);
   const refreshMemories = useCallback(() => {
     window.prompty.invoke("memory:list", undefined as never).then((r) => setMemories(r.items)).catch(() => {});
@@ -467,7 +494,13 @@ export default function App(): JSX.Element {
     }).catch(() => {});
     window.prompty.invoke("skills:list", undefined as never).then((r) => setSkills(r.skills)).catch(() => {});
     window.prompty.invoke("preflight:get", undefined as never).then((pf) => pf && setError(pf.message)).catch(() => {});
-    refreshCalls(); refreshMic(); refreshClaude(); refreshMemories();
+    refreshCalls(); refreshMic(); refreshClaude(); refreshMemories(); refreshAccount();
+
+    // Re-check the readiness signals whenever the window regains focus — the user
+    // may have just granted mic permission, installed Claude, or signed in
+    // elsewhere. Cheap IPC, keeps the Home setup banner honest.
+    const onFocus = () => { refreshMic(); refreshClaude(); refreshAccount(); };
+    window.addEventListener("focus", onFocus);
 
     const offState = window.prompty.on("session:state-changed", (p) => {
       setSessionState(p.state);
@@ -477,6 +510,11 @@ export default function App(): JSX.Element {
       setError(p.message);
       if (p.code === "mic") refreshMic();
     });
+    // Sign-in/out can happen from Settings or be revoked elsewhere — keep Home's
+    // readiness banner in sync without needing a relaunch.
+    const offAuth = window.prompty.on("auth:state-changed", (s) =>
+      setAccount({ signedIn: s.signedIn, email: s.email }),
+    );
     const offCallsUpdated = window.prompty.on("calls:updated", () => refreshCalls());
     // Prep chat streaming: deltas append to a live bubble, the authoritative full
     // message finalizes it.
@@ -511,10 +549,11 @@ export default function App(): JSX.Element {
     const offPrepComps = window.prompty.on("prep:components", (p) => setPrepComponents(p.components as PrepComp[]));
 
     return () => {
-      offState(); offPf(); offCallsUpdated(); offPrepDelta(); offPrepAsst();
+      window.removeEventListener("focus", onFocus);
+      offState(); offPf(); offAuth(); offCallsUpdated(); offPrepDelta(); offPrepAsst();
       offPrepDir(); offPrepThinking(); offPrepError(); offPrepComps();
     };
-  }, [refreshCalls, refreshMic, refreshClaude, refreshMemories]);
+  }, [refreshCalls, refreshMic, refreshClaude, refreshMemories, refreshAccount]);
 
   // ── Routing ──────────────────────────────────────────────────────────────────
 
@@ -591,6 +630,10 @@ export default function App(): JSX.Element {
         micStatus={micStatus}
         claude={claude}
         hotkey={hotkey}
+        account={account}
+        authBusy={authBusy}
+        signIn={signIn}
+        signOut={signOut}
         refreshMic={refreshMic}
         refreshClaude={refreshClaude}
         onBack={() => setScreen({ id: "home" })}
@@ -606,6 +649,14 @@ export default function App(): JSX.Element {
       error={error}
       onDismissError={() => setError(null)}
       onRetryError={() => { window.prompty.invoke("preflight:get", undefined as never).then((pf) => setError(pf?.message ?? null)).catch(() => {}); }}
+      micStatus={micStatus}
+      claude={claude}
+      account={account}
+      authBusy={authBusy}
+      onSignIn={signIn}
+      onGrantMic={() => { window.prompty.invoke("onboarding:request-mic", undefined as never).catch(() => {}); refreshMic(); }}
+      onOpenMicSettings={() => { window.prompty.invoke("onboarding:open-external", { url: MIC_SETTINGS_URL }); }}
+      onOpenSettings={() => setScreen({ id: "settings" })}
       direction={direction}
       setDirection={setDirection}
       components={prepComponents}
@@ -632,6 +683,14 @@ function HomeScreen(props: {
   error: string | null;
   onDismissError: () => void;
   onRetryError: () => void;
+  micStatus: string | null;
+  claude: { found: boolean; path: string | null } | null;
+  account: { signedIn: boolean; email?: string } | null;
+  authBusy: boolean;
+  onSignIn: () => void;
+  onGrantMic: () => void;
+  onOpenMicSettings: () => void;
+  onOpenSettings: () => void;
   direction: string;
   setDirection: (d: string) => void;
   components: PrepComp[];
@@ -642,7 +701,7 @@ function HomeScreen(props: {
   onMemory: () => void;
   onSettings: () => void;
 }): JSX.Element {
-  const { calls, isLive, liveTimer, error, onDismissError, onRetryError, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
+  const { calls, isLive, liveTimer, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -667,6 +726,26 @@ function HomeScreen(props: {
     | { items: ChecklistItemR[] }
     | undefined;
   const checklistCount = checklist?.items.length ?? 0;
+
+  // Readiness: the same three hard requirements the call-start preflight checks
+  // (signed in, mic granted, Claude found). Surface them proactively here so a
+  // returning/signed-out user is told up front, not when they hit the wall. A
+  // signal that's still loading (null) is treated as fine to avoid a flash.
+  const micBlocked = micStatus === "denied" || micStatus === "restricted";
+  const setupItems: { key: string; text: string; actionLabel: string; onAction: () => void; busy?: boolean }[] = [];
+  if (account != null && !account.signedIn) {
+    setupItems.push({ key: "auth", text: "Sign in to turn on transcription.", actionLabel: "Sign in with Google", onAction: onSignIn, busy: authBusy });
+  }
+  if (micStatus != null && micStatus !== "granted") {
+    setupItems.push(micBlocked
+      ? { key: "mic", text: "Microphone access is off — Ruby can't hear your call.", actionLabel: "Open System Settings", onAction: onOpenMicSettings }
+      : { key: "mic", text: "Let Ruby hear your call — allow microphone access.", actionLabel: "Grant access", onAction: onGrantMic });
+  }
+  if (claude != null && !claude.found) {
+    setupItems.push({ key: "claude", text: "Connect Claude Code so Ruby can prep and nudge.", actionLabel: "How to connect", onAction: onOpenSettings });
+  }
+  // Don't nag during a live call — the in-progress UI owns that moment.
+  const showSetup = !isLive && setupItems.length > 0;
 
   return (
     <div className="home-root">
@@ -766,6 +845,35 @@ function HomeScreen(props: {
           )}
         </div>
         </div>
+
+        {showSetup && (
+          <div className="home-setup" data-testid="home-setup" role="status" aria-live="polite">
+            <div className="home-setup-head">
+              <svg className="home-setup-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="2"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008.6 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 003.6 8.6a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" strokeWidth="1.5"/>
+              </svg>
+              <span className="home-setup-title">
+                {setupItems.length === 1 ? "One thing to finish setting up" : "A few things to finish setting up"}
+              </span>
+            </div>
+            <ul className="home-setup-list">
+              {setupItems.map((it) => (
+                <li key={it.key} className="home-setup-item" data-testid={`home-setup-${it.key}`}>
+                  <span className="home-setup-text">{it.text}</span>
+                  <button
+                    className="home-setup-action"
+                    data-testid={`home-setup-${it.key}-action`}
+                    disabled={it.busy}
+                    onClick={it.onAction}
+                  >
+                    {it.actionLabel}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {error && (
           <div className="home-error-banner" data-testid="home-error" role="alert">
@@ -1775,11 +1883,15 @@ function SettingsScreen(props: {
   micStatus: string | null;
   claude: { found: boolean; path: string | null } | null;
   hotkey: string;
+  account: { signedIn: boolean; email?: string } | null;
+  authBusy: boolean;
+  signIn: () => void;
+  signOut: () => void;
   refreshMic: () => void;
   refreshClaude: () => void;
   onBack: () => void;
 }): JSX.Element {
-  const { micStatus, claude, hotkey, refreshMic, refreshClaude, onBack } = props;
+  const { micStatus, claude, hotkey, account, authBusy, signIn, signOut, refreshMic, refreshClaude, onBack } = props;
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
   // M11: map the raw permission enum to plain language.
@@ -1815,39 +1927,9 @@ function SettingsScreen(props: {
     return () => { active = false; };
   }, []);
 
-  // Account (Google sign-in). Self-contained: query on mount, stay in sync via
-  // the auth:state-changed broadcast.
-  const [account, setAccount] = useState<{ signedIn: boolean; email?: string } | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
+  // Account (Google sign-in) is owned by App (so Home can react to it too); this
+  // screen just drives the local confirm-before-sign-out interaction.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
-  useEffect(() => {
-    let active = true;
-    window.prompty.invoke("auth:status", undefined as never).then((s) => {
-      if (active) setAccount(s);
-    });
-    const off = window.prompty.on("auth:state-changed", (s) =>
-      setAccount({ signedIn: s.signedIn, email: s.email }),
-    );
-    return () => { active = false; off(); };
-  }, []);
-  async function signIn() {
-    setAuthBusy(true);
-    try {
-      const res = await window.prompty.invoke("auth:google-sign-in", undefined as never);
-      if (res.ok) setAccount({ signedIn: true, email: res.email });
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-  async function signOut() {
-    setAuthBusy(true);
-    try {
-      await window.prompty.invoke("auth:sign-out", undefined as never);
-      setAccount({ signedIn: false });
-    } finally {
-      setAuthBusy(false);
-    }
-  }
 
   return (
     <div className="fullscreen-root">
