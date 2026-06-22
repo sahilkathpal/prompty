@@ -130,13 +130,16 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     await expect(stat).toBeVisible({ timeout: 10_000 });
     const statText = (await stat.textContent())?.trim();
     console.log("CHECKLIST STAT TEXT:", statText);
-    await expect(stat).toContainText("1 of 2");
+    // Coverage is no longer a judgmental "X of Y" score — the header is a calm
+    // descriptive count (PC1/X3). Coverage detail (✓/○) lives in the expanded list.
+    await expect(stat).toContainText("2 topics");
 
     // The checklist is collapsed by default (reference, not a headline) — expand
-    // it, then the covered item renders with a ✓.
+    // it, then the covered item renders with a ✓ and the uncovered with ○.
     await stat.click();
     const checklistCard = page.getByTestId("call-checklist");
     await expect(checklistCard).toContainText("✓");
+    await expect(checklistCard).toContainText("○");
     console.log("CHECKLIST CARD TEXT:", (await checklistCard.textContent())?.trim());
   } finally {
     await app.close();

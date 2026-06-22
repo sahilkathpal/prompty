@@ -697,8 +697,8 @@ html, body, #root {
   gap: 5px;
   font-family: inherit;
   font-size: 12px;
-  font-weight: 500;
-  color: #a09080;
+  font-weight: 600;
+  color: #6b6560;
   background: transparent;
   border: none;
   border-radius: 999px;
@@ -708,10 +708,12 @@ html, body, #root {
 }
 
 .pcs-tab:hover { color: #1a1814; }
+.pcs-tab:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
 
 .pcs-tab.active {
   background: #fff;
   color: #1a1814;
+  font-weight: 700;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
 
@@ -803,6 +805,55 @@ html, body, #root {
   color: #888078;
 }
 
+/* Load error (PC7): own treatment with a retry, not a flat grey line. */
+.pcs-load-error { padding: 56px 0; text-align: center; }
+.pcs-load-error-msg { margin: 0 0 14px; font-size: 15px; color: #6b6560; }
+.pcs-retry-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ED0C48;
+  background: rgba(237, 12, 72, 0.06);
+  border: 1px solid rgba(237, 12, 72, 0.3);
+  border-radius: 8px;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.pcs-retry-btn:hover { background: rgba(237, 12, 72, 0.12); }
+
+/* Summarizing (PC6): reassurance copy + a greyed recap skeleton. */
+.pcs-summarizing { display: flex; flex-direction: column; gap: 2px; }
+.pcs-summarizing-sub { margin: 0 0 4px 26px; font-size: 13px; color: #8a8276; }
+.pcs-recap-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin: 18px 0 30px;
+}
+.pcs-skel-line {
+  height: 13px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #e8e1d6 0%, #efe9df 50%, #e8e1d6 100%);
+  background-size: 200% 100%;
+  animation: pcs-shimmer 1.4s ease-in-out infinite;
+}
+.pcs-skel-line.short { width: 55%; }
+@keyframes pcs-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Legacy fallback note (PC13): a friendly line, not "raw log". */
+.pcs-legacy-note { font-size: 14px; line-height: 1.5; color: #6b6560; margin-bottom: 18px; }
+
+/* Insight attribution (PC2/X3): "Ruby helped surface N of these." */
+.pcs-insight-attribution {
+  margin: -6px 0 14px;
+  font-size: 13px;
+  color: #ED0C48;
+}
+
 /* ── Hero ─────────────────────────────────────────────────────────────────── */
 
 .pcs-hero { margin-bottom: 22px; padding-top: 12px; }
@@ -833,7 +884,7 @@ html, body, #root {
   margin: 0 0 13px;
 }
 
-.pcs-meta { font-size: 13px; color: #b0a898; }
+.pcs-meta { font-size: 13px; color: #857d72; }
 
 .pcs-meta-row {
   display: flex;
@@ -1007,6 +1058,21 @@ html, body, #root {
   white-space: nowrap;
 }
 .pcs-memory-btn:hover { background: rgba(214, 31, 71, 0.06); }
+
+/* Saved-state quiet links (PC10): View the memory / Undo the just-saved note. */
+.pcs-memory-savedactions { flex-shrink: 0; display: flex; gap: 14px; }
+.pcs-memory-link {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #888078;
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.pcs-memory-link:hover { color: #ED0C48; text-decoration: underline; text-underline-offset: 2px; }
 
 /* Open state: the textarea card aligns flush, not as a hairline row. */
 .pcs-memory-open { align-items: stretch; }

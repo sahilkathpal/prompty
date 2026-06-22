@@ -101,13 +101,12 @@ function ChecklistCoverage(props: { components?: PrepComp[] }): JSX.Element | nu
   const checklist = props.components?.find((c) => c.type === "checklist");
   if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) return null;
   const total = checklist.items.length;
-  const covered = checklist.items.filter((it) => it.done).length;
   return (
     <div className="pcs-section pcs-checklist" data-testid="call-checklist">
       <button className="pcs-checklist-head" onClick={() => setOpen((o) => !o)}>
-        <span className="pcs-section-label" style={{ margin: 0 }}>What you planned to cover</span>
+        <span className="pcs-section-label" style={{ margin: 0 }}>Your prep checklist</span>
         <span className="pcs-checklist-count" data-testid="call-checklist-stat">
-          {covered} of {total}
+          {total} topic{total === 1 ? "" : "s"}
           <svg className={`pcs-chevron${open ? " open" : ""}`} width="13" height="13" viewBox="0 0 24 24" fill="none">
             <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -538,6 +537,7 @@ export default function App(): JSX.Element {
         callName={screen.callName}
         readCall={readCall}
         onBack={() => setScreen({ id: "home" })}
+        onViewMemory={() => setScreen({ id: "memory" })}
         setMemories={setMemories}
       />
     );
@@ -1217,9 +1217,10 @@ function PostCallScreen(props: {
   callName: string;
   readCall: (name: string) => Promise<ParsedCall | null>;
   onBack: () => void;
+  onViewMemory: () => void;
   setMemories: React.Dispatch<React.SetStateAction<Mem[]>>;
 }): JSX.Element {
-  const { callName, readCall, onBack, setMemories } = props;
+  const { callName, readCall, onBack, onViewMemory, setMemories } = props;
   const [call, setCall] = useState<ParsedCall | null>(null);
   const [loading, setLoading] = useState(true);
   const [scrolled, setScrolled] = useState(false);
@@ -1231,21 +1232,34 @@ function PostCallScreen(props: {
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
+  const [savedMemId, setSavedMemId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
   const copyTranscript = () => {
-    if (!call?.transcript) return;
-    const text = call.transcript.map((u) => `${u.speaker === "me" ? "You" : "Them"}: ${u.text}`).join("\n");
+    if (!call?.transcript || call.transcript.length === 0) return;
+    // Export with the attendee's name (not a bare "Them") and an mm:ss timestamp
+    // per line, so a pasted transcript reads like a real record.
+    const them = call.attendee?.name || "Them";
+    const baseMs = call.transcript[0].startMs;
+    const text = call.transcript
+      .map((u) => `[${intoCall(u.startMs, baseMs)}] ${u.speaker === "me" ? "You" : them}: ${u.text}`)
+      .join("\n");
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 2500);
     });
   };
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true);
     readCall(callName).then((c) => { setCall(c); setLoading(false); });
   }, [callName, readCall]);
+
+  useEffect(() => { load(); }, [load]);
 
   // The background summary pass lands after the call ends — if we're viewing it
   // while it's still "Summarizing…", re-read so the placeholder fills in.
@@ -1261,12 +1275,25 @@ function PostCallScreen(props: {
     if (!text) return;
     void window.prompty.invoke("memory:add", { text }).then((r) => {
       if (r.item) {
-        setMemories((list) => [...list, r.item as Mem]);
+        const item = r.item as Mem;
+        setMemories((list) => [...list, item]);
+        setSavedMemId(item.id);
         setNote("");
         setNoteOpen(false);
         setNoteSaved(true);
       }
     });
+  };
+
+  // Undo the just-saved memory note — delete it and return to the add state.
+  const undoNote = () => {
+    if (!savedMemId) return;
+    const id = savedMemId;
+    void window.prompty.invoke("memory:delete", { id }).then((r) => {
+      if (r.ok) setMemories((list) => list.filter((m) => m.id !== id));
+    });
+    setSavedMemId(null);
+    setNoteSaved(false);
   };
 
   const handleScroll = () => {
@@ -1328,13 +1355,26 @@ function PostCallScreen(props: {
         <div className="pcs-toprow-inner">
           <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← All calls</button>
           {tab === "transcript" && call && (
-            <button className="pcs-copy-btn app-no-drag" data-testid="post-call-copy-transcript" onClick={copyTranscript}>
+            <button
+              className="pcs-copy-btn app-no-drag"
+              data-testid="post-call-copy-transcript"
+              onClick={copyTranscript}
+              aria-label="Copy the transcript to the clipboard"
+            >
               {copied ? (
                 <>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  Copied!
+                  <span aria-live="polite">Copied!</span>
+                </>
+              ) : copyError ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                  <span aria-live="assertive">Couldn't copy</span>
                 </>
               ) : (
                 <>
@@ -1350,15 +1390,15 @@ function PostCallScreen(props: {
         </div>
       </div>
       {!loading && call && (
-      <div className="pcs-tab-toggle">
-        <button className={`pcs-tab${tab === "summary" ? " active" : ""}`} data-testid="post-call-tab-summary" onClick={() => setTab("summary")}>
+      <div className="pcs-tab-toggle" role="tablist" aria-label="Call view">
+        <button role="tab" id="pcs-tab-summary" aria-selected={tab === "summary"} aria-controls="pcs-tabpanel" className={`pcs-tab${tab === "summary" ? " active" : ""}`} data-testid="post-call-tab-summary" onClick={() => setTab("summary")}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M15 4H7M18 16L21 19L18 22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M3 4V17C3 17.5304 3.21071 18.0391 3.58579 18.4142C3.96086 18.7893 4.46957 19 5 19H21M7 14H14M7 9H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Summary
         </button>
-        <button className={`pcs-tab${tab === "transcript" ? " active" : ""}`} data-testid="post-call-tab-transcript" onClick={() => setTab("transcript")}>
+        <button role="tab" id="pcs-tab-transcript" aria-selected={tab === "transcript"} aria-controls="pcs-tabpanel" className={`pcs-tab${tab === "transcript" ? " active" : ""}`} data-testid="post-call-tab-transcript" onClick={() => setTab("transcript")}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M5 16C5 15.7348 5.10536 15.4804 5.29289 15.2929C5.48043 15.1054 5.73478 15 6 15H14C14.2652 15 14.5196 15.1054 14.7071 15.2929C14.8946 15.4804 15 15.7348 15 16C15 16.2652 14.8946 16.5196 14.7071 16.7071C14.5196 16.8946 14.2652 17 14 17H6C5.73478 17 5.48043 16.8946 5.29289 16.7071C5.10536 16.5196 5 16.2652 5 16ZM18 11C18.2652 11 18.5196 11.1054 18.7071 11.2929C18.8946 11.4804 19 11.7348 19 12C19 12.2652 18.8946 12.5196 18.7071 12.7071C18.5196 12.8946 18.2652 13 18 13H10C9.73478 13 9.48043 12.8946 9.29289 12.7071C9.10536 12.5196 9 12.2652 9 12C9 11.7348 9.10536 11.4804 9.29289 11.2929C9.48043 11.1054 9.73478 11 10 11H18ZM16 16C16 15.7348 16.1054 15.4804 16.2929 15.2929C16.4804 15.1054 16.7348 15 17 15H18C18.2652 15 18.5196 15.1054 18.7071 15.2929C18.8946 15.4804 19 15.7348 19 16C19 16.2652 18.8946 16.5196 18.7071 16.7071C18.5196 16.8946 18.2652 17 18 17H17C16.7348 17 16.4804 16.8946 16.2929 16.7071C16.1054 16.5196 16 16.2652 16 16ZM7 11C7.26522 11 7.51957 11.1054 7.70711 11.2929C7.89464 11.4804 8 11.7348 8 12C8 12.2652 7.89464 12.5196 7.70711 12.7071C7.51957 12.8946 7.26522 13 7 13H6C5.73478 13 5.48043 12.8946 5.29289 12.7071C5.10536 12.5196 5 12.2652 5 12C5 11.7348 5.10536 11.4804 5.29289 11.2929C5.48043 11.1054 5.73478 11 6 11H7Z" fill="currentColor"/>
             <path fillRule="evenodd" clipRule="evenodd" d="M4 3C3.20435 3 2.44129 3.31607 1.87868 3.87868C1.31607 4.44129 1 5.20435 1 6V18C1 18.7956 1.31607 19.5587 1.87868 20.1213C2.44129 20.6839 3.20435 21 4 21H20C20.7956 21 21.5587 20.6839 22.1213 20.1213C22.6839 19.5587 23 18.7956 23 18V6C23 5.20435 22.6839 4.44129 22.1213 3.87868C21.5587 3.31607 20.7956 3 20 3H4ZM20 5H4C3.73478 5 3.48043 5.10536 3.29289 5.29289C3.10536 5.48043 3 5.73478 3 6V18C3 18.2652 3.10536 18.5196 3.29289 18.7071C3.48043 18.8946 3.73478 19 4 19H20C20.2652 19 20.5196 18.8946 20.7071 18.7071C20.8946 18.5196 21 18.2652 21 18V6C21 5.73478 20.8946 5.48043 20.7071 5.29289C20.5196 5.10536 20.2652 5 20 5Z" fill="currentColor"/>
@@ -1368,11 +1408,23 @@ function PostCallScreen(props: {
       </div>
       )}
       <div className={`pcs-scroll-edge${scrolled ? " visible" : ""}`} />
-      <div className="pcs-body" ref={scrollRef} onScroll={handleScroll}>
+      <div
+        className="pcs-body"
+        ref={scrollRef}
+        onScroll={handleScroll}
+        {...(!loading && call
+          ? { role: "tabpanel", id: "pcs-tabpanel", "aria-labelledby": tab === "summary" ? "pcs-tab-summary" : "pcs-tab-transcript" }
+          : {})}
+      >
         {loading ? (
           <div className="pcs-loading">Loading…</div>
         ) : !call ? (
-          <div className="pcs-loading">Couldn't load this call.</div>
+          <div className="pcs-load-error" data-testid="call-load-error">
+            <p className="pcs-load-error-msg">Couldn't load this call.</p>
+            <button className="pcs-retry-btn" data-testid="call-load-retry" onClick={load}>
+              Try again
+            </button>
+          </div>
         ) : (
           <>
             {hero}
@@ -1382,18 +1434,35 @@ function PostCallScreen(props: {
               <TranscriptSection transcript={call.transcript} />
             ) : call.summaryPending ? (
               <div data-testid="call-summarizing">
-                <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
+                <div className="pcs-summarizing">
+                  <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
+                  <p className="pcs-summarizing-sub">This takes a few seconds. You can leave — it'll be here when you're back.</p>
+                </div>
+                {/* Greyed recap skeleton so the page has shape while Ruby writes. */}
+                <div className="pcs-recap-skeleton" aria-hidden>
+                  <span className="pcs-skel-line" />
+                  <span className="pcs-skel-line" />
+                  <span className="pcs-skel-line short" />
+                </div>
                 <ChecklistCoverage components={call.components} />
               </div>
             ) : !summary ? (
               (call.transcript && call.transcript.length > 0) || rawSummary ? (
-                // Raw-log fallback — a dev-facing state for legacy logs that have
-                // a transcript or some (un-recognised) summary blob, but no
-                // current-shape summary.
+                // Legacy fallback — a log that predates the current summary shape
+                // (an old summary blob and/or a transcript but no recap/insights).
+                // Show the transcript rather than a raw JSON dump; the raw log is
+                // dev-only.
                 <>
-                  <div className="pcs-meta">No summary card for this call — showing the raw log.</div>
+                  <div className="pcs-legacy-note" data-testid="call-legacy-note">
+                    {call.transcript && call.transcript.length > 0
+                      ? "This call was recorded before summaries — here's the transcript."
+                      : "This call was recorded before summaries, so there's no recap."}
+                  </div>
                   <ChecklistCoverage components={call.components} />
-                  <pre className="pcs-raw">{call.raw}</pre>
+                  {call.transcript && call.transcript.length > 0 && (
+                    <TranscriptSection transcript={call.transcript} />
+                  )}
+                  {import.meta.env.DEV && <pre className="pcs-raw">{call.raw}</pre>}
                 </>
               ) : (
                 // No transcript was captured (e.g. a call ended before anyone
@@ -1406,22 +1475,30 @@ function PostCallScreen(props: {
             <div className="pcs-section-label pcs-recap-label">The gist</div>
             <p className="pcs-recap">{summary.recap}</p>
 
-            {summary.insights.length > 0 && (
+            {summary.insights.length > 0 && (() => {
+              const assisted = summary.insights.filter((i) => i.assisted).length;
+              return (
               <div className="pcs-section">
                 <div className="pcs-section-label">Insights</div>
+                {assisted > 0 && (
+                  <p className="pcs-insight-attribution" data-testid="call-insight-attribution">
+                    Ruby helped surface {assisted} of {summary.insights.length === 1 ? "this" : "these"}.
+                  </p>
+                )}
                 <ul className="pcs-insight-list" data-testid="call-insights">
                   {summary.insights.map((ins, i) => (
                     <li key={i} className="pcs-insight-item">
                       <p className="pcs-insight-take">{ins.takeaway ?? ins.text}</p>
                       {ins.quote && <p className="pcs-insight-quote">{ins.quote}</p>}
                       {ins.assisted && (
-                        <span className="pcs-insight-via">{ins.via || "after a Ruby nudge"}</span>
+                        <span className="pcs-insight-via">{ins.via || "Surfaced after a Ruby nudge"}</span>
                       )}
                     </li>
                   ))}
                 </ul>
               </div>
-            )}
+              );
+            })()}
 
             <ChecklistCoverage components={call.components} />
 
@@ -1435,6 +1512,10 @@ function PostCallScreen(props: {
                 <div className="pcs-memory-content">
                   <div className="pcs-memory-title">Saved to memory</div>
                   <div className="pcs-memory-desc">Ruby will apply this to future calls.</div>
+                </div>
+                <div className="pcs-memory-savedactions">
+                  <button className="pcs-memory-link" data-testid="nudge-note-view" onClick={onViewMemory}>View</button>
+                  <button className="pcs-memory-link" data-testid="nudge-note-undo" onClick={undoNote}>Undo</button>
                 </div>
               </div>
             ) : noteOpen ? (

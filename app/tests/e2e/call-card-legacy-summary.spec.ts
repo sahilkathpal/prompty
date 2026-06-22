@@ -82,9 +82,15 @@ test("legacy-summary call: open note then switch to it → raw-log fallback, no 
     await expect(page.getByTestId("nudge-note-input")).toBeVisible();
     await page.getByTestId("post-call-back").click();
 
-    // Open B (legacy summary) — renders the raw-log fallback, not a blank window.
+    // Open B (legacy summary) — renders the friendly legacy fallback (PC13), not
+    // a raw JSON dump and not a blank window.
     await page.getByTestId("call-row").nth(1).click();
-    await expect(page.locator("text=raw log")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("call-legacy-note")).toContainText(
+      "recorded before summaries",
+      { timeout: 5_000 },
+    );
+    await expect(page.locator("text=raw log")).toHaveCount(0);
+    await expect(page.locator("pre.pcs-raw")).toHaveCount(0);
     expect(errors, "no uncaught render error").toEqual([]);
   } finally {
     await app.close();
