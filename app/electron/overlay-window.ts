@@ -81,7 +81,12 @@ export function createOverlayWindow(): BrowserWindow {
   // Keep the gem out of screen-shares and recordings: it's visible locally but
   // excluded from captured/shared output, so private notes never leak onto a
   // shared screen (RUBY_MVP decision #15).
-  overlay.setContentProtection(true);
+  //
+  // Demo escape hatch: set PROMPTY_ALLOW_CAPTURE=1 to make the gem show up in
+  // screen recordings (e.g. to film a demo video). Off by default — the
+  // privacy-preserving behaviour is the norm.
+  const allowCapture = process.env.PROMPTY_ALLOW_CAPTURE === "1";
+  overlay.setContentProtection(!allowCapture);
 
   // The gem is a `type: "panel"` NSPanel — a non-activating accessory window.
   // On macOS, once it exists and no ordinary window is showing (the resting
