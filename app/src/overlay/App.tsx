@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { DragHandle } from "./components/DragHandle";
 import Gem, { type GemState } from "@shared/Gem";
 import type { Nudge, SessionStatus } from "@shared/types";
 
@@ -334,8 +333,6 @@ export default function App(): JSX.Element {
       {/* The whole gem surface is draggable except the interactive gem button
           and the history list. */}
       <div className="gem-content" ref={contentRef}>
-        <DragHandle />
-
         <div className="gem-anchor-row">
           <button
             type="button"
@@ -430,7 +427,7 @@ export default function App(): JSX.Element {
                   disabled={isEnding}
                   onClick={endCall}
                 >
-                  {isEnding ? "Stopping…" : "Stop Listening"}
+                  {isEnding ? "Finishing…" : "Finish listening"}
                 </button>
               </div>
             )}

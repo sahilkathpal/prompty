@@ -58,7 +58,7 @@ test("no-transcript call: summary tab shows empty state, never raw JSON", async 
     // Clean empty state is shown…
     await expect(page.getByTestId("call-no-transcript")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("call-no-transcript")).toHaveText(
-      "Nothing was captured on this call.",
+      "No conversation was captured — the call ended before there was anything to transcribe.",
     );
 
     // …and the raw JSON log is never rendered.

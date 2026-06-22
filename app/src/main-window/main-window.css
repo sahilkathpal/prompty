@@ -100,14 +100,6 @@ html, body, #root {
   align-items: center;
   gap: 8px;
 }
-.home-wordmark {
-  font-family: 'New York', 'Georgia', serif;
-  font-size: 16px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: #1a1814;
-}
-
 .home-topbar-actions {
   display: flex;
   align-items: center;
@@ -227,15 +219,6 @@ html, body, #root {
   box-shadow: 0 0 0 3px rgba(237, 12, 72, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.home-bar-who {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  position: absolute;
-  /* sits above the textarea via flex column trick below */
-}
-
-/* Restructure bar interior as a column so "Ruby" label is above textarea */
 .home-bar {
   flex-direction: column;
   align-items: stretch;
@@ -296,6 +279,13 @@ html, body, #root {
   max-width: 600px;
   margin: 0 auto;
   width: 100%;
+}
+
+.home-bar-hint {
+  font-size: 11.5px;
+  color: #b0a898;
+  text-align: center;
+  margin-top: 8px;
 }
 
 /* ── Past calls list ─────────────────────────────────────────────────────────── */
@@ -415,11 +405,6 @@ html, body, #root {
   justify-content: flex-end;
   border-top: 1px solid #e2ddd5;
   background: #f2ebe0;
-}
-
-@keyframes prep-mic-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.6; transform: scale(0.88); }
 }
 
 .prep-begin-btn {
@@ -549,40 +534,7 @@ html, body, #root {
 }
 .prep-sticky-help:hover .prep-sticky-tooltip { display: block; }
 .prep-direction-input { width: 100%; padding: 0; font-family: 'New York', 'Georgia', serif; font-size: 16px; line-height: 1.65; color: #1a1814; background: transparent; border: none; resize: none; outline: none; box-sizing: border-box; field-sizing: content; }
-.prep-direction-input::placeholder { color: #c8c2b8; font-style: italic; }.prep-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 32px 16px;
-  gap: 10px;
-}
-.prep-empty-sparkle {
-  color: #ED0C48;
-  opacity: 0.8;
-  margin-bottom: 2px;
-}
-.prep-empty-message {
-  margin: 0;
-  font-size: 13px;
-  color: #888078;
-  line-height: 1.5;
-}
-.prep-empty-pills {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 2px;
-}
-.prep-empty-pill {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: #9e9688;
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid #e2ddd5;
-  border-radius: 999px;
-  padding: 3px 12px;
-}
+.prep-direction-input::placeholder { color: #c8c2b8; font-style: italic; }
 .prep-components { display: flex; flex-direction: column; gap: 10px; }
 .prep-comp-block { background: #fff; border: 1px solid #e8e3dc; border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .prep-comp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -939,6 +891,8 @@ html, body, #root {
 
 /* ── Recap (the gist — a serif lede, no card chrome) ──────────────────────── */
 
+.pcs-recap-label { margin-bottom: 8px; }
+
 .pcs-recap {
   margin: 0 0 30px;
   font-family: 'New York', 'Georgia', serif;
@@ -1199,11 +1153,23 @@ html, body, #root {
 
 .mem-empty {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
-  padding: 32px 0;
-  font-size: 14px;
+  padding: 28px 0;
+  max-width: 460px;
   color: #b0a898;
+}
+.mem-empty svg { color: #c4a86a; }
+.mem-empty-title {
+  font-family: 'New York', 'Georgia', serif;
+  font-size: 17px;
+  color: #1a1814;
+}
+.mem-empty-body {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #8a8276;
 }
 
 /* Settings */
@@ -1237,6 +1203,7 @@ html, body, #root {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 .prep-skill { display: flex; flex-direction: column; gap: 8px; padding: 16px 0 4px; }
+.prep-skill-caption { font-size: 12px; line-height: 1.5; color: #92794a; margin-top: 6px; }
 .prep-skill-hint { font-size: 12px; line-height: 1.5; color: #888078; }
 .prep-note-skill .prep-skill-hint { color: #92794a; margin-top: 6px; }
 

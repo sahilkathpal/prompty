@@ -38,17 +38,17 @@ test("the main-window Start/End button reflects the 'ending' teardown state", as
     await expect(page.getByTestId("home-direction")).toBeVisible();
 
     // Live: the session auto-navigates to the live screen with a usable
-    // "Stop Listening" button.
+    // "Finish listening" button.
     await broadcastState(app, "live");
     const endBtn = page.getByTestId("end-call");
-    await expect(endBtn).toHaveText("Stop Listening");
+    await expect(endBtn).toHaveText("Finish listening");
     await expect(endBtn).toBeEnabled();
     await expect(page.getByTestId("playground-ending")).toHaveCount(0);
 
-    // Ending: the button locks into a disabled "Stopping…" and the wrap-up
+    // Ending: the button locks into a disabled "Finishing…" and the wrap-up
     // status banner appears — so a second click can't re-fire end().
     await broadcastState(app, "ending");
-    await expect(endBtn).toHaveText("Stopping…");
+    await expect(endBtn).toHaveText("Finishing…");
     await expect(endBtn).toBeDisabled();
     const status = page.getByTestId("playground-ending");
     await expect(status).toBeVisible();

@@ -618,7 +618,7 @@ function HomeScreen(props: {
                 disabled={isEnding}
               >
                 <span className="home-live-dot" />
-                {isEnding ? "Stopping…" : "Stop Listening"}
+                {isEnding ? "Finishing…" : "Finish listening"}
               </button>
             )}
             <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
@@ -673,7 +673,8 @@ function HomeScreen(props: {
               data-testid="home-send"
               onClick={handleSend}
               disabled={!direction.trim()}
-              aria-label="Send"
+              aria-label="Prepare for this call"
+              title="Set up your prep"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M2 7H12M12 7L7.5 2.5M12 7L7.5 11.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
@@ -681,6 +682,11 @@ function HomeScreen(props: {
             </button>
             </div>
           </div>
+          {focused && (
+            <div className="home-bar-hint" data-testid="home-bar-hint">
+              Enter to start prepping · Shift+Enter for a new line
+            </div>
+          )}
 
           {components.length > 0 && (
             <div className="home-pinned" data-testid="home-pinned">
@@ -702,7 +708,7 @@ function HomeScreen(props: {
 
         {/* Past calls list */}
         {calls.length === 0 ? (
-          <div className="home-empty">No calls yet — start one above.</div>
+          <div className="home-empty">Your past calls will appear here. Tell Ruby about your next one above to start prepping.</div>
         ) : (
           <div className="home-calls">
             {groups.map((group) => (
@@ -714,7 +720,6 @@ function HomeScreen(props: {
                 <ul className="home-call-list">
                   {group.items.map((c) => {
                     const when = c.startedAt ?? c.mtimeMs;
-                    const prepped = false; // future: detect from call components
                     return (
                       <li key={c.name}>
                         <button
@@ -794,7 +799,7 @@ function SkillDropdown(props: {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const selected = skills.find((s) => s.name === value);
-  const label = selected?.title ?? "No playbook";
+  const label = selected?.title ?? "General";
 
   useEffect(() => {
     if (!open) return;
@@ -827,7 +832,7 @@ function SkillDropdown(props: {
             onClick={() => { onChange(""); setOpen(false); }}
             type="button"
           >
-            No playbook
+            General
           </button>
           {skills.map((s) => (
             <button
@@ -985,7 +990,7 @@ function PrepScreen(props: {
               </defs>
             </svg>
             <div className="prep-sticky-header">
-              <div className="prep-sticky-label">Note to Ruby</div>
+              <div className="prep-sticky-label">Game plan</div>
               <div className="prep-sticky-help">
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                   <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
@@ -1055,6 +1060,7 @@ function PrepScreen(props: {
             <div className="prep-note-skill">
               <div className="prep-note-skill-label">Playbook</div>
               <SkillDropdown skills={skills} value={skill} onChange={pickSkill} noteStyle />
+              <div className="prep-skill-caption">Shapes how Ruby helps on this call.</div>
               {selectedSkill?.description && (
                 <div className="prep-skill-hint" data-testid="playground-skill-hint">
                   {selectedSkill.description}
@@ -1069,7 +1075,7 @@ function PrepScreen(props: {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="prep-begin-mic">
                 <path d="M11.9999 1C12.6565 1 13.3067 1.12933 13.9133 1.3806C14.52 1.63188 15.0712 2.00017 15.5355 2.46447C15.9998 2.92876 16.3681 3.47995 16.6193 4.08658C16.8706 4.69321 16.9999 5.34339 16.9999 6V10C16.9999 11.3261 16.4731 12.5979 15.5355 13.5355C14.5978 14.4732 13.326 15 11.9999 15C10.6738 15 9.40208 14.4732 8.4644 13.5355C7.52672 12.5979 6.99993 11.3261 6.99993 10V6C6.99993 4.67392 7.52672 3.40215 8.4644 2.46447C9.40208 1.52678 10.6738 1 11.9999 1ZM3.05493 11H5.06993C5.31222 12.6648 6.1458 14.1867 7.41816 15.2873C8.69053 16.3879 10.3166 16.9936 11.9989 16.9936C13.6813 16.9936 15.3073 16.3879 16.5797 15.2873C17.8521 14.1867 18.6856 12.6648 18.9279 11H20.9439C20.7166 13.0287 19.8066 14.9199 18.3631 16.3635C16.9197 17.8071 15.0286 18.7174 12.9999 18.945V23H10.9999V18.945C8.97107 18.7176 7.07972 17.8074 5.63611 16.3638C4.1925 14.9202 3.28234 13.0289 3.05493 11Z" fill="currentColor"/>
               </svg>
-              Finish prep & start listening
+              Start listening
             </button>
           </div>
         </aside>
@@ -1100,7 +1106,7 @@ function LiveScreen(props: {
         </div>
         <div className="live-timer">{timer}</div>
         <button className={`live-end-btn${isEnding ? " busy" : ""}`} data-testid="end-call" onClick={onEnd} disabled={isEnding}>
-          {isEnding ? "Stopping…" : "Stop Listening"}
+          {isEnding ? "Finishing…" : "Finish listening"}
         </button>
       </header>
       {isEnding && (
@@ -1135,7 +1141,7 @@ function LiveScreen(props: {
               <div className="live-direction-text">{direction || "No direction set."}</div>
             </div>
           )}
-          <div className="live-overlay-note">Ruby is coaching you via the floating overlay.</div>
+          <div className="live-overlay-note">Ruby is helping you live via the floating overlay.</div>
         </div>
         <div className="live-right">
           <div className="live-card-label">Transcript</div>
@@ -1265,7 +1271,7 @@ function PostCallScreen(props: {
       <div className="app-dragbar" />
       <div className="pcs-toprow app-drag">
         <div className="pcs-toprow-inner">
-          <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← Back</button>
+          <button className="pcs-back app-no-drag" data-testid="post-call-back" onClick={onBack}>← All calls</button>
           {tab === "transcript" && call && (
             <button className="pcs-copy-btn app-no-drag" data-testid="post-call-copy-transcript" onClick={copyTranscript}>
               {copied ? (
@@ -1338,10 +1344,11 @@ function PostCallScreen(props: {
                 // No transcript was captured (e.g. a call ended before anyone
                 // spoke). Nothing to summarize — a clean empty state, never JSON.
                 <div className="pcs-empty-summary" data-testid="call-no-transcript">
-                  Nothing was captured on this call.
+                  No conversation was captured — the call ended before there was anything to transcribe.
                 </div>
               )
             ) : (<>
+            <div className="pcs-section-label pcs-recap-label">The gist</div>
             <p className="pcs-recap">{summary.recap}</p>
 
             {summary.insights.length > 0 && (
@@ -1403,7 +1410,7 @@ function PostCallScreen(props: {
                 </div>
                 <div className="pcs-memory-content">
                   <div className="pcs-memory-title">Tell Ruby what to remember</div>
-                  <div className="pcs-memory-desc">Liked or disliked something this call? Leave an instruction for next time.</div>
+                  <div className="pcs-memory-desc">Want Ruby to nudge differently? Leave a note and it'll adjust next call.</div>
                 </div>
                 <button className="pcs-memory-btn" data-testid="nudge-note-open" onClick={() => setNoteOpen(true)}>
                   Add note
@@ -1443,7 +1450,7 @@ function MemoryScreen(props: {
       </div>
       <div className="fullscreen-body" style={{ paddingTop: 60 }}>
         <h1 className="mem-title">Memory</h1>
-        <p className="fullscreen-intro">Tell Ruby how to coach you. These apply to every call.</p>
+        <p className="fullscreen-intro">Tell Ruby how to nudge you. These apply to every call.</p>
 
         <div className="mem-add-card">
           <input
@@ -1463,10 +1470,15 @@ function MemoryScreen(props: {
 
         {memories.length === 0 ? (
           <div className="mem-empty" data-testid="memory-empty">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="currentColor" opacity=".2"/>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 21h10a2 2 0 0 0 2 -2v-14a2 2 0 0 0 -2 -2h-6.172a2 2 0 0 0 -1.414 .586l-3.828 3.828a2 2 0 0 0 -.586 1.414v10.172a2 2 0 0 0 2 2" />
+              <path d="M13 6v2" /><path d="M16 6v2" /><path d="M10 7v1" />
             </svg>
-            No memories yet — add one above.
+            <div className="mem-empty-title">Teach Ruby how to nudge you</div>
+            <div className="mem-empty-body">
+              Memories are standing notes about how Ruby nudges you — they apply to every call.
+              For example: “Don't interrupt when I'm mid-sentence” or “Push me harder on pricing.”
+            </div>
           </div>
         ) : (
           <>

@@ -35,13 +35,6 @@ html, body, #root {
   padding: 12px 14px 14px;
 }
 
-/* The old DragHandle's visible bar is hidden — the surface is itself the drag
-   region. Kept in the tree (it still marks a drag area) but collapsed. */
-.prompty-drag,
-.prompty-drag-handle {
-  display: none;
-}
-
 .gem-anchor-row {
   display: flex;
   justify-content: flex-end;

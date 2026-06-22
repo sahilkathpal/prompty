@@ -50,11 +50,11 @@ test("the gem overlay can end the call from its expanded panel", async () => {
 
     const overlay = await getOverlayPage(app);
 
-    // Expand the gem → the Stop-Listening control appears in the panel footer.
+    // Expand the gem → the Finish-listening control appears in the panel footer.
     await overlay.getByTestId("gem").click();
     const endBtn = overlay.getByTestId("gem-end");
     await expect(endBtn).toBeVisible();
-    await expect(endBtn).toHaveText("Stop Listening");
+    await expect(endBtn).toHaveText("Finish listening");
     await expect(endBtn).toBeEnabled();
 
     // Ending tears the call down and hides the overlay (same path as the tray).
