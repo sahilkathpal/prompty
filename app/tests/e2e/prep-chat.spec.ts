@@ -172,6 +172,10 @@ test("prep chat: split-view, live direction rewrite, done retains, prep→call",
     // from the prep screen — there is no separate "Done"→home step beforehand,
     // which would reset the direction.) =====
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
     await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 15_000,
     });

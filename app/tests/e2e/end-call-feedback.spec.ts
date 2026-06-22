@@ -37,9 +37,14 @@ test("the main-window Start/End button reflects the 'ending' teardown state", as
     // Idle: we sit on the home screen.
     await expect(page.getByTestId("home-direction")).toBeVisible();
 
-    // Live: the session auto-navigates to the live screen with a usable
-    // "Finish listening" button.
+    // Live: the call now shows as the top row of Home (not a dedicated screen).
+    // Clicking it opens the calm in-progress view with the "Finish listening"
+    // button.
     await broadcastState(app, "live");
+    const liveRow = page.getByTestId("home-live-row");
+    await expect(liveRow).toBeVisible();
+    await expect(liveRow).toContainText("Live");
+    await liveRow.click();
     const endBtn = page.getByTestId("end-call");
     await expect(endBtn).toHaveText("Finish listening");
     await expect(endBtn).toBeEnabled();

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import Gem from "../shared/Gem";
 import { RubyLogo } from "../shared/RubyLogo";
 import "../shared/tokens.css";
 import "./main-window.css";
@@ -44,10 +43,15 @@ type ParsedCall = {
 type Screen =
   | { id: "home" }
   | { id: "prep" }
-  | { id: "live" }
+  | { id: "in-progress" }
   | { id: "post-call"; callName: string }
   | { id: "memory" }
   | { id: "settings" };
+
+// The live call's plan, snapshotted at call start (the home bar's `direction`
+// + `prepComponents` are cleared on start so they don't bleed into the next
+// prep — this preserves them as read-only reference for the in-progress view).
+type LivePlan = { direction: string; components: PrepComp[] };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -185,6 +189,10 @@ export default function App(): JSX.Element {
   const [liveSeconds, setLiveSeconds] = useState(0);
   const isLive = sessionState === "starting" || sessionState === "live" || sessionState === "ending";
   const isEnding = sessionState === "ending";
+  // Read-only snapshot of the live call's plan (see LivePlan) for the
+  // in-progress view. null when no call is live.
+  const [livePlan, setLivePlan] = useState<LivePlan | null>(null);
+  const liveTimer = `${Math.floor(liveSeconds / 60)}:${String(liveSeconds % 60).padStart(2, "0")}`;
 
   // ── Refreshers ──────────────────────────────────────────────────────────────
 
@@ -249,13 +257,16 @@ export default function App(): JSX.Element {
       if (pf?.code === "mic") refreshMic();
       return;
     }
+    // Snapshot the plan for the in-progress view BEFORE clearing it — the live
+    // call still needs its direction/goal/checklist as read-only reference.
+    setLivePlan({ direction: dir, components: prepComponents });
     // The brief was consumed by this call — clear the pending prep so it doesn't
     // carry into the next one. The main process clears the persisted copy
     // (directionDraft + prepComponents); this clears the live editor state to
     // match. Skill is sticky and deliberately left as-is.
     setDirection("");
     setPrepComponents([]);
-  }, [refreshMic, skill]);
+  }, [refreshMic, skill, prepComponents]);
 
   // Sticky skill: a discrete pick, so persist it synchronously on change (no
   // debounce — immune to the directionDraft quick-close race).
@@ -381,8 +392,21 @@ export default function App(): JSX.Element {
   // ── Session auto-navigate ───────────────────────────────────────────────────
 
   useEffect(() => {
-    if (sessionState === "starting" || sessionState === "live") setScreen({ id: "live" });
-    if (sessionState === "ended") { setScreen({ id: "home" }); refreshCalls(); }
+    // Starting a call returns to Home — the overlay pill is the in-call surface;
+    // the live call shows as the top row of the calls list, and clicking it
+    // opens the calm in-progress view. (Live screen cut — RUBY_UX_AUDIT Part 3.)
+    if (sessionState === "starting" || sessionState === "live") {
+      setScreen({ id: "home" });
+    } else if (sessionState !== "ending") {
+      // ended / idle / error: the call is over (a teardown can land on "idle"
+      // rather than "ended" — e.g. ending before the session fully spun up).
+      // "ending" deliberately stays so the in-progress view can show its calm
+      // "Finishing…" state. Close the in-progress view, but don't yank a user
+      // who's elsewhere (e.g. reading a past recap), and drop the plan snapshot.
+      setLivePlan(null);
+      setScreen((s) => (s.id === "in-progress" ? { id: "home" } : s));
+      if (sessionState === "ended") refreshCalls();
+    }
   }, [sessionState, refreshCalls]);
 
   // ── IPC setup ───────────────────────────────────────────────────────────────
@@ -393,6 +417,14 @@ export default function App(): JSX.Element {
     // persisted draft so a prepped brief survives closing the window.
     window.prompty.invoke("session:state", undefined as never).then(async (r) => {
       setSessionState(r.state);
+      // Reopened mid-call: restore the live plan so the in-progress view has its
+      // read-only reference even though the home-bar state was never populated.
+      if (r.setup && (r.state === "starting" || r.state === "live" || r.state === "ending")) {
+        setLivePlan({
+          direction: r.setup.direction ?? "",
+          components: (r.setup.components ?? []) as unknown as PrepComp[],
+        });
+      }
       if (!seeded.current && r.setup?.direction) { setDirection(r.setup.direction); seeded.current = true; }
       if (!seeded.current) {
         try {
@@ -463,16 +495,14 @@ export default function App(): JSX.Element {
 
   // ── Routing ──────────────────────────────────────────────────────────────────
 
-  if (screen.id === "live") {
-    const mm = String(Math.floor(liveSeconds / 60)).padStart(2, "0");
-    const ss = String(liveSeconds % 60).padStart(2, "0");
+  if (screen.id === "in-progress") {
     return (
-      <LiveScreen
-        timer={`${mm}:${ss}`}
+      <InProgressScreen
+        timer={liveTimer}
         isEnding={isEnding}
-        direction={direction}
-        prepComponents={prepComponents}
+        plan={livePlan}
         onEnd={endCall}
+        onBack={() => setScreen({ id: "home" })}
       />
     );
   }
@@ -546,7 +576,7 @@ export default function App(): JSX.Element {
     <HomeScreen
       calls={calls}
       isLive={isLive}
-      isEnding={isEnding}
+      liveTimer={liveTimer}
       error={error}
       direction={direction}
       setDirection={setDirection}
@@ -554,9 +584,9 @@ export default function App(): JSX.Element {
       onSend={enterPrep}
       onDiscard={discardPrep}
       onViewCall={(name) => setScreen({ id: "post-call", callName: name })}
+      onViewLive={() => setScreen({ id: "in-progress" })}
       onMemory={() => setScreen({ id: "memory" })}
       onSettings={() => setScreen({ id: "settings" })}
-      onEndCall={endCall}
     />
   );
 }
@@ -566,7 +596,7 @@ export default function App(): JSX.Element {
 function HomeScreen(props: {
   calls: CallMeta[];
   isLive: boolean;
-  isEnding: boolean;
+  liveTimer: string;
   error: string | null;
   direction: string;
   setDirection: (d: string) => void;
@@ -574,11 +604,11 @@ function HomeScreen(props: {
   onSend: () => void;
   onDiscard: () => void;
   onViewCall: (name: string) => void;
+  onViewLive: () => void;
   onMemory: () => void;
   onSettings: () => void;
-  onEndCall: () => void;
 }): JSX.Element {
-  const { calls, isLive, isEnding, error, direction, setDirection, components, onSend, onDiscard, onViewCall, onMemory, onSettings, onEndCall } = props;
+  const { calls, isLive, liveTimer, error, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -611,16 +641,6 @@ function HomeScreen(props: {
             </svg>
           </div>
           <div className="home-topbar-actions app-no-drag">
-            {isLive && (
-              <button
-                className={`home-live-btn${isEnding ? " busy" : ""}`}
-                onClick={onEndCall}
-                disabled={isEnding}
-              >
-                <span className="home-live-dot" />
-                {isEnding ? "Finishing…" : "Finish listening"}
-              </button>
-            )}
             <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
                 <path d="M3.5 2h8a.5.5 0 01.5.5v10.5l-4.5-2.5L3 13V2.5a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
@@ -706,11 +726,31 @@ function HomeScreen(props: {
 
         {error && <div className="home-error">{error}</div>}
 
-        {/* Past calls list */}
-        {calls.length === 0 ? (
+        {/* Past calls list — with the live call (if any) pinned to the top. */}
+        {!isLive && calls.length === 0 ? (
           <div className="home-empty">Your past calls will appear here. Tell Ruby about your next one above to start prepping.</div>
         ) : (
           <div className="home-calls">
+            {isLive && (
+              <ul className="home-call-list">
+                <li>
+                  <button
+                    className="home-call-row home-live-row"
+                    data-testid="home-live-row"
+                    onClick={onViewLive}
+                  >
+                    <span className="home-call-dot home-call-dot-live" />
+                    <span className="home-call-title">Current call</span>
+                    <span className="home-call-rhs">
+                      <span className="home-call-time home-live-time">Live · {liveTimer}</span>
+                      <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M3 7h8M7.5 3.5L11 7l-3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                  </button>
+                </li>
+              </ul>
+            )}
             {groups.map((group) => (
               <div key={group.label} className="home-day-group">
                 <div className="home-day-label">
@@ -1086,71 +1126,86 @@ function PrepScreen(props: {
 
 // ─── Live screen ─────────────────────────────────────────────────────────────
 
-function LiveScreen(props: {
+// The calm in-progress view, opened by clicking the live row on Home. It's a
+// quiet, read-only glance at your own game plan mid-call (the overlay pill is
+// the real in-call surface) plus the Finish-listening control. Reuses the
+// post-call shell so finishing flows naturally into the recap.
+function InProgressScreen(props: {
   timer: string;
   isEnding: boolean;
-  direction: string;
-  prepComponents: PrepComp[];
+  plan: LivePlan | null;
   onEnd: () => void;
+  onBack: () => void;
 }): JSX.Element {
-  const { timer, isEnding, direction, prepComponents, onEnd } = props;
-  const goal = prepComponents.find((c) => c.type === "goal") as { type: "goal"; id: string; text: string } | undefined;
-  const checklist = prepComponents.find((c) => c.type === "checklist") as { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] } | undefined;
+  const { timer, isEnding, plan, onEnd, onBack } = props;
+  const direction = plan?.direction ?? "";
+  const goal = plan?.components.find((c) => c.type === "goal") as { type: "goal"; id: string; text: string } | undefined;
+  const checklist = plan?.components.find((c) => c.type === "checklist") as { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] } | undefined;
 
   return (
-    <div className="live-root">
-      <header className="live-topbar">
-        <div className="live-topbar-left">
-          <span className="live-pulse" />
-          <span className="live-label">Live</span>
-        </div>
-        <div className="live-timer">{timer}</div>
-        <button className={`live-end-btn${isEnding ? " busy" : ""}`} data-testid="end-call" onClick={onEnd} disabled={isEnding}>
-          {isEnding ? "Finishing…" : "Finish listening"}
-        </button>
-      </header>
-      {isEnding && (
-        <div className="live-ending-status" data-testid="playground-ending">
-          <span className="mw-spinner" aria-hidden /> Wrapping up — saving your call summary. This can take a few seconds.
-        </div>
-      )}
-      <div className="live-body">
-        <div className="live-left">
-          {goal && (
-            <div className="live-goal-pill">
-              <span className="live-goal-label">Goal</span>
-              <span className="live-goal-text">{goal.text}</span>
-            </div>
-          )}
-          {checklist && checklist.items.length > 0 && (
-            <div className="live-checklist-card">
-              <div className="live-card-label">{checklist.title || "Checklist"}</div>
-              <ul className="live-checklist">
-                {checklist.items.map((it) => (
-                  <li key={it.id} className={`live-check-item${it.done ? " done" : ""}`}>
-                    <span className="live-check-glyph">{it.done ? "✓" : "○"}</span>
-                    <span>{it.text}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {!goal && !checklist && (
-            <div className="live-direction-card">
-              <div className="live-card-label">Direction</div>
-              <div className="live-direction-text">{direction || "No direction set."}</div>
-            </div>
-          )}
-          <div className="live-overlay-note">Ruby is helping you live via the floating overlay.</div>
-        </div>
-        <div className="live-right">
-          <div className="live-card-label">Transcript</div>
-          <div className="live-transcript-empty">Transcript appears here during the call.</div>
+    <div className="pcs-root">
+      <div className="app-dragbar" />
+      <div className="pcs-toprow app-drag">
+        <div className="pcs-toprow-inner">
+          <button className="pcs-back app-no-drag" data-testid="in-progress-back" onClick={onBack}>← Home</button>
+          <div className="ip-live-badge">
+            <span className="home-call-dot home-call-dot-live" />
+            <span className="ip-live-label">Live</span>
+            <span className="ip-live-timer" data-testid="in-progress-timer">{timer}</span>
+          </div>
         </div>
       </div>
-      <div className="live-teleprompter">
-        <span className="live-tp-label">Ruby says</span>
-        <span className="live-tp-text">Listening…</span>
+
+      <div className="pcs-body ip-body">
+        {/* Calm status — Ruby works on the overlay; the recap arrives here. */}
+        <div className="ip-status" data-testid="in-progress-status">
+          <p className="ip-status-line">Ruby's listening on the overlay pill.</p>
+          <p className="ip-status-sub">Your recap lands here when you wrap up.</p>
+        </div>
+
+        <hr className="pcs-divider" />
+
+        {/* Read-only reference: glance at your own game plan mid-call. */}
+        <div className="pcs-section-label">Your game plan</div>
+        {direction ? (
+          <p className="ip-direction">{direction}</p>
+        ) : (
+          <p className="ip-direction ip-direction-empty">
+            You didn't set a direction — Ruby's still listening and ready to help.
+          </p>
+        )}
+
+        {goal && (
+          <div className="ip-plan-block">
+            <div className="ip-plan-kind">Goal</div>
+            <div className="ip-plan-goal">{goal.text}</div>
+          </div>
+        )}
+        {checklist && checklist.items.length > 0 && (
+          <div className="ip-plan-block">
+            <div className="ip-plan-kind">{checklist.title || "Checklist"}</div>
+            <ul className="ip-checklist">
+              {checklist.items.map((it) => (
+                <li key={it.id} className={`ip-check-item${it.done ? " done" : ""}`}>
+                  <span className="ip-check-glyph">{it.done ? "✓" : "○"}</span>
+                  <span>{it.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Finish footer — pinned, calm (a definite end, not an alarm). */}
+      <div className="ip-footer">
+        {isEnding && (
+          <div className="ip-ending" data-testid="playground-ending">
+            <span className="mw-spinner" aria-hidden /> Wrapping up — saving your call summary. This lands in a few seconds.
+          </div>
+        )}
+        <button className="ip-finish-btn" data-testid="end-call" onClick={onEnd} disabled={isEnding}>
+          {isEnding ? "Finishing…" : "Finish listening"}
+        </button>
       </div>
     </div>
   );

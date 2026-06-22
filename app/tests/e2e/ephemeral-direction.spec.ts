@@ -149,6 +149,10 @@ test("ephemeral direction: empty on launch, reaches call, not persisted", async 
     await page.getByTestId("home-send").click();
     await expect(page.getByTestId("prep-begin")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
 
     // Wait for live state: the End button is present on the live screen.
     await expect(page.getByTestId("end-call")).toBeVisible({

@@ -95,6 +95,10 @@ test("skill picker injects the playbook (no frontmatter leak) and persists acros
     await expect(page.getByTestId("playground-skill-hint")).toContainText("mine pain");
 
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
     await expect(page.getByTestId("end-call")).toBeVisible({ timeout: 20_000 });
 
     // ===== Criterion 1 + 2: INJECTION + NO LEAK =====

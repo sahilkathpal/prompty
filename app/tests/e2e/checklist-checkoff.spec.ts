@@ -59,6 +59,10 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     // ===== Start the call directly from prep (the armed components stay armed;
     // closing prep back to home would clear them in the redesigned flow) =====
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
     await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 20_000,
     });

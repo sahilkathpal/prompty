@@ -95,6 +95,10 @@ test("prepped brief (direction + components) survives an app restart, then clear
     // ===== Start the call — the pending prep is consumed =====
     await expect(page.getByTestId("prep-begin")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
     await expect(page.getByTestId("end-call")).toBeVisible({ timeout: 20_000 });
 
     // The persisted brief is wiped (direction + components) by the main process.

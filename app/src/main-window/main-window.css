@@ -106,30 +106,6 @@ html, body, #root {
   gap: 7px;
 }
 
-.home-live-btn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 5px 12px;
-  background: #ED0C48;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  margin-right: 4px;
-  transition: opacity 120ms ease;
-}
-.home-live-btn.busy { opacity: 0.6; cursor: default; }
-.home-live-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.9);
-  flex-shrink: 0;
-  animation: home-pulse 1.4s ease-in-out infinite;
-}
 @keyframes home-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.7); }
@@ -346,6 +322,17 @@ html, body, #root {
 .home-call-dot.prepped {
   background: rgba(237, 12, 72, 0.45);
 }
+/* The live call's row: a pulsing ruby dot in place of the static grey one. */
+.home-call-dot-live {
+  background: #ED0C48;
+  animation: home-pulse 1.4s ease-in-out infinite;
+}
+.home-live-time {
+  color: #ED0C48;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.home-live-row:hover .home-live-time { opacity: 0; }
 
 .home-call-title {
   flex: 1;
@@ -617,38 +604,39 @@ html, body, #root {
 .prep-note-components .prep-comp-del:hover { background: rgba(196, 160, 82, 0.15); color: #92794a; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   LIVE SCREEN
+   IN-PROGRESS VIEW (opened from the live row — reuses the post-call shell)
    ══════════════════════════════════════════════════════════════════════════════ */
 
-.live-root { display: flex; flex-direction: column; height: 100vh; background: transparent; color: #1a1814; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; position: relative; z-index: 1; }
-.live-topbar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 20px 0 80px; background: #ED0C48; -webkit-app-region: drag; }
-.live-topbar-left { display: flex; align-items: center; gap: 9px; }
-.live-pulse { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.9); animation: home-pulse 1.4s ease-in-out infinite; flex-shrink: 0; }
-.live-label { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); letter-spacing: 0.03em; }
-.live-timer { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px; font-weight: 700; color: #fff; letter-spacing: 0.06em; }
-.live-end-btn { -webkit-app-region: no-drag; font-family: inherit; font-size: 13px; font-weight: 700; padding: 7px 15px; background: rgba(255,255,255,0.15); color: #fff; border: 1.5px solid rgba(255,255,255,0.45); border-radius: 8px; cursor: pointer; transition: background 120ms ease, opacity 120ms ease; }
-.live-end-btn:hover:not(:disabled) { background: rgba(255,255,255,0.25); }
-.live-end-btn.busy { opacity: 0.5; cursor: default; }
-.live-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
-.live-left { flex: 0 0 280px; display: flex; flex-direction: column; gap: 14px; padding: 20px; overflow-y: auto; border-right: 1px solid #e2ddd5; }
-.live-right { flex: 1; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
-.live-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #b0a898; margin-bottom: 10px; }
-.live-goal-pill { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; background: rgba(237,12,72,0.06); border: 1px solid rgba(237,12,72,0.18); border-radius: 10px; }
-.live-goal-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #ED0C48; }
-.live-goal-text { font-size: 14px; line-height: 1.45; color: #1a1814; }
-.live-checklist-card { padding: 12px 14px; background: #fff; border: 1px solid #e2ddd5; border-radius: 10px; }
-.live-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-.live-check-item { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; line-height: 1.4; color: #1a1814; }
-.live-check-item.done { color: #b0a898; text-decoration: line-through; }
-.live-check-glyph { flex-shrink: 0; font-size: 12px; margin-top: 2px; color: #ED0C48; }
-.live-check-item.done .live-check-glyph { color: #2e9e63; }
-.live-direction-card { padding: 12px 14px; background: #fff; border: 1px solid #e2ddd5; border-radius: 10px; }
-.live-direction-text { font-size: 13px; line-height: 1.55; color: #888078; white-space: pre-wrap; }
-.live-overlay-note { font-size: 13px; line-height: 1.5; color: #b0a898; padding: 10px 14px; background: rgba(255,255,255,0.5); border-radius: 8px; }
-.live-transcript-empty { font-size: 14px; color: #b0a898; margin-top: 4px; }
-.live-teleprompter { flex-shrink: 0; display: flex; align-items: center; gap: 14px; padding: 12px 24px; background: rgba(16,13,18,0.96); border-top: 1px solid rgba(255,255,255,0.08); }
-.live-tp-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,45,85,0.9); flex-shrink: 0; }
-.live-tp-text { font-size: 14px; color: rgba(255,233,238,0.85); line-height: 1.45; }
+/* Live badge in the top row: pulsing dot + "Live" + elapsed timer. */
+.ip-live-badge { display: flex; align-items: center; gap: 8px; }
+.ip-live-label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #ED0C48; }
+.ip-live-timer { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; color: #888078; }
+
+.ip-body { padding-bottom: 0; }
+
+/* Calm status block. */
+.ip-status { margin: 4px 0 20px; }
+.ip-status-line { margin: 0 0 4px; font-family: 'New York', 'Georgia', serif; font-size: 17px; color: #1a1814; }
+.ip-status-sub { margin: 0; font-size: 13.5px; color: #8a8276; }
+
+/* Read-only plan reference. */
+.ip-direction { margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #4a443c; white-space: pre-wrap; }
+.ip-direction-empty { color: #8a8276; font-style: italic; }
+.ip-plan-block { margin-bottom: 16px; }
+.ip-plan-kind { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #ED0C48; margin-bottom: 8px; }
+.ip-plan-goal { font-size: 14px; line-height: 1.45; color: #1a1814; }
+.ip-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.ip-check-item { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; line-height: 1.4; color: #1a1814; }
+.ip-check-item.done { color: #b0a898; text-decoration: line-through; }
+.ip-check-glyph { flex-shrink: 0; font-size: 12px; margin-top: 2px; color: #ED0C48; }
+.ip-check-item.done .ip-check-glyph { color: #2e9e63; }
+
+/* Finish footer — pinned to the bottom, calm (a definite end, not an alarm). */
+.ip-footer { flex-shrink: 0; padding: 16px 24px 22px; border-top: 1px solid #e2ddd5; background: #f2ebe0; }
+.ip-ending { display: flex; align-items: center; gap: 9px; margin: 0 auto 12px; max-width: 552px; font-size: 13px; color: #888078; }
+.ip-finish-btn { display: block; width: 100%; max-width: 552px; margin: 0 auto; font-family: inherit; font-size: 14px; font-weight: 700; padding: 12px 16px; background: #ED0C48; color: #fff; border: none; border-radius: 10px; cursor: pointer; transition: background 130ms ease, opacity 130ms ease; }
+.ip-finish-btn:hover:not(:disabled) { background: #d10b40; }
+.ip-finish-btn:disabled { opacity: 0.55; cursor: default; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    POST-CALL SCREEN
@@ -1418,16 +1406,3 @@ html, body, #root {
   padding: 0;
 }
 .home-pinned-clear:hover { text-decoration: underline; text-underline-offset: 2px; }
-
-/* Live — teardown ("ending") status banner */
-.live-ending-status {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 20px;
-  font-size: 13px;
-  color: #c98e2e;
-  background: rgba(201, 142, 46, 0.10);
-  border-bottom: 1px solid rgba(201, 142, 46, 0.20);
-}

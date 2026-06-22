@@ -184,6 +184,10 @@ test("components inject into the in-call prompt, then are consumed on start", as
 
     // ===== Criterion 1: INJECTION — start the call from prep, read prompt ====
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
     await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 20_000,
     });
@@ -219,6 +223,10 @@ test("components inject into the in-call prompt, then are consumed on start", as
     await page.getByTestId("home-send").click();
     await expect(page.getByTestId("prep-begin")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("prep-begin").click();
+    // Start listening returns to Home; the live call is the top row — open it
+    // to reach the in-progress view's Finish-listening control.
+    await expect(page.getByTestId("home-live-row")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("home-live-row").click();
     await expect(page.getByTestId("end-call")).toBeVisible({
       timeout: 20_000,
     });
