@@ -49,7 +49,7 @@ test("the live call shows as a Home row → in-progress view → finish", async 
     //    read-only plan, elapsed timer, and the Finish-listening control.
     await liveRow.click();
     await expect(page.getByTestId("in-progress-status")).toContainText(
-      "Ruby's listening",
+      "I'm listening",
     );
     await expect(page.getByTestId("in-progress-timer")).toContainText(/\d+:\d\d/);
     await expect(page.locator(".ip-direction")).not.toHaveText("");

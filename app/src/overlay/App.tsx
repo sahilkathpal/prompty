@@ -459,8 +459,8 @@ export default function App(): JSX.Element {
               {history.length === 0 ? (
                 <div className="gem-history-empty">
                   {liveish
-                    ? "Nothing worth flagging yet — Ruby's listening."
-                    : "Notes Ruby surfaces will collect here."}
+                    ? "Nothing worth flagging yet — I'm listening."
+                    : "Notes I surface will collect here."}
                 </div>
               ) : (
                 <ul className="gem-history-list">

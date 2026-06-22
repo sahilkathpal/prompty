@@ -1359,7 +1359,7 @@ function InProgressScreen(props: {
       <div className="pcs-body ip-body">
         {/* Calm status — Ruby works on the overlay; the recap arrives here. */}
         <div className="ip-status" data-testid="in-progress-status">
-          <p className="ip-status-line">Ruby's listening on the overlay pill.</p>
+          <p className="ip-status-line">I'm listening on the overlay pill.</p>
           <p className="ip-status-sub">Your recap lands here when you wrap up.</p>
         </div>
 
@@ -1371,7 +1371,7 @@ function InProgressScreen(props: {
           <p className="ip-direction">{direction}</p>
         ) : (
           <p className="ip-direction ip-direction-empty">
-            You didn't set a direction — Ruby's still listening and ready to help.
+            You didn't set a direction — I'm still listening and ready to help.
           </p>
         )}
 

@@ -141,7 +141,7 @@ test("the gem: starting a call wipes any leftover nudge history", async () => {
       if ((await history.count()) === 0) await gem.click();
       // Live empty-state copy (V7) — the call is starting/live after reset.
       await expect(history).toContainText(
-        /Nothing worth flagging yet|Notes Ruby surfaces will collect/,
+        /Nothing worth flagging yet|Notes I surface will collect/,
       );
     }).toPass({ timeout: 6000 });
     await expect(history).not.toContainText("LEFTOVER nudge from before this call");
