@@ -144,7 +144,11 @@ export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
     return {
       id: `n_${Date.now()}_ans`,
       text,
-      urgency: "high",
+      // Medium, not high: the hotkey already gets queue precedence in
+      // coach-session, so it doesn't need the urgent VISUAL treatment ("Ask
+      // now" tag, inset flash, attention face). The user pulled this answer
+      // deliberately — it's not an interruption to alarm them about.
+      urgency: "medium",
       createdAt: Date.now(),
     };
   } catch (e) {
