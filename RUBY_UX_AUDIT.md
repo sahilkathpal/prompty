@@ -572,16 +572,98 @@ setup steps (Acts 2–3) that carry over.
 
 ---
 
-## Suggested sequencing
+## Phased execution plan
 
-1. **Safety + honesty (ship first):** X1 (rename "Stop Listening" → "End call" + confirm),
-   X4 (confirm/undo on delete-memory & sign-out), X2 (stop the Live/overlay broken
-   promises), O2/O4/O10 (onboarding dead-ends).
-2. **On-message value:** X3 / PC1 / PC2 (invert post-call emphasis), V5 (faced gem on
-   the pill), V2/V3/V4 (overlay tag, dismiss, urgency).
-3. **Teaching + first-run:** X5 (Memory/Home/Prep empty states), O1/O5/O6/O8 (onboarding
-   value + copy + progress).
-4. **Delight:** P1 (prep card entry animation), V12/V13/V14 (overlay polish), H11 (home
-   hover), L11 (banner tone).
-5. **A11y sweep:** X6 across all screens (focus rings, tab semantics, aria-live, hit targets).
-6. **Cleanup:** X7 (delete dead code).
+Work proceeds in ordered phases. **A phase is not "done" until it passes BOTH gates:**
+1. **End-to-end (automated):** `npm run typecheck` clean, the relevant Playwright e2e
+   spec(s) added/updated and green (`npx playwright test <spec>`), and the renderer
+   rebuilt (`npm run build:renderer`) so e2e runs against the new code.
+2. **Physical (manual, in the real app):** launch the actual app and drive the changed
+   surface by hand — observe the behavior, don't just trust the test. Per house rule,
+   verify with an **independent Playwright pass driven by a different subagent than the
+   one that built the phase** (see `[[feedback_independent_playwright_verification]]`),
+   and never report a phase complete without running it end-to-end
+   (`[[feedback_verify_before_done]]`).
+
+Each phase is a self-contained commit (or small PR) on `ruby-rebuild`. Do not start a
+phase until the previous one has passed both gates.
+
+---
+
+### Phase 1 — Copy, naming & dead-code sweep (no behavior change)
+**Scope:** X1 rename (**Start/Finish listening** on all 3 surfaces), global **no-"coaching"**
+swaps, X5 empty-state copy (Memory M1, Home H4), Prep **P4 "Game plan"** + **P8 "General"**
++ caption, Memory **M1 SD-card icon**, Home **H1 signpost** + **H8 hint**, Post-call
+**PC8 "The gist"** + **PC9** note copy + **PC12 "← All calls"** + **PC5** empty copy,
+**X7 dead code** delete (`.home-wordmark`, `.home-bar-who`, `.prep-empty-*`,
+`prep-mic-pulse`, hidden `DragHandle`).
+**E2E:** update existing post-call/prep specs for new strings; assert no "coaching"
+appears; assert button reads "Finish listening".
+**Physical:** open app → Home, Prep, Memory, Settings, post-call card; confirm every
+renamed label/copy reads correctly and nothing references the deleted CSS.
+
+### Phase 2 — Overlay & gem (delight)
+**Scope:** **V5 faced gem on the pill** (biggest delight win), **V1** honest drain bar,
+**V2** kind-aware tags, **V3** per-nudge dismiss, **V4/V6** real urgency cue + face
+escalation, **V7** onboarding "no notes" context copy, **V8/V9** expand+drag
+affordances, **V10** gem aria + bloom announce, **V11–V15** polish.
+**E2E:** overlay spec — sample nudge blooms, dismiss removes it, high-urgency renders
+the distinct cue, drain duration matches the note lifetime.
+**Physical:** start a real call (or onboarding sample-nudge path); watch nudges bloom,
+dismiss one mid-call, confirm the gem face expresses state and high-urgency is
+glanceable.
+
+### Phase 3 — Cut the Live screen → Home live-row + in-progress view (structural)
+**Scope:** delete `LiveScreen`; **live call as top row of Home** (pulsing dot + "Live ·
+mm:ss", reuses `home-call-dot` / H7); **in-progress view** backed by the prep plan with
+**Finish listening**; **drop Home-topbar live button** (H12); carry **L4/L7/L10/L11**.
+Depends on Phase 1 (uses "Finish listening").
+**E2E:** start-call flow returns to Home; live row present with timer; clicking it opens
+the in-progress view; Finish transitions to summarizing→recap.
+**Physical:** run a real call end-to-end — start → main window returns to Home → live
+row ticks → open in-progress view (see the plan) → Finish listening → recap appears.
+This is the highest-risk phase; verify the full loop by hand.
+
+### Phase 4 — Post-call summary rework
+**Scope:** **PC1/PC2 (X3)** soften coverage → "5 topics" + add "Ruby helped surface N",
+**PC6** summarizing skeleton/reassurance, **PC7** load-error retry, **PC10** note
+View/Undo, **PC11** transcript export (attendee name + timestamps), **PC13** legacy
+raw-log fallback, **PC3/PC4/PC15** tab+copy a11y.
+**E2E:** assert the attribution line, the descriptive topic count, retry re-runs load,
+copy-failure path; extend the existing no-transcript/legacy specs.
+**Physical:** finish a real call → read the recap; trigger a load error; save a note and
+use Undo; copy the transcript and paste it.
+
+### Phase 5 — Prep interaction polish
+**Scope:** **P1** card entry animation + amber flash + chat narration line, **P3**
+panel "updating…" shimmer, **P5** kind glyphs, **P6** item-× hover reveal, **P9**
+animated thinking dots, **P11** "Click…" copy + focus, **P12** resize handle, **P13/P14**
+placeholder/copy unification, **P10** a11y.
+**E2E:** prep spec — components render with the animation class; per-item × appears on
+hover/focus.
+**Physical:** run a prep chat; watch a goal/checklist animate in as Ruby drafts it;
+add/remove items; confirm the moment feels alive.
+
+### Phase 6 — Onboarding redesign
+**Scope:** the full **Act 1–3 restructure** (Welcome live demo → teach-the-loop single
+screen with live pill in moment 2 → value-framed setup → drop into focused prep),
+**O2** Claude skip-forward + in-app gate + Node note, **O4** quiet mic skip + call-start
+re-prompt, **O10** inline sign-in error, **O3** back nav, **O8** progress label, **O9**
+a11y, **O15** dev-button gate, **O5/O6/O7/O11–O14** copy.
+**E2E:** onboarding spec — each step advances/back-navigates; skip-forward paths work;
+sign-in failure shows inline error; dev button absent in prod build.
+**Physical:** run first-run onboarding cold, including the **deny-mic path**, the
+**no-Claude path**, and a **failed sign-in** — confirm none dead-end, and finishing
+drops you into a focused prep bar.
+
+### Phase 7 — Settings legibility + a11y sweep + final cleanup
+**Scope:** **M4** "Listening to: <default input>" on the mic row (no picker), **M4b**
+debug-row gated behind `PROMPTY_DEBUG`, **M5** Claude-row status, **M6** group headers,
+**M11/M12** enum→friendly + per-row pill, **M2/M3** undo/confirm, **M7/M8/M9/M10**,
+then the cross-cutting **X6 a11y sweep** (focus rings, tab semantics, aria-live, 44px
+targets) across every surface, and **H-series polish** (H3 error banner, H6 row anchor,
+H10/H11 visual).
+**E2E:** settings spec — debug row hidden without the flag; delete-memory undo; sign-out
+confirm; keyboard focus traverses interactive elements.
+**Physical:** walk Settings; toggle `PROMPTY_DEBUG`; delete a memory and undo; tab
+through each screen with the keyboard and confirm visible focus + reachable controls.
