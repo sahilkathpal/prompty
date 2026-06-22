@@ -172,9 +172,9 @@ type PreflightResult =
   | { ok: false; code: "mic" | "auth" | "claude"; message: string };
 
 const PREFLIGHT_MESSAGES = {
-  mic: "Ruby needs microphone access to hear the call.",
+  mic: "Ruby can't hear you — allow microphone access to start a call.",
   auth: "Sign in with Google to enable transcription.",
-  claude: "Install Claude Code to enable AI coaching.",
+  claude: "Finish setup — connect Claude Code to start calls.",
 } as const;
 
 /**

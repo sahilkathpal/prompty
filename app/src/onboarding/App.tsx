@@ -2,8 +2,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RubyLogo } from "../shared/RubyLogo";
 import type { MediaPermissionStatus, PermissionStatus } from "../shared/types";
 
-type StepKey = "welcome" | "claude" | "mic" | "hotkey" | "signin";
-const STEPS: StepKey[] = ["welcome", "claude", "mic", "hotkey", "signin"];
+type StepKey = "welcome" | "how" | "claude" | "mic" | "hotkey" | "signin" | "done";
+const STEPS: StepKey[] = ["welcome", "how", "claude", "mic", "hotkey", "signin", "done"];
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
@@ -72,13 +72,23 @@ function GoogleIcon() {
 
 function ProgressBar({ current, total }: { current: number; total: number }) {
   return (
-    <div className="ob-progress">
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className={`ob-seg${i < current ? " done" : i === current ? " active" : ""}`}
-        />
-      ))}
+    <div className="ob-progress-wrap">
+      <div
+        className="ob-progress"
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={total}
+        aria-valuenow={current + 1}
+        aria-label={`Step ${current + 1} of ${total}`}
+      >
+        {Array.from({ length: total }, (_, i) => (
+          <div
+            key={i}
+            className={`ob-seg${i < current ? " done" : i === current ? " active" : ""}`}
+          />
+        ))}
+      </div>
+      <span className="ob-progress-label">Step {current + 1} of {total}</span>
     </div>
   );
 }
@@ -137,6 +147,16 @@ export default function App(): JSX.Element {
 
   // Signin step
   const [signingIn, setSigningIn] = useState(false);
+  const [signinError, setSigninError] = useState<string | null>(null);
+
+  // Delayed, low-emphasis "set this up later" valves so no setup step traps a
+  // user (Claude needs Node; mic can be denied). They fade in after a beat so
+  // they never compete with the primary action at the high-intent moment.
+  const [showClaudeSkip, setShowClaudeSkip] = useState(false);
+  const [showMicSkip, setShowMicSkip] = useState(false);
+
+  // Focus moves to the step container on each advance/goBack (O9 a11y).
+  const stepRef = useRef<HTMLDivElement>(null);
 
   // Ruby copy (dev reference — pill not yet implemented)
   const [bubbleText, setBubbleTextState] = useState("");
@@ -183,20 +203,22 @@ export default function App(): JSX.Element {
 
   function bubbleForStep(idx: number, c: typeof claude, mg: boolean) {
     const s = STEPS[idx];
-    if (s === "welcome") return "Hello. I'm Ruby. I'll be with you on every call. Let's get you set up.";
+    if (s === "welcome") return "Hi, I'm Ruby. I sit in on your calls and whisper the right thing to say, live. Let's get you set up.";
+    if (s === "how") return "Here's how I'll help on every call — watch the pill up in the corner.";
     if (s === "claude") {
       if (c === null) return null;
       return c.found
         ? "Claude is ready. We're off to a good start."
-        : "No Claude yet. That's fine. The instructions below will have you set up in just a few minutes.";
+        : "No Claude yet — no problem. The steps below take a few minutes, or set it up later.";
     }
     if (s === "mic") {
       return mg
         ? "Thank you for trusting me with that. I'll only ever use your mic when you're on a call. Nothing else, ever."
         : "Just so you know, I only listen when you deliberately start a session. I'm not running in the background.";
     }
-    if (s === "hotkey") return "On a real call, I'll give you something relevant. For now, just feel how fast I respond.";
-    if (s === "signin") return "Almost there. This keeps your history and memory safe across sessions.";
+    if (s === "hotkey") return "On a real call, I'll hand you something relevant. For now, just feel how fast I respond.";
+    if (s === "signin") return "Last thing — sign in so your recaps and memory follow you across sessions.";
+    if (s === "done") return "You're all set. Tell me about your next call whenever you're ready.";
     return null;
   }
 
@@ -221,7 +243,7 @@ export default function App(): JSX.Element {
   // ── Welcome bubble on mount ───────────────────────────────────────────────
 
   useEffect(() => {
-    setBubble("Hello. I'm Ruby. I'll be with you on every call. Let's get you set up.");
+    setBubble("Hi, I'm Ruby. I sit in on your calls and whisper the right thing to say, live. Let's get you set up.");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── React to claude loading while on step 2 ───────────────────────────────
@@ -254,7 +276,7 @@ export default function App(): JSX.Element {
       });
     const skipTimer = setTimeout(() => {
       if (!cancelled) setShowHotkeySkip(true);
-    }, 10000);
+    }, 5000);
     return () => {
       cancelled = true;
       clearTimeout(skipTimer);
@@ -284,7 +306,61 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, [step, hotkeyFallback]);
 
-  // ── Advance to next step ──────────────────────────────────────────────────
+  // ── "How Ruby works": loop a sample nudge into the corner pill (moment 2's
+  //    live element — show-don't-tell). Reuses the same fire-nudge plumbing the
+  //    hotkey step uses; a gentle ~3.6s loop while the screen is up. ──────────
+  useEffect(() => {
+    if (step !== "how") return;
+    let cancelled = false;
+    const fire = () => {
+      if (!cancelled) void window.prompty.invoke("onboarding:fire-nudge", undefined as never);
+    };
+    const first = setTimeout(fire, 600);
+    const loop = setInterval(fire, 3600);
+    return () => { cancelled = true; clearTimeout(first); clearInterval(loop); };
+  }, [step]);
+
+  // ── Delayed skip valves on the Claude + mic steps (O2 / O4) ───────────────
+  useEffect(() => {
+    setShowClaudeSkip(false);
+    if (step !== "claude") return;
+    const t = setTimeout(() => setShowClaudeSkip(true), 5000);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  useEffect(() => {
+    setShowMicSkip(false);
+    if (step !== "mic") return;
+    const t = setTimeout(() => setShowMicSkip(true), 6000);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  // ── Move focus into the new step for screen-reader users (O9) ──────────────
+  useEffect(() => {
+    if (!stepVisible) return;
+    const t = setTimeout(() => stepRef.current?.focus(), 60);
+    return () => clearTimeout(t);
+  }, [stepIdx, stepVisible]);
+
+  // ── Advance / go back ─────────────────────────────────────────────────────
+
+  function goBack() {
+    if (stepIdx <= 0) return;
+    setStepVisible(false);
+    setTimeout(() => {
+      const prevIdx = stepIdx - 1;
+      setStepIdx(prevIdx);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setStepVisible(true);
+          setTimeout(() => {
+            const text = bubbleForStep(prevIdx, claude, micGranted);
+            setBubble(text);
+          }, 220);
+        });
+      });
+    }, 260);
+  }
 
   function advance() {
     if (stepIdx >= STEPS.length - 1) return;
@@ -342,6 +418,7 @@ export default function App(): JSX.Element {
 
   async function handleSignIn() {
     setSigningIn(true);
+    setSigninError(null);
     try {
       // Already signed in (e.g. a returning user, or an E2E-injected session)?
       // Skip the Google window and finish. Otherwise run the real PKCE flow.
@@ -349,24 +426,30 @@ export default function App(): JSX.Element {
       if (!status.signedIn) {
         const res = await window.prompty.invoke("auth:google-sign-in", undefined as never);
         if (!res.ok) {
-          setBubble(
-            `Sign-in didn't go through${res.error ? ` (${res.error})` : ""}. Want to try again?`,
+          // O10: a failed sign-in shows a visible inline error in the card, not
+          // a message routed through an unbuilt surface.
+          setSigninError(
+            `Sign-in didn't go through${res.error ? ` — ${res.error}` : ""}. Please try again.`,
           );
           setSigningIn(false);
           return;
         }
       }
-      setBubble("It's been a pleasure. I'll be here every time you take a call. Good luck out there.");
-      await new Promise<void>((r) => setTimeout(r, 1500));
-      const done = await window.prompty.invoke("onboarding:complete", undefined as never);
-      if (!done.ok) {
-        setBubble("Almost — I still need you signed in to finish. Want to try again?");
-        setSigningIn(false);
-      }
+      // Signed in — move to the "You're set" screen (Act 3).
+      setSigningIn(false);
+      advance();
     } catch (e) {
-      setBubble(`Sign-in hit a snag${e instanceof Error ? ` (${e.message})` : ""}. Want to try again?`);
+      setSigninError(`Sign-in hit a snag${e instanceof Error ? ` — ${e.message}` : ""}. Please try again.`);
       setSigningIn(false);
     }
+  }
+
+  // Finish onboarding from the "You're set" screen → main process closes this
+  // window and opens Home (with the prep bar focused).
+  function completeOnboarding() {
+    void window.prompty.invoke("onboarding:complete", undefined as never).then((done) => {
+      if (!done.ok) setBubble("Almost — I still need you signed in to finish.");
+    });
   }
 
   function openExternal(url: string) {
@@ -397,18 +480,39 @@ export default function App(): JSX.Element {
       <div className="ob-titlebar" />
 
       <div className="ob-card">
-        <ProgressBar current={stepIdx} total={STEPS.length} />
+        <div className="ob-card-head">
+          {stepIdx > 0 && step !== "done" && (
+            <button className="ob-back" data-testid="ob-back" aria-label="Go back a step" onClick={goBack}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+          {step !== "welcome" && step !== "done" && (
+            <ProgressBar current={stepIdx} total={STEPS.length} />
+          )}
+        </div>
 
-        <div className={`ob-step${stepVisible ? " ob-step-in" : " ob-step-out"}`}>
+        <div
+          className={`ob-step${stepVisible ? " ob-step-in" : " ob-step-out"}`}
+          ref={stepRef}
+          tabIndex={-1}
+          aria-live="polite"
+        >
             {step === "welcome" && (
               <StepWelcome onNext={advance} />
+            )}
+            {step === "how" && (
+              <StepHow onNext={advance} />
             )}
             {step === "claude" && (
               <StepClaude
                 claude={claude}
                 claudeBusy={claudeBusy}
+                showSkip={showClaudeSkip}
                 onRecheck={recheckClaude}
                 onNext={advance}
+                onSkip={advance}
                 onOpenExternal={openExternal}
               />
             )}
@@ -417,8 +521,10 @@ export default function App(): JSX.Element {
                 micGranted={micGranted}
                 micBusy={micBusy}
                 micStatus={micStatus}
+                showSkip={showMicSkip}
                 onRequest={requestMic}
                 onNext={advance}
+                onSkip={advance}
                 onOpenExternal={openExternal}
               />
             )}
@@ -435,11 +541,33 @@ export default function App(): JSX.Element {
             {step === "signin" && (
               <StepSignin
                 signingIn={signingIn}
+                error={signinError}
                 onSignIn={handleSignIn}
-                onRestart={() => { setStepIdx(0); setStepVisible(true); setHotkeyDone(false); setShowHotkeyContinue(false); setHotkeyFallback(false); setShowHotkeySkip(false); setSigningIn(false); }}
               />
             )}
+            {step === "done" && (
+              <StepDone onFinish={completeOnboarding} />
+            )}
         </div>
+
+        {/* DEV ONLY — gated out of production builds (O15). */}
+        {import.meta.env.DEV && (
+          <button
+            className="ob-dev-restart"
+            onClick={() => {
+              setStepIdx(0);
+              setStepVisible(true);
+              setHotkeyDone(false);
+              setShowHotkeyContinue(false);
+              setHotkeyFallback(false);
+              setShowHotkeySkip(false);
+              setSigningIn(false);
+              setSigninError(null);
+            }}
+          >
+            ↩ Restart onboarding (dev)
+          </button>
+        )}
       </div>
     </div>
   );
@@ -451,11 +579,11 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div className="ob-step-content">
       <div style={{ marginBottom: 18 }}><RubyLogo size={48} /></div>
-      <h1 className="ob-title">Meet Ruby, <em>your call coach.</em></h1>
+      <h1 className="ob-title">Meet Ruby.</h1>
       <p className="ob-body">
-        A real-time AI coach that lives inside your calls. She preps you before,
-        listens live, and whispers the right question at the right moment. Runs
-        entirely on your machine.
+        Ruby sits in on your calls and whispers the right thing to say, live —
+        watch the pill up in the corner. She preps you before, listens during,
+        and writes the recap after. Everything runs on your machine.
       </p>
       <div className="ob-actions">
         <button className="ob-btn-primary" onClick={onNext}>
@@ -466,23 +594,59 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
   );
 }
 
+// Act 1, screen 2 — teach the loop. A single screen naming the four moments the
+// old flow never mentioned. Moment 2 (Live) is demoed by the real corner pill,
+// which blooms a sample nudge on a loop (driven from App's "how" effect).
+function StepHow({ onNext }: { onNext: () => void }) {
+  const moments = [
+    { n: 1, title: "Prep", body: "Tell Ruby what the call's about and pick a playbook for the kind of call." },
+    { n: 2, title: "Live", body: "Ruby listens and whispers the right thing to say through a little floating pill ↗", live: true },
+    { n: 3, title: "Recap", body: "Finish the call and Ruby writes up what was said — and what surfaced." },
+    { n: 4, title: "Memory", body: "Tell Ruby how you like to be nudged. It sticks across every call." },
+  ];
+  return (
+    <div className="ob-step-content">
+      <div style={{ marginBottom: 16 }}><RubyLogo size={40} /></div>
+      <h1 className="ob-title">How Ruby works</h1>
+      <ol className="ob-how-list">
+        {moments.map((m) => (
+          <li key={m.n} className={`ob-how-item${m.live ? " ob-how-live" : ""}`}>
+            <span className="ob-how-num" aria-hidden>{m.n}</span>
+            <div className="ob-how-text">
+              <div className="ob-how-title">{m.title}</div>
+              <div className="ob-how-body">{m.body}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="ob-actions">
+        <button className="ob-btn-primary" onClick={onNext}>Continue →</button>
+      </div>
+    </div>
+  );
+}
+
 function StepClaude({
   claude,
   claudeBusy,
+  showSkip,
   onRecheck,
   onNext,
+  onSkip,
   onOpenExternal,
 }: {
   claude: { found: boolean; path: string | null } | null;
   claudeBusy: boolean;
+  showSkip: boolean;
   onRecheck: () => Promise<void>;
   onNext: () => void;
+  onSkip: () => void;
   onOpenExternal: (url: string) => void;
 }) {
   return (
     <div className="ob-step-content">
-      <img src={new URL("./claude.svg", import.meta.url).href} width={54} height={54} style={{ borderRadius: 15, marginBottom: 18, display: "block", objectFit: "cover" }} alt="Claude" />
-      <h1 className="ob-title">Ruby runs on Claude.</h1>
+      <img src={new URL("./claude.svg", import.meta.url).href} width={54} height={54} style={{ borderRadius: 15, marginBottom: 18, display: "block", objectFit: "cover" }} alt="" aria-hidden />
+      <h1 className="ob-title" tabIndex={-1}>Ruby thinks with Claude Code.</h1>
       <p className="ob-body">
         Ruby uses Claude Code (Anthropic's CLI) as its AI brain. It runs
         entirely on your machine, so your calls stay private. We'll check if
@@ -490,16 +654,16 @@ function StepClaude({
       </p>
 
       {claude === null && (
-        <div className="ob-check-row">
-          <div className="ob-status-dot ob-status-idle" />
+        <div className="ob-check-row" role="status" aria-live="polite">
+          <div className="ob-status-dot ob-status-idle" aria-hidden />
           <span className="ob-check-label">Checking…</span>
         </div>
       )}
 
       {claude !== null && claude.found && (
         <>
-          <div className="ob-check-row">
-            <div className="ob-status-dot ob-status-ok" />
+          <div className="ob-check-row" role="status" aria-live="polite">
+            <div className="ob-status-dot ob-status-ok" aria-hidden />
             <div>
               <div className="ob-check-label">Claude Code found. You're good to go.</div>
               {claude.path && <div className="ob-check-sub">{claude.path}</div>}
@@ -513,8 +677,8 @@ function StepClaude({
 
       {claude !== null && !claude.found && (
         <>
-          <div className="ob-check-row">
-            <div className="ob-status-dot ob-status-warn" />
+          <div className="ob-check-row" role="status" aria-live="polite">
+            <div className="ob-status-dot ob-status-warn" aria-hidden />
             <span className="ob-check-label">Claude Code not detected yet.</span>
           </div>
           <div className="ob2-instructions">
@@ -526,6 +690,11 @@ function StepClaude({
               <li>Come back here and hit "Check again"</li>
             </ol>
           </div>
+          <p className="ob-note">
+            Requires Node.js — don't have it?{" "}
+            <button className="ob-link" onClick={() => onOpenExternal("https://nodejs.org/en/download")}>Install Node</button>.
+            More AI agents coming soon: Gemini CLI, OpenCode, and others.
+          </p>
           <div className="ob-actions">
             <button className="ob-btn-plain" onClick={onRecheck} disabled={claudeBusy}>
               {claudeBusy ? "Checking…" : "Check again"}
@@ -537,7 +706,11 @@ function StepClaude({
               Open Terminal
             </button>
           </div>
-          <p className="ob-note">More AI agents coming soon: Gemini CLI, OpenCode, and others.</p>
+          {showSkip && (
+            <button className="ob-btn-skip ob-anim-fade" data-testid="ob-claude-skip" onClick={onSkip}>
+              I'll set this up later →
+            </button>
+          )}
         </>
       )}
     </div>
@@ -548,15 +721,19 @@ function StepMic({
   micGranted,
   micBusy,
   micStatus,
+  showSkip,
   onRequest,
   onNext,
+  onSkip,
   onOpenExternal,
 }: {
   micGranted: boolean;
   micBusy: boolean;
   micStatus: MediaPermissionStatus;
+  showSkip: boolean;
   onRequest: () => Promise<void>;
   onNext: () => void;
+  onSkip: () => void;
   onOpenExternal: (url: string) => void;
 }) {
   const denied = micStatus === "denied" || micStatus === "restricted";
@@ -566,18 +743,26 @@ function StepMic({
       <StepIcon bg="#7c3aed" shadow="0 8px 24px rgba(124,58,237,0.28)">
         <MicIcon size={26} />
       </StepIcon>
-      <h1 className="ob-title">One permission.</h1>
+      <h1 className="ob-title" tabIndex={-1}>Just the microphone.</h1>
       <p className="ob-body">
-        Ruby needs your microphone to hear your side of the call. That's all.
-        no screen recording, no camera, nothing else. Everything stays on your machine.
+        Ruby needs your microphone so she can hear your side of a call and
+        whisper the right thing to say, live. That's the only permission she
+        needs — no screen recording, no camera, nothing else. Everything stays
+        on your machine.
       </p>
 
-      <div className="ob-check-row">
-        <div className={`ob-status-dot${micGranted ? " ob-status-ok" : " ob-status-idle"}`} />
+      <div className="ob-check-row" role="status" aria-live="polite">
+        <div className={`ob-status-dot${micGranted ? " ob-status-ok" : denied ? " ob-status-warn" : " ob-status-idle"}`} aria-hidden />
         <span className="ob-check-label">
-          {micGranted ? "Microphone granted" : "Microphone waiting"}
+          {micGranted ? "Microphone granted" : denied ? "Microphone access blocked" : "Microphone waiting"}
         </span>
       </div>
+
+      {denied && (
+        <p className="ob-body ob-mic-denied">
+          Find Ruby in the list and toggle the microphone on, then come back here.
+        </p>
+      )}
 
       <div className="ob-actions">
         {!micGranted && !denied && (
@@ -599,14 +784,21 @@ function StepMic({
           <button className="ob-btn-primary" onClick={onNext}>Continue →</button>
         )}
       </div>
+      {/* Quiet, delayed skip so a user who denied (or can't grant now) is never
+          trapped — call-start re-prompts for mic anyway. */}
+      {!micGranted && showSkip && (
+        <button className="ob-btn-skip ob-anim-fade" data-testid="ob-mic-skip" onClick={onSkip}>
+          I'll allow it later →
+        </button>
+      )}
       <div className="ob-note ob-note-trust">
-        <div className="ob-note-icon">
+        <div className="ob-note-icon" aria-hidden>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C16.5 22.15 20 17.25 20 12V6l-8-4z" fill="#a0917e" />
             <path d="M9 12l2 2 4-4" stroke="#f2ebe0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <span>Ruby only listens during an active session.<br />You're always in control.</span>
+        <span>After setup, Ruby only listens during an active session.<br />You're always in control.</span>
       </div>
     </div>
   );
@@ -674,22 +866,22 @@ function StepHotkey({
 
 function StepSignin({
   signingIn,
+  error,
   onSignIn,
-  onRestart,
 }: {
   signingIn: boolean;
+  error: string | null;
   onSignIn: () => Promise<void>;
-  onRestart: () => void;
 }) {
   return (
     <div className="ob-step-content">
       <StepIcon bg="#e8e4de">
         <PersonIcon size={26} />
       </StepIcon>
-      <h1 className="ob-title">Last step.</h1>
+      <h1 className="ob-title" tabIndex={-1}>Sign in to save your work.</h1>
       <p className="ob-body">
-        Create your Ruby account to save your calls, memory, and recap
-        history. Takes about five seconds.
+        Sign in so your recaps and memory follow you across sessions. Takes
+        about five seconds.
       </p>
 
       <button className="ob5-google-btn" onClick={onSignIn} disabled={signingIn}>
@@ -697,15 +889,32 @@ function StepSignin({
         <span>{signingIn ? "Signing in…" : "Sign in with Google"}</span>
       </button>
 
-      <p className="ob-note">
-        We only use your Google account to identify you. Your calls and
-        transcripts stay on your device.
-      </p>
+      {error && (
+        <p className="ob-signin-error" role="alert" data-testid="ob-signin-error">{error}</p>
+      )}
 
-      {/* DEV ONLY */}
-      <button className="ob-dev-restart" onClick={onRestart}>
-        ↩ Restart onboarding (dev)
-      </button>
+      <p className="ob-note">
+        We only use your Google account to identify you. Recaps and transcripts
+        stay on your device — the account just syncs your memory and history.
+      </p>
+    </div>
+  );
+}
+
+// Act 3 — the finish line. Drops into Home with the prep bar focused.
+function StepDone({ onFinish }: { onFinish: () => void }) {
+  return (
+    <div className="ob-step-content">
+      <div style={{ marginBottom: 18 }}><RubyLogo size={48} /></div>
+      <h1 className="ob-title" tabIndex={-1}>You're set.</h1>
+      <p className="ob-body">
+        Got a call coming up? Tell Ruby what it's about and she'll help you prep.
+      </p>
+      <div className="ob-actions">
+        <button className="ob-btn-primary" data-testid="ob-done" onClick={onFinish}>
+          Take me to Ruby →
+        </button>
+      </div>
     </div>
   );
 }

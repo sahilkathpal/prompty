@@ -60,7 +60,7 @@ async function findWindow(
   throw new Error(`${fragment} window not found within ${timeoutMs}ms`);
 }
 
-test("onboarding: 5-step flow renders, advances, celebrates, and completes", async () => {
+test("onboarding: flow renders, advances, goes back, celebrates, and completes", async () => {
   test.setTimeout(60_000);
 
   const dir = await freshUserDataDir("e2e-onboarding");
@@ -86,8 +86,11 @@ test("onboarding: 5-step flow renders, advances, celebrates, and completes", asy
     });
     ob.on("pageerror", (e) => consoleErrors.push(e.message));
 
-    // ── Step 1: welcome renders ──────────────────────────────────────────────
+    // ── Step 1: welcome renders — value-first, no "coach", dev button gated ──
     await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
+    await expect(ob.locator(".ob-body").first()).toContainText("whispers the right thing to say");
+    await expect(ob.locator("body")).not.toContainText(/coach/i);
+    await expect(ob.locator(".ob-dev-restart")).toHaveCount(0); // O15: hidden in prod build
 
     // ── The gem overlay appears with Ruby's speech bubble (set-ruby-message) ──
     // and shows the listening face (wave suppressed) during onboarding.
@@ -95,9 +98,24 @@ test("onboarding: 5-step flow renders, advances, celebrates, and completes", asy
     await expect(overlay.locator(".gem-ruby-bubble")).toBeVisible({ timeout: 5_000 });
     await expect(overlay.locator('[data-testid="gem"]')).toHaveCount(1);
 
-    // ── Advance step 1 → step 2 (welcome → claude). Exercises check-claude. ──
+    // ── Advance welcome → "How Ruby works": the four moments, Live demoed ─────
     await ob.click("button.ob-btn-primary"); // "Get started →"
-    await expect(ob.locator("text=Ruby runs on Claude")).toBeVisible({ timeout: 5_000 });
+    await expect(ob.locator("text=How Ruby works")).toBeVisible({ timeout: 5_000 });
+    for (const t of ["Prep", "Live", "Recap", "Memory"]) {
+      await expect(ob.locator(`.ob-how-title:has-text("${t}")`)).toBeVisible();
+    }
+    await expect(ob.locator(".ob-how-live")).toHaveCount(1);
+    await expect(ob.locator(".ob-progress-label")).toHaveText("Step 2 of 7"); // O8
+
+    // ── Continue → Claude step (value-framed; exercises check-claude). ───────
+    await ob.click("button.ob-btn-primary"); // "Continue →"
+    await expect(ob.locator("text=Ruby thinks with Claude Code")).toBeVisible({ timeout: 5_000 });
+
+    // ── O3 back nav: the back chevron returns to the How screen, then forward. ─
+    await ob.getByTestId("ob-back").click();
+    await expect(ob.locator("text=How Ruby works")).toBeVisible({ timeout: 5_000 });
+    await ob.click("button.ob-btn-primary"); // "Continue →" again
+    await expect(ob.locator("text=Ruby thinks with Claude Code")).toBeVisible({ timeout: 5_000 });
 
     // ── celebrate: must resolve (regression guard for the hardcoded image path)
     //    and spawn the full-screen confetti window. ────────────────────────────

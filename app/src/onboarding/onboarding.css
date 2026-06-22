@@ -58,12 +58,52 @@ html, body, #root {
   padding: 8px 38px 36px;
 }
 
+/* ── Card head: back chevron + progress ── */
+
+.ob-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 22px;
+  margin-bottom: 24px;
+}
+
+.ob-back {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: #9b8e7a;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ob-back:hover { background: rgba(0,0,0,0.05); color: #1a1814; }
+.ob-back:focus-visible { outline: 2px solid #bb163d; outline-offset: 2px; }
+
 /* ── Progress bar ── */
+
+.ob-progress-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
 
 .ob-progress {
   display: flex;
   gap: 5px;
-  margin-bottom: 30px;
+}
+
+.ob-progress-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #9b8e7a;
 }
 
 .ob-seg {
@@ -75,12 +115,17 @@ html, body, #root {
 }
 
 .ob-seg.active {
-  background: rgba(187, 22, 61, 0.35);
+  /* O8: a more legible active segment than the old 0.35-alpha wash. */
+  background: #bb163d;
+  opacity: 0.55;
 }
 
 .ob-seg.done {
   background: #bb163d;
 }
+
+/* Programmatic focus on the step container (a11y focus move) shows no ring. */
+.ob-step:focus { outline: none; }
 
 /* ── Step transitions ── */
 
@@ -531,4 +576,98 @@ html, body, #root {
   text-transform: uppercase;
   color: #bb163d;
   opacity: 0.7;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PHASE 6 — "How Ruby works", inline links, denied/error states
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.ob-how-list {
+  list-style: none;
+  margin: 6px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+}
+.ob-how-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+.ob-how-num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(187, 22, 61, 0.1);
+  color: #bb163d;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ob-how-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #1a1814;
+  margin-bottom: 2px;
+}
+.ob-how-body {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #6e6757;
+}
+/* Moment 2 (Live) — the demoed one — gets a faint ruby rail tying it to the
+   corner pill that's blooming sample nudges. */
+.ob-how-live {
+  position: relative;
+  padding: 10px 12px;
+  margin: -10px -12px;
+  border-radius: 12px;
+  background: rgba(187, 22, 61, 0.05);
+}
+.ob-how-live .ob-how-num {
+  background: #bb163d;
+  color: #fff;
+  animation: ob-how-pulse 2.4s ease-in-out infinite;
+}
+@keyframes ob-how-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(187, 22, 61, 0.4); }
+  50% { box-shadow: 0 0 0 5px rgba(187, 22, 61, 0); }
+}
+
+/* Inline text link (e.g. "Install Node"). */
+.ob-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #bb163d;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ob-link:hover { color: #8f1030; }
+
+/* Mic denied guidance. */
+.ob-mic-denied {
+  color: #92794a;
+  font-size: 13.5px;
+  margin-top: -4px;
+}
+
+/* Inline sign-in error (O10). */
+.ob-signin-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #c40a3c;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-how-live .ob-how-num { animation: none; }
 }

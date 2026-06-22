@@ -593,6 +593,10 @@ export default function App(): JSX.Element {
 
 // ─── Home screen ──────────────────────────────────────────────────────────────
 
+// Session-scoped guard so the home bar is auto-focused only on the first Home
+// render (the post-onboarding / launch landing), never on later returns.
+let homeFocusedOnce = false;
+
 function HomeScreen(props: {
   calls: CallMeta[];
   isLive: boolean;
@@ -611,6 +615,15 @@ function HomeScreen(props: {
   const { calls, isLive, liveTimer, error, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings } = props;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Drop into a focused prep bar the first time Home appears this session — the
+  // landing after onboarding's "You're set" (and on a normal launch). Guarded
+  // so returning to Home from a call/screen later doesn't yank focus.
+  useEffect(() => {
+    if (homeFocusedOnce) return;
+    homeFocusedOnce = true;
+    textareaRef.current?.focus();
+  }, []);
 
   // The home bar IS the working direction — send enters prep without clearing it.
   const handleSend = () => {
