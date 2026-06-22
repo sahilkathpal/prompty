@@ -786,7 +786,7 @@ function HomeScreen(props: {
         <div className="home-chat-bg">
         <div className="home-chat-container">
           <div className="home-logo"><RubyLogo size={52} /></div>
-          <h2 className="home-section-heading">Your next call</h2>
+          <h2 className="home-section-heading">Let me help with your next call</h2>
 
           {/* Chat input bar */}
           <div className={`home-bar${focused ? " focused" : ""}`}>
@@ -797,7 +797,7 @@ function HomeScreen(props: {
               data-testid="home-direction"
               value={direction}
               rows={2}
-              placeholder="Tell Ruby about your next call — who it's with, what you're trying to get out of it, any context that matters."
+              placeholder="Tell me about your next call — who it's with, what you're trying to get out of it, any context that matters."
               onChange={(e) => {
                 setDirection(e.target.value);
                 const el = e.target;
@@ -894,7 +894,7 @@ function HomeScreen(props: {
 
         {/* Past calls list — with the live call (if any) pinned to the top. */}
         {!isLive && calls.length === 0 ? (
-          <div className="home-empty">Your past calls will appear here. Tell Ruby about your next one above to start prepping.</div>
+          <div className="home-empty">Your past calls will appear here. Tell me about your next one above to start prepping.</div>
         ) : (
           <div className="home-calls">
             {isLive && (
