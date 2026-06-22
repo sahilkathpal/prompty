@@ -9,6 +9,7 @@ import { configureMainWindow, openMainWindow } from "./main-window";
 import { capture as analyticsCapture, identifyUser, shutdownAnalytics } from "./analytics";
 import { configureOnboardingWindow, openOnboardingWindow } from "./onboarding-window";
 import { createTray, rebuildMenu } from "./tray";
+import { initUpdater, stopUpdater } from "./updater";
 import {
   getActiveSession,
   fireOnboardingNudge,
@@ -193,7 +194,10 @@ app.on("ready", () => {
   // once, so without this returning users would stay "anonymous" in PostHog even
   // though we capture against their id. identify is what flips is_identified.
   if (settings.signedIn && settings.signedInUserId) {
-    identifyUser(settings.signedInUserId, { signed_in: true });
+    identifyUser(settings.signedInUserId, {
+      signed_in: true,
+      ...(settings.signedInEmail ? { email: settings.signedInEmail } : {}),
+    });
   }
   analyticsCapture("app_launched", { onboarded: settings.onboardingCompleted });
 
@@ -206,6 +210,11 @@ app.on("ready", () => {
     createTray();
     trayCreated = true;
   }
+
+  // Over-the-air auto-update. A hard no-op unless this is a packaged build and
+  // not E2E (see updater.ts), so dev/tests never reach the feed. When a download
+  // completes, rebuild the tray so the "Restart to update" item appears.
+  initUpdater({ onUpdateDownloaded: () => rebuildMenu() });
 
   if (E2E_MODE) {
     // Predictable starting state for E2E: skip onboarding, just bring up tray + overlay (hidden).
@@ -315,6 +324,7 @@ app.on("before-quit", (e) => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+  stopUpdater();
   shutdownIpc();
 });
 

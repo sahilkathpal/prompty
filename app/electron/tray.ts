@@ -4,6 +4,7 @@ import { showOverlay } from "./overlay-window";
 import { openMainWindow } from "./main-window";
 import { getActiveSession, endActiveSession } from "./ipc-handlers";
 import { getSettings } from "./settings-store";
+import { isUpdateDownloaded, installUpdateNow } from "./updater";
 
 let tray: Tray | null = null;
 
@@ -37,7 +38,23 @@ export function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
   try {
     sessionActive = !!getActiveSession();
   } catch {}
+  let updateReady = false;
+  try {
+    updateReady = isUpdateDownloaded();
+  } catch {}
   return [
+    // Only present once a background download has staged an update. Clicking it
+    // quits and relaunches into the new version; otherwise the update applies
+    // silently on the next natural quit (autoInstallOnAppQuit).
+    ...(updateReady
+      ? ([
+          {
+            label: "Restart to update",
+            click: () => installUpdateNow(),
+          },
+          { type: "separator" },
+        ] as MenuItemConstructorOptions[])
+      : []),
     {
       label: "Open main window",
       // The main app window isn't part of the guided onboarding flow — keep it
