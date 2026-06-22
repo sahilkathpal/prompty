@@ -1018,7 +1018,7 @@ function PrepScreen(props: {
                         <CompMenu onDelete={() => deleteComponent(c.id)} />
                       </div>
                       <ul className="prep-comp-list">
-                        {c.items.map((it, idx) => (
+                        {c.items.map((it) => (
                           <li key={it.id} className="prep-comp-item" data-testid="checklist-item">
                             <span className="prep-comp-dot">○</span>
                             <textarea className="prep-comp-item-input" value={it.text} rows={1}
