@@ -55,7 +55,7 @@ test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async
     // 2) A nudge blooms ONE note beneath the gem.
     await emitNudge(app, "What did you try before this?");
     const bloom = overlay.locator('[data-testid="gem-bloom"]');
-    // The note carries a "Worth asking" tag now; assert on the question text.
+    // The note carries a kind tag ("Ruby" / "Ask now"); assert on the text body.
     const bloomQ = overlay.locator('[data-testid="gem-bloom"] .gem-note-q');
     await expect(bloomQ).toHaveText("What did you try before this?", {
       timeout: 4000,
@@ -139,7 +139,10 @@ test("the gem: starting a call wipes any leftover nudge history", async () => {
     // collapsed, then assert the cleared empty-state shows.
     await expect(async () => {
       if ((await history.count()) === 0) await gem.click();
-      await expect(history).toContainText("No notes yet this call.");
+      // Live empty-state copy (V7) — the call is starting/live after reset.
+      await expect(history).toContainText(
+        /Nothing worth flagging yet|Notes Ruby surfaces will collect/,
+      );
     }).toPass({ timeout: 6000 });
     await expect(history).not.toContainText("LEFTOVER nudge from before this call");
   } finally {

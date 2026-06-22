@@ -59,6 +59,13 @@ export default function App(): JSX.Element {
   // The single note currently bloomed beneath the gem (or null = nothing
   // showing). Ephemeral: it fades on its own and nothing accumulates on screen.
   const [bloom, setBloom] = useState<Nudge | null>(null);
+  // The current bloom's true on-screen lifetime (ms) — dwellMs when a newer
+  // note is already queued behind it, hideMs when it's alone. Drives the drain
+  // bar so the bar empties exactly when the note actually leaves (V1).
+  const [bloomMs, setBloomMs] = useState(DEFAULT_HIDE_MS);
+  // True during the brief exit fade after a note is cleared but before it's
+  // unmounted, so the bloom animates out instead of hard-cutting (V14).
+  const [hiding, setHiding] = useState(false);
   // Every note surfaced this call, newest first. Retained in renderer state for
   // the session and shown only when the gem is expanded (decision #5).
   const [history, setHistory] = useState<Nudge[]>([]);
@@ -73,14 +80,40 @@ export default function App(): JSX.Element {
   const queue = useRef<Queued[]>([]);
   const shownAt = useRef(0);
   const hasCurrent = useRef(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dwellMs = useRef(readParam("dwellMs", DEFAULT_DWELL_MS)).current;
   const hideMs = useRef(readParam("hideMs", DEFAULT_HIDE_MS)).current;
   const staleMs = useRef(readParam("staleMs", DEFAULT_STALE_MS)).current;
 
-  const show = useCallback((n: Nudge) => {
-    setBloom(n);
-    shownAt.current = Date.now();
-    hasCurrent.current = true;
+  const show = useCallback(
+    (n: Nudge) => {
+      // Cancel any in-flight exit fade — a fresh note takes over the bloom.
+      if (hideTimer.current) {
+        clearTimeout(hideTimer.current);
+        hideTimer.current = null;
+      }
+      setHiding(false);
+      setBloom(n);
+      // If another note is already waiting, this one only holds for the dwell
+      // before it's replaced; alone, it lingers the full hide window.
+      setBloomMs(queue.current.length > 0 ? dwellMs : hideMs);
+      shownAt.current = Date.now();
+      hasCurrent.current = true;
+    },
+    [dwellMs, hideMs],
+  );
+
+  // Clear the bloom with an exit fade (V14): drop the "current" flag now so the
+  // pacing loop moves on, mark hiding so the card animates out, then unmount.
+  const clearBloom = useCallback(() => {
+    hasCurrent.current = false;
+    setHiding(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      setBloom(null);
+      setHiding(false);
+      hideTimer.current = null;
+    }, 200);
   }, []);
 
   // Wipe all ephemeral nudge display state. The overlay window is created once
@@ -90,10 +123,29 @@ export default function App(): JSX.Element {
   const resetNudges = useCallback(() => {
     queue.current = [];
     hasCurrent.current = false;
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+    setHiding(false);
     setBloom(null);
     setHistory([]);
     setExpanded(false);
   }, []);
+
+  // Pacing helpers, lifted to component scope so the dismiss button (V3) can
+  // advance the queue exactly the way the auto-pacing loop does.
+  const prune = useCallback(() => {
+    const now = Date.now();
+    queue.current = queue.current.filter((e) => now - e.at <= staleMs);
+  }, [staleMs]);
+
+  const advance = useCallback(() => {
+    prune();
+    const next = queue.current.shift();
+    if (next) show(next.nudge);
+    else clearBloom();
+  }, [prune, show, clearBloom]);
 
   useEffect(() => {
     window.prompty
@@ -154,21 +206,6 @@ export default function App(): JSX.Element {
       }
     });
 
-    const prune = () => {
-      const now = Date.now();
-      queue.current = queue.current.filter((e) => now - e.at <= staleMs);
-    };
-    const advance = () => {
-      prune();
-      const next = queue.current.shift();
-      if (next) {
-        show(next.nudge);
-      } else {
-        setBloom(null);
-        hasCurrent.current = false;
-      }
-    };
-
     const tick = setInterval(() => {
       prune();
       const elapsed = Date.now() - shownAt.current;
@@ -177,9 +214,8 @@ export default function App(): JSX.Element {
           // A newer note is waiting: replace once the minimum dwell has passed.
           if (elapsed >= dwellMs) advance();
         } else if (elapsed >= hideMs) {
-          // Nothing queued: let the lone note linger, then fade.
-          setBloom(null);
-          hasCurrent.current = false;
+          // Nothing queued: let the lone note linger, then fade out.
+          clearBloom();
         }
       } else if (queue.current.length > 0) {
         advance();
@@ -198,7 +234,7 @@ export default function App(): JSX.Element {
       offReset();
       clearInterval(tick);
     };
-  }, [show, resetNudges, dwellMs, hideMs, staleMs]);
+  }, [show, resetNudges, prune, advance, clearBloom, dwellMs, hideMs, staleMs]);
 
   // Resize the window to fit the current state (gem-only / gem+bloom /
   // gem+history). We measure the content wrapper's natural height and ask the
@@ -312,7 +348,9 @@ export default function App(): JSX.Element {
   const gemState: GemState = isEnding
     ? "thinking"
     : bloom
-      ? "worth-asking"
+      ? bloom.urgency === "high"
+        ? "attention"
+        : "worth-asking"
       : status === "error" || status === "no-audio" || status === "mic-silent"
         ? "attention"
         : status === "reconnecting" || status === "starting"
@@ -340,12 +378,12 @@ export default function App(): JSX.Element {
             data-testid="gem"
             data-tone={tone}
             data-status={status ?? "idle"}
-            aria-label={meta ? meta.label : "Idle"}
-            title={statusReason ?? meta?.label ?? "Idle"}
+            aria-label={`Ruby — ${meta?.label ?? "Idle"}. Drag to move; click to show notes and call controls.`}
+            title={statusReason ?? "Drag to move • Click for notes & end call"}
             onMouseDown={onGemMouseDown}
             onClick={onGemClick}
           >
-            <Gem variant="pill" state={gemState} waveActive={!rubyMessage || sessionState !== "idle"} />
+            <Gem variant="pill" state={gemState} />
           </button>
         </div>
 
@@ -356,33 +394,59 @@ export default function App(): JSX.Element {
           </div>
         )}
 
-        {/* Discoverability: a faint caret signals the gem expands (into the
-            note history + End-call control) when notes are waiting and nothing
-            is currently bloomed. */}
-        {!expanded && !bloom && (history.length > 0 || liveish) && (
-          <div className="gem-expand-hint" data-testid="gem-expand-hint" aria-hidden>
-            ⌄
+        {/* Bloom: one ephemeral note directly beneath the gem. A faint × lets
+            the user dismiss a note that's wrong or already covered (V3). The
+            draining bar — shown only for high-urgency notes so a calm note
+            doesn't animate in the corner — empties exactly when the note
+            actually leaves (V1/V12). */}
+        {bloom && !expanded && (
+          <div
+            className={`gem-bloom${bloom.urgency === "high" ? " gem-bloom-high" : ""}${hiding ? " gem-bloom-out" : ""}`}
+            data-testid="gem-bloom"
+            data-nudge-id={bloom.id}
+            role="status"
+            aria-live="polite"
+          >
+            <button
+              type="button"
+              className="gem-note-dismiss"
+              data-testid="gem-note-dismiss"
+              aria-label="Dismiss this note"
+              title="Dismiss"
+              onClick={advance}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+            <div className="gem-note-tag">
+              {bloom.urgency === "high" ? "Ask now" : "Ruby"}
+            </div>
+            <div className="gem-note-q">{bloom.text}</div>
+            {bloom.urgency === "high" && (
+              <div className="gem-note-bar">
+                <div
+                  key={bloom.id}
+                  className="gem-note-fill"
+                  style={{ animationDuration: `${bloomMs}ms` }}
+                />
+              </div>
+            )}
           </div>
         )}
 
-        {/* Bloom: one ephemeral note directly beneath the gem. The draining
-            bar visualizes the auto-fade countdown (re-keyed per note so it
-            restarts on every swap / high-urgency preempt). */}
-        {bloom && !expanded && (
-          <div
-            className={`gem-bloom${bloom.urgency === "high" ? " gem-bloom-high" : ""}`}
-            data-testid="gem-bloom"
-            data-nudge-id={bloom.id}
-          >
-            <div className="gem-note-tag">Worth asking</div>
-            <div className="gem-note-q">{bloom.text}</div>
-            <div className="gem-note-bar">
-              <div
-                key={bloom.id}
-                className="gem-note-fill"
-                style={{ animationDuration: `${hideMs}ms` }}
-              />
-            </div>
+        {/* Discoverability: a caret + live note count signals the gem expands
+            into the note history + End-call control. Persistent whenever live
+            (even with a note bloomed), but hidden behind the onboarding bubble
+            to keep that moment clean (V8). */}
+        {!expanded && !rubyMessage && (history.length > 0 || liveish) && (
+          <div className="gem-expand-hint" data-testid="gem-expand-hint" aria-hidden>
+            <span className="gem-expand-caret">⌄</span>
+            {history.length > 0 && (
+              <span className="gem-expand-count">
+                {history.length} note{history.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
         )}
 
@@ -393,7 +457,11 @@ export default function App(): JSX.Element {
           <div className="gem-panel" data-testid="gem-panel">
             <div className="gem-history" data-testid="gem-history">
               {history.length === 0 ? (
-                <div className="gem-history-empty">No notes yet this call.</div>
+                <div className="gem-history-empty">
+                  {liveish
+                    ? "Nothing worth flagging yet — Ruby's listening."
+                    : "Notes Ruby surfaces will collect here."}
+                </div>
               ) : (
                 <ul className="gem-history-list">
                   {history.map((n) => (

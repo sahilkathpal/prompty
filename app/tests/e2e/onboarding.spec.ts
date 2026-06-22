@@ -176,11 +176,11 @@ test("onboarding: arming the hotkey blooms a real nudge in the gem", async () =>
       (window as unknown as Bridge).prompty.invoke("onboarding:fire-nudge", undefined),
     );
 
-    // The real nudge surface blooms in the gem: dark-glass card, "Worth asking"
-    // tag, and one of the sample questions.
+    // The real nudge surface blooms in the gem: dark-glass card, a calm "Ruby"
+    // tag (the sample nudges are medium urgency), and one of the sample questions.
     const bloom = overlay.locator('[data-testid="gem-bloom"]');
     await expect(bloom).toBeVisible({ timeout: 5_000 });
-    await expect(bloom.locator(".gem-note-tag")).toHaveText("Worth asking");
+    await expect(bloom.locator(".gem-note-tag")).toHaveText("Ruby");
     const firstText = (await bloom.locator(".gem-note-q").textContent())?.trim() ?? "";
     expect(firstText.length).toBeGreaterThan(0);
 
