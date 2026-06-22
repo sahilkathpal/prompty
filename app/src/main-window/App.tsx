@@ -1788,7 +1788,7 @@ function MemoryScreen(props: {
       </div>
       <div className="fullscreen-body" style={{ paddingTop: 60 }}>
         <h1 className="mem-title">Memory</h1>
-        <p className="fullscreen-intro">Tell Ruby how to nudge you. These apply to every call.</p>
+        <p className="fullscreen-intro">Tell me how to nudge you. These apply to every call.</p>
 
         <div className="mem-add-card">
           <input
@@ -1814,9 +1814,9 @@ function MemoryScreen(props: {
               <path d="M7 21h10a2 2 0 0 0 2 -2v-14a2 2 0 0 0 -2 -2h-6.172a2 2 0 0 0 -1.414 .586l-3.828 3.828a2 2 0 0 0 -.586 1.414v10.172a2 2 0 0 0 2 2" />
               <path d="M13 6v2" /><path d="M16 6v2" /><path d="M10 7v1" />
             </svg>
-            <div className="mem-empty-title">Teach Ruby how to nudge you</div>
+            <div className="mem-empty-title">Teach me how to nudge you</div>
             <div className="mem-empty-body">
-              Memories are standing notes about how Ruby nudges you — they apply to every call.
+              Memories are standing notes about how I nudge you — they apply to every call.
               For example: “Don't interrupt when I'm mid-sentence” or “Push me harder on pricing.”
             </div>
           </div>

@@ -107,10 +107,10 @@ test("Phase 1 copy: home signposting, empty states, no 'coaching'", async () => 
     // --- Memory: M1 titled empty state, "nudge" framing, no "coaching".
     await page.getByTestId("nav-memory").click();
     await expect(page.getByTestId("memory-empty")).toContainText(
-      "Teach Ruby how to nudge you",
+      "Teach me how to nudge you",
     );
     await expect(page.locator(".fullscreen-intro")).toHaveText(
-      "Tell Ruby how to nudge you. These apply to every call.",
+      "Tell me how to nudge you. These apply to every call.",
     );
     await expect(page.locator("body")).not.toContainText(/coach/i);
   } finally {
