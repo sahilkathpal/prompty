@@ -314,14 +314,24 @@ export async function signInWithGoogle(): Promise<{ userId: string; email: strin
   });
   win.loadURL(authUrl.toString());
 
+  // If the user closes the auth window before Google redirects to our loopback,
+  // the loopback callback never fires — so race the result against a "window
+  // closed" rejection. Without this the await hangs forever and the caller's
+  // in-flight sign-in (and its disabled button) never clears.
   let closed = false;
-  win.on("closed", () => {
-    closed = true;
+  const cancelled = new Promise<never>((_, reject) => {
+    win.on("closed", () => {
+      closed = true;
+      reject(new Error("Sign-in was cancelled."));
+    });
   });
+  // Swallow the rejection when cancellation isn't the race winner (success or a
+  // loopback error settled first) so it never surfaces as an unhandled rejection.
+  cancelled.catch(() => {});
 
   let result: LoopbackResult;
   try {
-    result = await loopback.result;
+    result = await Promise.race([loopback.result, cancelled]);
   } finally {
     loopback.close();
     if (!closed) {
