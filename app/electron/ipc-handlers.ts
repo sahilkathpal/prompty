@@ -114,6 +114,10 @@ const RENDERER_EVENTS = new Set<string>([
   "summary_opened",
   "transcript_opened",
   "screen_viewed",
+  "prep_completed",
+  "onboarding_step_viewed",
+  "nudge_expanded",
+  "nudge_dismissed",
 ]);
 
 let activeSession: SessionHandle | null = null;
@@ -301,14 +305,16 @@ async function doStartSession(
         // Past Calls view to re-read it.
         if (logPath) broadcast("calls:updated", { name: path.basename(logPath) });
       },
-      onStateChange: (s) => {
+      onStateChange: (s, errorStage) => {
         broadcastSessionState(s);
         if (s === "ended" || s === "error") {
-          // Metadata only — duration, outcome, and which playbook; never content.
+          // Metadata only — duration, outcome, which playbook, and (when a leg
+          // failed mid-call) which one; never content.
           analyticsCapture("call_ended", {
             reason: s,
             duration_s: sessionStartedAt ? Math.round((Date.now() - sessionStartedAt) / 1000) : null,
             skill: setup.skill || null,
+            error_category: errorStage ?? (s === "error" ? "unknown" : null),
           });
           sessionStartedAt = 0;
           activeSession = null;
@@ -569,6 +575,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("skills:list", () => ({ skills: listBundledSkills() }));
 
   handle("auth:google-sign-in", async () => {
+    analyticsCapture("sign_in_started");
     try {
       const session = await signInWithGoogleAndRelay();
       const next = updateSettings({
@@ -578,7 +585,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       });
       broadcast("settings:changed", next);
       // Stitch pre-sign-in activity to this user, then mark them identified.
-      identifyUser(session.userId, { signed_in: true });
+      identifyUser(session.userId, { signed_in: true, email: session.email });
       analyticsCapture("signed_in");
       broadcast("auth:state-changed", {
         signedIn: true,
@@ -588,6 +595,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return { ok: true, userId: session.userId, email: session.email };
     } catch (e) {
       const msg = (e as Error).message;
+      // Distinguish a user-cancelled sign-in from a real failure so the funnel
+      // isn't polluted by people who simply closed the window.
+      const cancelled = /cancel/i.test(msg);
+      analyticsCapture("sign_in_failed", { reason: cancelled ? "cancelled" : "error", message: msg });
       console.error("[ipc] auth:google-sign-in failed:", msg);
       return { ok: false, error: msg };
     }
@@ -708,9 +719,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       const granted = await systemPreferences.askForMediaAccess("microphone");
       const post = systemPreferences.getMediaAccessStatus("microphone");
       console.log("[onboarding] askForMediaAccess returned:", granted, "post-status:", post);
+      // A denied mic = a permanently broken app; track the outcome so the
+      // activation drop-off is visible. Metadata only (no content).
+      analyticsCapture("mic_permission_result", { granted, status: post, where: "onboarding" });
       return { granted };
     } catch (e) {
       console.error("[onboarding] askForMediaAccess failed:", (e as Error).message);
+      analyticsCapture("mic_permission_result", { granted: false, where: "onboarding" });
       return { granted: false };
     }
   });

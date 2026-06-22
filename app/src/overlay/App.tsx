@@ -10,6 +10,13 @@ import type { Nudge, SessionStatus } from "@shared/types";
 
 type SessionState = "idle" | "starting" | "live" | "ending" | "ended" | "error";
 
+// Fire a product-analytics event. The main process owns identity + base props
+// (see electron/analytics.ts); the overlay only ever sends metadata — never
+// note text or transcript content.
+function track(event: string, properties?: Record<string, unknown>): void {
+  void window.prompty.invoke("analytics:capture", { event, properties });
+}
+
 // The gem's glow encodes the live session status. tone drives the CSS color of
 // the gem's halo; "calm" green = listening, amber = transient, red = trouble.
 const STATUS_META: Record<
@@ -147,6 +154,14 @@ export default function App(): JSX.Element {
     else clearBloom();
   }, [prune, show, clearBloom]);
 
+  // Explicit user dismissal of the current note via the ✕ button. Wraps
+  // `advance` so only a deliberate dismiss is counted — the auto-pacing loop
+  // calls `advance` directly and must stay silent. Metadata only.
+  const dismissNote = useCallback(() => {
+    track("nudge_dismissed", { urgency: bloom?.urgency ?? null });
+    advance();
+  }, [advance, bloom]);
+
   useEffect(() => {
     window.prompty
       .invoke("session:state", undefined as never)
@@ -253,8 +268,12 @@ export default function App(): JSX.Element {
   }, [bloom, expanded, history, status, rubyMessage, fitHeight]);
 
   const toggleExpanded = useCallback(() => {
-    setExpanded((cur) => !cur);
-  }, []);
+    setExpanded((cur) => {
+      // Only the open transition is the engagement signal worth counting.
+      if (!cur) track("nudge_expanded", { history_count: history.length });
+      return !cur;
+    });
+  }, [history.length]);
 
   const isEnding = sessionState === "ending";
   // End the call straight from the gem — the same teardown the main window and
@@ -413,7 +432,7 @@ export default function App(): JSX.Element {
               data-testid="gem-note-dismiss"
               aria-label="Dismiss this note"
               title="Dismiss"
-              onClick={advance}
+              onClick={dismissNote}
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                 <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

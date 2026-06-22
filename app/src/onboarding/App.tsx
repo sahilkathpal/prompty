@@ -5,6 +5,12 @@ import type { MediaPermissionStatus, PermissionStatus } from "../shared/types";
 type StepKey = "welcome" | "how" | "claude" | "mic" | "hotkey" | "signin" | "done";
 const STEPS: StepKey[] = ["welcome", "how", "claude", "mic", "hotkey", "signin", "done"];
 
+// Fire a product-analytics event. The main process owns identity + base props
+// (see electron/analytics.ts); onboarding sends metadata only.
+function track(event: string, properties?: Record<string, unknown>): void {
+  void window.prompty.invoke("analytics:capture", { event, properties });
+}
+
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
 function GemIcon({ size = 24, color = "white" }: { size?: number; color?: string }) {
@@ -122,6 +128,12 @@ function Code({ children }: { children: React.ReactNode }) {
 export default function App(): JSX.Element {
   const [stepIdx, setStepIdx] = useState(0);
   const step = STEPS[stepIdx]!;
+
+  // Per-step funnel: emit which onboarding step is on screen so drop-off
+  // between steps is visible (we already track only the completed terminus).
+  useEffect(() => {
+    track("onboarding_step_viewed", { step, step_index: stepIdx });
+  }, [step, stepIdx]);
 
   const [stepVisible, setStepVisible] = useState(true);
 

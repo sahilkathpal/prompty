@@ -60,7 +60,7 @@ export interface SessionOpts {
   onNudge?: (n: Nudge) => void;
   /** The agent decided not to nudge this turn, with its reason. */
   onStayQuiet?: (reason: string) => void;
-  onStateChange?: (state: SessionState) => void;
+  onStateChange?: (state: SessionState, errorStage?: string | null) => void;
   /** Live audio/transcription health for the overlay status dot. */
   onStatus?: (s: SessionStatusEvent) => void;
   /**
@@ -220,6 +220,10 @@ export async function startSession(
       : createSummaryKeeper(setup, (s) => debugLog?.write("summary-update", { summary: s }));
 
   let state: SessionState = "starting";
+  // Which leg failed, if any — surfaced to analytics via onStateChange so a
+  // failed call is categorized (tap / deepgram / relay-token / agent) rather
+  // than landing in one undifferentiated "error" bucket. Metadata only.
+  let errorStage: string | null = null;
   let logPath: string | null = null;
   let sidecar: SidecarHandle | null = null;
   let transcription: TranscriptionHandle | null = null;
@@ -278,6 +282,7 @@ export async function startSession(
   };
   const onTransportError = (reason: string) => {
     if (ended) return;
+    errorStage = reason;
     console.error(`[coach-session] transport error: ${reason}`);
     emitStatus("error", undefined, reason);
   };
@@ -285,7 +290,7 @@ export async function startSession(
 
   const setState = (s: SessionState) => {
     state = s;
-    opts.onStateChange?.(s);
+    opts.onStateChange?.(s, errorStage);
   };
 
   // Auto-considers fire on every final utterance, but the agent processes one
@@ -430,6 +435,7 @@ export async function startSession(
       },
       onItemCovered: (itemId) => markChecklistItemCovered(setup, itemId),
       onError: (e) => {
+        errorStage = errorStage ?? "agent";
         console.error(`[coach-session agent error] ${e.message}`);
         debugLog?.write("error", { where: "agent", message: e.message, stack: e.stack });
         opts.onError?.(e);
@@ -437,6 +443,7 @@ export async function startSession(
       onDebug: (turn) => debugLog?.write("agent-turn", { ...turn }),
     });
   } catch (e) {
+    errorStage = errorStage ?? "agent";
     setState("error");
     if (sidecar) sidecar.kill();
     if (transcription) await transcription.close();

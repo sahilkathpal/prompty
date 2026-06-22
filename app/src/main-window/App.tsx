@@ -1204,6 +1204,25 @@ function PrepScreen(props: {
     firstRun, onDismissFirstRun,
   } = props;
   useScreenDwell("prep");
+
+  // What prep produced, emitted when the prep screen is left (navigation away or
+  // window close) — the complement to `prep_started`, so the prep→outcome funnel
+  // is visible. Metadata only: counts and which component kinds, never content.
+  // Refs hold the latest values so the unmount handler reports the final state.
+  const prepOutcomeRef = useRef({ components: prepComponents, skill });
+  prepOutcomeRef.current = { components: prepComponents, skill };
+  useEffect(() => {
+    return () => {
+      const { components, skill: finalSkill } = prepOutcomeRef.current;
+      track("prep_completed", {
+        produced_goal: components.some((c) => c.type === "goal"),
+        produced_checklist: components.some((c) => c.type === "checklist"),
+        component_count: components.length,
+        skill: finalSkill || "none",
+      });
+    };
+  }, []);
+
   const selectedSkill = skills.find((s) => s.name === skill);
 
   const editGoal = (id: string, text: string) =>
