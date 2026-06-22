@@ -99,8 +99,6 @@ describe("writeCallLog + updateCallLogSummary", () => {
       title: "Dana — managed Kafka",
       recap: "Discussed scale.",
       insights: [],
-      questionsNotAsked: [],
-      stat: { surfaced: 0, used: 0 },
     });
     const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
     expect(parsed.title).toBe("Dana — managed Kafka");
@@ -122,8 +120,6 @@ describe("writeCallLog + updateCallLogSummary", () => {
       title: "Auto Summary Title",
       recap: "x",
       insights: [],
-      questionsNotAsked: [],
-      stat: { surfaced: 0, used: 0 },
     });
     const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
     expect(parsed.title).toBe("My Custom Name");

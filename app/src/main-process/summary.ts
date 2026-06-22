@@ -1,21 +1,18 @@
 // Post-call summary card (RUBY_MVP decision #9).
 //
 // One post-call model pass over { full transcript with [me]/[them], the list of
-// nudges Ruby surfaced with timestamps } produces a card with exactly three
-// sections + a stat, landed on the call log JSON for the past-calls view to
-// render:
-//   1. recap            — a few lines of what was discussed.
-//   2. insights         — notable takeaways/quotes; Ruby-assisted ones marked
-//                          assisted:true with a short `via` clause.
-//   3. questionsNotAsked — nudges Ruby surfaced that [me] never picked up.
-//   + stat              — surfaced N (= nudges Ruby surfaced), used M (inferred).
+// nudges Ruby surfaced with timestamps } produces a card landed on the call log
+// JSON for the past-calls view to render:
+//   1. title    — a short label for the call.
+//   2. recap    — the gist: a few lines of what was discussed.
+//   3. insights — each LEADS with a derived takeaway; a verbatim `quote` is
+//                  attached when it grounds or sharpens the point. Ruby-assisted
+//                  insights are marked assisted:true with a short `via` clause.
 //
 // Attribution is INFERRED here, not tracked live: Ruby surfaced X at time t; if
 // shortly after [me] asked something close and [them] revealed Y, that insight
 // is "assisted". The pass is told to UNDER-CLAIM — a false claim of credit is
-// worse than no claim, so a fuzzy match is left unmarked. M (used count) is
-// derived from how many surfaced nudges the model attributes (assisted insights
-// + any nudge it judges the user clearly acted on), so it can never exceed N.
+// worse than no claim, so a fuzzy match is left unmarked.
 
 type ClaudeAgentSdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdkPromise: Promise<ClaudeAgentSdk> | null = null;
@@ -32,33 +29,27 @@ import type { CallSetup, Nudge, TranscriptUtterance } from "./types";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
 import { modelFor } from "./models";
 
-/** One notable takeaway/quote. `assisted` flags a Ruby-credited one. */
+/** One insight: a derived takeaway, optionally backed by a verbatim quote. */
 export interface CallInsight {
-  /** The takeaway or quote, 1-2 lines. */
-  text: string;
+  /** The point — what this means for the user, as a sharp claim. Always present. */
+  takeaway: string;
+  /** A verbatim line from the transcript that grounds or sharpens the takeaway.
+   *  Omitted when no quote adds anything. */
+  quote?: string;
   /** True only when the pass is confident Ruby's nudge led here. */
   assisted: boolean;
-  /** Short trailing clause for assisted ones, e.g. "after Ruby's nudge to ask
-   *  what they tried before". Empty for unassisted. */
+  /** Short trailing clause for assisted ones, e.g. "after Ruby flagged the
+   *  renewal date". Empty for unassisted. */
   via: string;
-}
-
-/** A nudge Ruby surfaced that [me] never picked up. */
-export interface UnaskedQuestion {
-  /** The question/nudge Ruby surfaced, paraphrased or verbatim. */
-  text: string;
 }
 
 export interface CallSummary {
   /** A short label for the call: the other party's name (if introduced) + the
    *  topic, e.g. "Arjun — agent code review". Used as the call's title. */
   title: string;
-  /** A few lines on what was discussed. */
+  /** The gist — a few lines on what was discussed and where it landed. */
   recap: string;
   insights: CallInsight[];
-  questionsNotAsked: UnaskedQuestion[];
-  /** Quiet stat. surfaced = nudges Ruby surfaced; used = inferred acted-on. */
-  stat: { surfaced: number; used: number };
 }
 
 export function fmtTime(ms: number, startedAt: number): string {
@@ -85,9 +76,9 @@ export function buildPrompt(
           .map((n) => `- [${fmtTime(n.createdAt, startedAt)}] ${n.text}`)
           .join("\n");
 
-  return `You are writing a short post-call card for a conversation that just ended. The user ("me" in the transcript) was the one being coached; the other party is "them". A live assistant named Ruby surfaced follow-up questions during the call. You have the FULL transcript and the list of questions Ruby surfaced, each with a timestamp.
+  return `You are writing a short post-call card for a conversation that just ended. The user ("me" in the transcript) ran the call; the other party is "them". Ruby, a live assistant, surfaced follow-up questions during the call. You have the FULL transcript and the list of questions Ruby surfaced, each with a timestamp.
 
-Your job: produce three sections and one stat. ZERO of this is shown to Ruby — it's for the user to review later.
+Your job: a short title, a gist, and a handful of insights. ZERO of this is shown to Ruby — it's for the user to review later.
 
 ## Transcript ([me] = the user, [them] = the other party)
 ${transcriptBlock}
@@ -95,11 +86,15 @@ ${transcriptBlock}
 ## Questions Ruby surfaced (with mm:ss into the call)
 ${nudgeBlock}
 
-## How to attribute (read carefully)
+## What an insight is
+Each insight LEADS with a takeaway: the synthesized point — what it means for the user — written as one sharp claim, not a transcription of what was said. Back it with a verbatim quote whenever the call gives you one that grounds or sharpens the point — which is most of the time. Drop the quote only when it would merely restate the takeaway in the speaker's own words and add nothing.
+
+An insight is something the user LEARNED — a fact, signal, or implication from what was actually said. A question the user never asked is NOT an insight: do not surface unaddressed nudges as insights, and do not grade what the user failed to ask or cover.
+
+## How to credit Ruby (read carefully)
 For each question Ruby surfaced, decide whether the USER actually picked it up:
-- Look just AFTER the surfaced timestamp. If [me] then asked something close to it, and [them] revealed something as a result, that insight is Ruby-ASSISTED.
-- UNDER-CLAIM. If the match is fuzzy — the user might have gone there anyway, the timing is loose, the phrasing only loosely overlaps — do NOT mark it assisted and do NOT count it as used. A false claim of credit is worse than no claim.
-- A surfaced question the user never asked (no close follow-up from [me] after it) belongs in "questions you didn't ask".
+- Look just AFTER the surfaced timestamp. If [me] then asked something close to it, and [them] revealed something as a result, the insight it produced is Ruby-ASSISTED.
+- UNDER-CLAIM. If the match is fuzzy — the user might have gone there anyway, the timing is loose, the phrasing only loosely overlaps — do NOT mark it assisted. A false claim of credit is worse than no claim.
 
 ## Output
 Reply with ONLY a single fenced JSON block. No prose before or after.
@@ -107,29 +102,24 @@ Reply with ONLY a single fenced JSON block. No prose before or after.
 \`\`\`json
 {
   "title": "<a short 3-6 word title for this call: the other party's name if they introduce themselves, plus the topic — e.g. 'Arjun — agent code review' or 'Discovery: memory layer for designers'. No surrounding quotes.>",
-  "recap": "<a few lines (2-4 sentences) on what was discussed and where it landed>",
+  "recap": "<the gist: 2-4 sentences on what was discussed and where it landed>",
   "insights": [
     {
-      "text": "<a notable takeaway or quote from the call, 1-2 lines>",
+      "takeaway": "<the point, as one sharp claim — what this means for the user, not a quote>",
+      "quote": "<OPTIONAL: a verbatim line from [me] or [them] that grounds or sharpens the takeaway. Include one whenever the transcript offers a fitting line; omit this field entirely ONLY when any quote would just echo the takeaway.>",
       "assisted": <true ONLY if you are confident Ruby's nudge led here; else false>,
-      "via": "<if assisted: a short clause like 'after Ruby's nudge to ask what they tried before'; else empty string>"
+      "via": "<if assisted: a short clause like 'after Ruby flagged the renewal date'; else empty string>"
     }
-  ],
-  "questionsNotAsked": [
-    { "text": "<a question Ruby surfaced that the user never picked up>" }
-  ],
-  "stat": {
-    "surfaced": <integer = number of questions Ruby surfaced, given above>,
-    "used": <integer = how many of those the user clearly acted on; must be ≤ surfaced and should match the count of assisted insights unless a surfaced question was clearly acted on without yielding a notable insight>
-  }
+  ]
 }
 \`\`\`
 
 Rules:
-- 3-6 insights is typical; quote a phrase from the transcript when it's sharp.
+- 3-6 insights is typical.
+- Lead every insight with the takeaway. Default to including a quote — most insights should have one. Omit it only when the best available line would merely repeat the takeaway.
+- A quote must be VERBATIM from the transcript, not paraphrased.
 - Only mark an insight assisted when the evidence is clear — bias toward false.
-- "used" can never exceed "surfaced".
-- If Ruby surfaced nothing, insights are still fine (just none assisted), questionsNotAsked is empty, and stat is {surfaced:0, used:0}.
+- If Ruby surfaced nothing, insights are still fine (just none assisted).
 - Be concrete and grounded in the transcript; invent nothing.`;
 }
 
@@ -140,41 +130,36 @@ export function extractJson(text: string): string | null {
   return obj ? obj[0] : null;
 }
 
-/** Normalize + clamp a parsed payload so the renderer can trust its shape. */
-export function sanitize(parsed: unknown, surfacedCount: number): CallSummary | null {
+/** Normalize a parsed payload so the renderer can trust its shape. */
+export function sanitize(parsed: unknown): CallSummary | null {
   const p = parsed as Partial<CallSummary> & Record<string, unknown>;
   if (typeof p.recap !== "string") return null;
   const insights: CallInsight[] = Array.isArray(p.insights)
     ? p.insights
         .map((i) => {
-          const it = i as Partial<CallInsight>;
-          if (typeof it.text !== "string" || !it.text.trim()) return null;
+          const it = i as Partial<CallInsight> & { text?: unknown };
+          // Back-compat: legacy logs carried a single `text` field instead of a
+          // takeaway. Fall back to it so old calls still render (takeaway-only).
+          const rawTakeaway =
+            typeof it.takeaway === "string" && it.takeaway.trim()
+              ? it.takeaway
+              : typeof it.text === "string"
+                ? it.text
+                : "";
+          if (!rawTakeaway.trim()) return null;
           const assisted = it.assisted === true;
+          const quote = typeof it.quote === "string" && it.quote.trim() ? it.quote.trim() : undefined;
           return {
-            text: it.text.trim(),
+            takeaway: rawTakeaway.trim(),
+            ...(quote ? { quote } : {}),
             assisted,
             via: assisted && typeof it.via === "string" ? it.via.trim() : "",
           };
         })
         .filter((x): x is CallInsight => x !== null)
     : [];
-  const questionsNotAsked: UnaskedQuestion[] = Array.isArray(p.questionsNotAsked)
-    ? p.questionsNotAsked
-        .map((q) => {
-          const qt = q as Partial<UnaskedQuestion>;
-          return typeof qt.text === "string" && qt.text.trim()
-            ? { text: qt.text.trim() }
-            : null;
-        })
-        .filter((x): x is UnaskedQuestion => x !== null)
-    : [];
-  const rawStat = (p.stat ?? {}) as Partial<CallSummary["stat"]>;
-  // Trust the real surfaced count over the model's; clamp used into [0, surfaced].
-  const surfaced = surfacedCount;
-  let used = Number.isFinite(rawStat.used) ? Math.round(Number(rawStat.used)) : 0;
-  used = Math.max(0, Math.min(surfaced, used));
   const title = typeof p.title === "string" ? p.title.trim().replace(/^["']|["']$/g, "") : "";
-  return { title, recap: p.recap.trim(), insights, questionsNotAsked, stat: { surfaced, used } };
+  return { title, recap: p.recap.trim(), insights };
 }
 
 export async function summarizeCall(
@@ -212,7 +197,7 @@ export async function summarizeCall(
       console.error("[summary] no JSON block in response");
       return null;
     }
-    const summary = sanitize(JSON.parse(json), nudges.length);
+    const summary = sanitize(JSON.parse(json));
     if (!summary) {
       console.error("[summary] malformed payload");
       return null;

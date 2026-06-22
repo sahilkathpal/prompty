@@ -28,42 +28,53 @@ describe("fmtTime", () => {
 });
 
 describe("sanitize", () => {
-  it("clamps `used` into [0, surfaced] and trusts the real surfaced count", () => {
-    const out = sanitize(
-      { title: "T", recap: "R", insights: [], questionsNotAsked: [], stat: { surfaced: 99, used: 50 } },
-      3,
-    );
-    expect(out).not.toBeNull();
-    expect(out!.stat.surfaced).toBe(3);
-    expect(out!.stat.used).toBe(3); // 50 clamped down to surfaced=3
+  it("leads with the takeaway, keeps an evidence quote, and drops `via` on unassisted", () => {
+    const out = sanitize({
+      recap: "R",
+      insights: [
+        {
+          takeaway: "Renewal timing is the lever",
+          quote: "Our contract's up in March.",
+          assisted: true,
+          via: "after Ruby flagged the renewal date",
+        },
+        { takeaway: "Reporting is a hard gate", assisted: false, via: "should be dropped" },
+        { takeaway: "   ", assisted: false, via: "" }, // empty takeaway dropped
+      ],
+    });
+    expect(out!.insights).toHaveLength(2);
+    expect(out!.insights[0]).toEqual({
+      takeaway: "Renewal timing is the lever",
+      quote: "Our contract's up in March.",
+      assisted: true,
+      via: "after Ruby flagged the renewal date",
+    });
+    // Unassisted: no `quote` key at all, empty `via`.
+    expect(out!.insights[1]).toEqual({ takeaway: "Reporting is a hard gate", assisted: false, via: "" });
   });
 
-  it("drops the `via` clause on unassisted insights and keeps it on assisted ones", () => {
-    const out = sanitize(
-      {
-        recap: "R",
-        insights: [
-          { text: "assisted one", assisted: true, via: "after Ruby's nudge" },
-          { text: "plain one", assisted: false, via: "should be dropped" },
-          { text: "   ", assisted: false, via: "" }, // empty text dropped
-        ],
-        questionsNotAsked: [{ text: "unasked" }, { text: "  " }],
-        stat: { used: 1 },
-      },
-      2,
-    );
-    expect(out!.insights).toHaveLength(2);
-    expect(out!.insights[0]).toEqual({ text: "assisted one", assisted: true, via: "after Ruby's nudge" });
-    expect(out!.insights[1]).toEqual({ text: "plain one", assisted: false, via: "" });
-    expect(out!.questionsNotAsked).toEqual([{ text: "unasked" }]);
+  it("omits the quote field when it's empty/whitespace", () => {
+    const out = sanitize({
+      recap: "R",
+      insights: [{ takeaway: "T", quote: "   ", assisted: false, via: "" }],
+    });
+    expect(out!.insights[0]).not.toHaveProperty("quote");
+  });
+
+  it("back-fills `takeaway` from a legacy `text` field", () => {
+    const out = sanitize({
+      recap: "R",
+      insights: [{ text: "legacy insight body", assisted: false, via: "" }],
+    });
+    expect(out!.insights[0].takeaway).toBe("legacy insight body");
   });
 
   it("returns null when recap is missing (malformed payload)", () => {
-    expect(sanitize({ insights: [] }, 0)).toBeNull();
+    expect(sanitize({ insights: [] })).toBeNull();
   });
 
   it("strips wrapping quotes from the title", () => {
-    const out = sanitize({ title: '"Quoted"', recap: "R" }, 0);
+    const out = sanitize({ title: '"Quoted"', recap: "R" });
     expect(out!.title).toBe("Quoted");
   });
 });

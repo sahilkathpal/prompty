@@ -35,7 +35,8 @@
     "smoke:real:open-turn": "node --import tsx tests/smoke-open-turn.ts",
     "smoke:real:checkoff": "node --import tsx tests/smoke-checkoff.ts",
     "smoke:real:system-prompt": "node --import tsx tests/smoke-system-prompt.ts",
-    "test:real": "npm run smoke:real:system-prompt && npm run smoke:real:agent && npm run smoke:real:coach-session && npm run smoke:real:hotkey-answer && npm run smoke:real:prep && npm run smoke:real:open-turn && npm run smoke:real:checkoff",
+    "smoke:real:summary": "node --import tsx tests/smoke-summary.ts",
+    "test:real": "npm run smoke:real:system-prompt && npm run smoke:real:agent && npm run smoke:real:coach-session && npm run smoke:real:hotkey-answer && npm run smoke:real:prep && npm run smoke:real:open-turn && npm run smoke:real:checkoff && npm run smoke:real:summary",
     "replay": "node --import tsx tests/replay-harness.ts",
     "replay:real": "node --import tsx tests/replay-harness.ts --assert"
   },
