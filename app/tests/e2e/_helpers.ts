@@ -71,7 +71,16 @@ export async function launchApp(
 ): Promise<ElectronApplication> {
   return await electron.launch({
     args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, ...BASE_E2E_ENV, ...opts.env },
+    env: {
+      ...process.env,
+      ...BASE_E2E_ENV,
+      // Isolate call logs to this test's temp dir. `--user-data-dir` does NOT
+      // change os.homedir(), so without this any spec that runs a call would
+      // write into the developer's real ~/.prompty/calls and pollute their
+      // history. A spec can still override via opts.env.
+      PROMPTY_CALL_LOG_DIR: path.join(userDataDir, "calls"),
+      ...opts.env,
+    },
   });
 }
 
