@@ -764,8 +764,9 @@ function HomeScreen(props: {
           </div>
           <div className="home-topbar-actions app-no-drag">
             <button className="home-icon-btn" data-testid="nav-memory" onClick={onMemory} title="Memory" aria-label="Memory">
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-                <path d="M3.5 2h8a.5.5 0 01.5.5v10.5l-4.5-2.5L3 13V2.5a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M7 21h10a2 2 0 0 0 2 -2v-14a2 2 0 0 0 -2 -2h-6.172a2 2 0 0 0 -1.414 .586l-3.828 3.828a2 2 0 0 0 -.586 1.414v10.172a2 2 0 0 0 2 2" />
+                <path d="M13 6v2" /><path d="M16 6v2" /><path d="M10 7v1" />
               </svg>
             </button>
             <button className="home-icon-btn" data-testid="nav-settings" onClick={onSettings} title="Settings" aria-label="Settings">
