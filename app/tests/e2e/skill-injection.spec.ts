@@ -83,9 +83,14 @@ test("skill picker injects the playbook (no frontmatter leak) and persists acros
     await page.getByTestId("home-send").click();
 
     // Pick the discovery skill from the dropdown, then start the call from prep.
+    // The picker is a custom dropdown (not a native <select>): open it, then
+    // click the option by its title.
     const picker = page.getByTestId("playground-skill");
     await expect(picker).toBeVisible({ timeout: 15_000 });
-    await picker.selectOption("discovery");
+    await picker.locator(".skill-dd-trigger").click();
+    await picker.locator(".skill-dd-item", { hasText: "Sales discovery" }).click();
+    // The trigger label now reflects the chosen playbook.
+    await expect(picker.locator(".skill-dd-label")).toHaveText("Sales discovery");
     // The selected skill's description hint should render.
     await expect(page.getByTestId("playground-skill-hint")).toContainText("mine pain");
 
@@ -125,7 +130,8 @@ test("skill picker injects the playbook (no frontmatter leak) and persists acros
     await page2.getByTestId("home-send").click();
     const picker2 = page2.getByTestId("playground-skill");
     await expect(picker2).toBeVisible({ timeout: 15_000 });
-    await expect(picker2).toHaveValue("discovery");
+    // The custom dropdown has no `value`; the restored pick shows as the label.
+    await expect(picker2.locator(".skill-dd-label")).toHaveText("Sales discovery");
   } finally {
     await app2.close();
   }
