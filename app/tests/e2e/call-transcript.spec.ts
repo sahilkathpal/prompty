@@ -73,7 +73,7 @@ test("post-call card: Summary/Transcript tabs — transcript hidden by default, 
     const transcriptTab = page.getByTestId("post-call-tab-transcript");
     await expect(summaryTab).toBeVisible();
     await expect(transcriptTab).toBeVisible();
-    await expect(page.getByTestId("call-stat")).toBeVisible();
+    await expect(page.getByTestId("call-insights")).toBeVisible();
     await expect(page.getByTestId("call-transcript")).toHaveCount(0);
     await expect(page.locator("text=smoother than last quarter")).toHaveCount(0);
     // Copy affordance is scoped to the transcript tab.
@@ -90,12 +90,15 @@ test("post-call card: Summary/Transcript tabs — transcript hidden by default, 
     await expect(body.getByText("Them", { exact: true }).first()).toBeVisible();
     await expect(page.locator("text=ZZINTERIM")).toHaveCount(0);
     await expect(page.getByTestId("post-call-copy-transcript")).toBeVisible();
-    await expect(page.getByTestId("call-stat")).toHaveCount(0);
+    await expect(page.getByTestId("call-insights")).toHaveCount(0);
+    // The hero (title shell) is shared by both tabs — the Transcript tab is
+    // structurally the same as Summary, only the body differs.
+    await expect(page.getByTestId("call-card")).toBeVisible();
 
     // Back to Summary — transcript hidden again, summary restored.
     await summaryTab.click();
     await expect(page.getByTestId("call-transcript")).toHaveCount(0);
-    await expect(page.getByTestId("call-stat")).toBeVisible();
+    await expect(page.getByTestId("call-insights")).toBeVisible();
 
     expect(errors, "no uncaught render error").toEqual([]);
   } finally {

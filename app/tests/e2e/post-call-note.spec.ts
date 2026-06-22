@@ -52,7 +52,7 @@ test("post-call note: save how Ruby nudged → memory item", async () => {
   await fs.mkdir(callLogDir, { recursive: true });
   await seedSettings(userDataDir);
 
-  // Seed a finished call with a summary so the card renders the stat line + note.
+  // Seed a finished call with a summary so the card renders insights + the note.
   const startedAt = 1_700_000_000_000;
   const endedAt = startedAt + 18 * 60_000;
   const fixture = {
@@ -67,10 +67,13 @@ test("post-call note: save how Ruby nudged → memory item", async () => {
       title: "Arjun — agent code review",
       recap: "Walked through how Arjun's team reviews agent-generated PRs.",
       insights: [
-        { text: "They gate merges on a human approving the agent's plan.", assisted: false, via: "" },
+        {
+          takeaway: "Merges are gated on a human approving the agent's plan.",
+          quote: "We don't let anything land until someone signs off on the plan.",
+          assisted: false,
+          via: "",
+        },
       ],
-      questionsNotAsked: [{ text: "What breaks most often in review?" }],
-      stat: { surfaced: 4, used: 1 },
     },
   };
   await fs.writeFile(
@@ -92,8 +95,8 @@ test("post-call note: save how Ruby nudged → memory item", async () => {
     await expect(firstRow).toBeVisible({ timeout: 10_000 });
     await firstRow.click();
 
-    // ===== Criterion 1: card renders with the stat line and the collapsed note =
-    await expect(page.getByTestId("call-stat")).toBeVisible({ timeout: 10_000 });
+    // ===== Criterion 1: card renders with the insights and the collapsed note =
+    await expect(page.getByTestId("call-insights")).toBeVisible({ timeout: 10_000 });
     const open = page.getByTestId("nudge-note-open");
     await expect(open).toBeVisible();
     // No input or "saved" state until the user opens it — never reflexive.

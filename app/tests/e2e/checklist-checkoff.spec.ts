@@ -15,7 +15,7 @@ import {
 // Independent verification of Phase 3c: the in-call agent's mark_covered(itemId)
 // tool. When a checklist item is marked covered, its `done` flag is persisted
 // into the CallLog JSON, and the Past Calls card renders a coverage line
-// "Checklist · covered X/Y" with covered items ticked ✓.
+// ("What you planned to cover · X of Y") with covered items ticked ✓ once expanded.
 //
 // Under PROMPTY_MOCK_AGENT=1 the mock prep agent offers a checklist for message
 // M, then on a "yes" (prepArmComponents) arms items "Cover M" / "Agree next
@@ -126,9 +126,11 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     await expect(stat).toBeVisible({ timeout: 10_000 });
     const statText = (await stat.textContent())?.trim();
     console.log("CHECKLIST STAT TEXT:", statText);
-    await expect(stat).toContainText("covered 1/2");
+    await expect(stat).toContainText("1 of 2");
 
-    // The covered item renders with a ✓.
+    // The checklist is collapsed by default (reference, not a headline) — expand
+    // it, then the covered item renders with a ✓.
+    await stat.click();
     const checklistCard = page.getByTestId("call-checklist");
     await expect(checklistCard).toContainText("✓");
     console.log("CHECKLIST CARD TEXT:", (await checklistCard.textContent())?.trim());

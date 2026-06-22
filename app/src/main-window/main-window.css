@@ -786,6 +786,13 @@ html, body, #root {
   text-align: center;
 }
 
+.pcs-empty-summary {
+  padding: 32px 0;
+  font-size: 14px;
+  color: #a09080;
+  text-align: center;
+}
+
 .pcs-scroll-edge {
   position: fixed;
   left: 0; right: 0;
@@ -858,13 +865,13 @@ html, body, #root {
 
 /* ── Hero ─────────────────────────────────────────────────────────────────── */
 
-.pcs-hero { margin-bottom: 30px; padding-top: 20px; }
+.pcs-hero { margin-bottom: 22px; padding-top: 12px; }
 
 .pcs-divider {
   border: none;
   border-top: 1px solid #e2ddd5;
   margin: 0;
-  padding-bottom: 30px;
+  padding-bottom: 24px;
 }
 
 .pcs-hero-company {
@@ -878,12 +885,12 @@ html, body, #root {
 
 .pcs-title {
   font-family: 'New York', 'Georgia', serif;
-  font-size: 34px;
+  font-size: 32px;
   font-weight: 500;
   color: #1a1814;
   letter-spacing: -0.022em;
-  line-height: 1.15;
-  margin: 0 0 14px;
+  line-height: 1.14;
+  margin: 0 0 13px;
 }
 
 .pcs-meta { font-size: 13px; color: #b0a898; }
@@ -899,78 +906,28 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13.5px;
-  color: #888078;
-  background: transparent;
-  border: 1px solid #c8c2b8;
+  font-size: 12px;
+  color: #6e6757;
+  background: rgba(33, 29, 21, 0.04);
+  border: none;
   border-radius: 999px;
-  padding: 4px 12px;
-}
-
-/* ── Stats ────────────────────────────────────────────────────────────────── */
-
-.pcs-stats {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.pcs-stat-card {
-  flex: 1 1 0;
-  padding: 16px 18px;
-  background: #faf7f0;
-  border: 1px solid #ece5d6;
-  border-radius: 12px;
-}
-
-.pcs-stat-num {
-  font-family: 'New York', 'Georgia', serif;
-  font-size: 32px;
-  font-weight: 500;
-  color: #ED0C48;
-  line-height: 1;
-  margin-bottom: 8px;
-}
-
-.pcs-stat-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #b0a898;
+  padding: 4px 11px;
 }
 
 /* ── Sections ─────────────────────────────────────────────────────────────── */
 
-.pcs-section { margin-bottom: 32px; }
+/* No bottom margin — vertical rhythm between blocks is owned by each block's own
+ * top spacing (recap margin, checklist/memory hairline + padding), so there are
+ * no colliding margins. */
+.pcs-section { margin-bottom: 0; }
 
 .pcs-section-label {
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.10em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #b0a898;
-  margin-bottom: 14px;
-}
-
-.pcs-label-missed { color: #c98e2e; }
-
-.pcs-collapsible-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  background: rgba(201, 142, 46, 0.06);
-  border: 1px solid rgba(201, 142, 46, 0.2);
-  border-radius: 10px;
-  cursor: pointer;
-  padding: 10px 14px;
-  margin-bottom: 14px;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.pcs-collapsible-header:hover {
-  background: rgba(201, 142, 46, 0.11);
-  border-color: rgba(201, 142, 46, 0.35);
+  color: #a39a82;
+  margin-bottom: 16px;
 }
 
 .pcs-chevron {
@@ -980,159 +937,137 @@ html, body, #root {
 }
 .pcs-chevron.open { transform: rotate(180deg); }
 
-/* ── Recap ────────────────────────────────────────────────────────────────── */
+/* ── Recap (the gist — a serif lede, no card chrome) ──────────────────────── */
 
 .pcs-recap {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.75;
-  color: #1a1814;
+  margin: 0 0 30px;
+  font-family: 'New York', 'Georgia', serif;
+  font-size: 18px;
+  font-weight: 430;
+  line-height: 1.55;
+  color: #3a3326;
 }
 
-/* ── Insights & quotes ────────────────────────────────────────────────────── */
+/* ── Insights (editorial: takeaway leads, quote is a receipt) ─────────────── */
 
 .pcs-insight-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
-.pcs-insight-item {
-  padding: 16px 18px;
-  background: #faf7f0;
-  border: 1px solid #ece5d6;
-  border-radius: 12px;
-}
+.pcs-insight-item { padding: 17px 0; }
+.pcs-insight-item + .pcs-insight-item { border-top: 1px solid #e2ddd5; }
+.pcs-insight-item:first-child { padding-top: 0; }
 
-.pcs-insight-text {
-  margin: 0 0 8px;
-  font-size: 15px;
-  line-height: 1.72;
+/* The takeaway — the synthesized point, in serif. */
+.pcs-insight-take {
+  margin: 0;
+  font-family: 'New York', 'Georgia', serif;
+  font-size: 18px;
+  line-height: 1.38;
   color: #1a1814;
 }
-.pcs-insight-text:last-child { margin-bottom: 0; }
 
-.pcs-assisted-pill {
-  display: block;
-  width: fit-content;
-  max-width: 100%;
+/* The quote — verbatim evidence, demoted to an italic line on a ruby hairline. */
+.pcs-insight-quote {
+  margin: 10px 0 0;
+  padding-left: 13px;
+  border-left: 2px solid rgba(214, 31, 71, 0.25);
   font-size: 13.5px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: #2e9e63;
-  background: transparent;
-  border: 1.5px solid #2e9e63;
-  border-radius: 8px;
-  padding: 5px 12px;
-  box-sizing: border-box;
-  margin-top: 8px;
+  line-height: 1.5;
+  font-style: italic;
+  color: #6e6757;
 }
 
-/* ── Questions not asked ──────────────────────────────────────────────────── */
+/* The Ruby credit — a quiet causal line. */
+.pcs-insight-via {
+  display: block;
+  margin-top: 9px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: #ED0C48;
+}
+.pcs-insight-via::before { content: "↳ "; font-style: normal; }
 
-.pcs-q-list {
-  list-style: none;
-  margin: 0;
+/* ── Checklist (reference, collapsed by default) ──────────────────────────── */
+
+.pcs-checklist { margin-top: 30px; border-top: 1px solid #e2ddd5; padding-top: 18px; }
+
+.pcs-checklist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  font-family: inherit;
 }
 
-.pcs-q-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 13px 16px;
-  background: rgba(201, 142, 46, 0.04);
-  border: 1.5px dashed rgba(201, 142, 46, 0.35);
-  border-radius: 10px;
-  transition: background 140ms ease;
-}
-.pcs-q-item:hover { background: rgba(201, 142, 46, 0.08); }
-
-.pcs-q-mark {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+.pcs-checklist-count {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  background: rgba(201, 142, 46, 0.14);
-  color: #c98e2e;
-  border-radius: 50%;
-  font-size: 13px;
-  font-weight: 700;
-  margin-top: 1px;
+  gap: 6px;
+  font-size: 12px;
+  color: #b0a898;
 }
 
-.pcs-q-text {
-  flex: 1;
-  font-size: 14.5px;
-  line-height: 1.6;
-  color: #3d3020;
-}
-
-/* ── Save to memory ───────────────────────────────────────────────────────── */
+/* ── Tell Ruby what to remember (quiet, hairline-topped row) ───────────────── */
 
 .pcs-memory-card {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px 22px;
-  background: linear-gradient(135deg, #fef9d7 0%, #fde68a 100%);
-  border: 1px solid rgba(201, 142, 46, 0.28);
-  border-radius: 14px;
-  box-shadow: 0 2px 10px rgba(201, 142, 46, 0.14);
-  margin-top: 4px;
+  gap: 13px;
+  padding: 18px 0 0;
+  margin-top: 22px;
+  border-top: 1px solid #e2ddd5;
 }
 
 .pcs-memory-icon {
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(201, 142, 46, 0.20);
-  color: #7a5c1e;
-  border-radius: 10px;
+  color: #c98e2e;
 }
 
 .pcs-memory-content { flex: 1; min-width: 0; }
 
 .pcs-memory-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #4a3a14;
-  margin-bottom: 3px;
+  font-family: 'New York', 'Georgia', serif;
+  font-size: 15.5px;
+  color: #1a1814;
 }
 
 .pcs-memory-desc {
   font-size: 12.5px;
-  color: #8a6c2e;
+  color: #6e6757;
   line-height: 1.45;
+  margin-top: 1px;
 }
 
 .pcs-memory-btn {
   flex-shrink: 0;
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 9px 20px;
-  background: #b8791a;
-  color: #fff;
-  border: none;
-  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 13px;
+  background: none;
+  color: #ED0C48;
+  border: 1px solid rgba(214, 31, 71, 0.3);
+  border-radius: 999px;
   cursor: pointer;
   transition: background 120ms ease;
   white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(130, 80, 20, 0.3);
 }
-.pcs-memory-btn:hover { background: #9a650f; }
+.pcs-memory-btn:hover { background: rgba(214, 31, 71, 0.06); }
+
+/* Open state: the textarea card aligns flush, not as a hairline row. */
+.pcs-memory-open { align-items: stretch; }
 
 /* ── Raw fallback ─────────────────────────────────────────────────────────── */
 

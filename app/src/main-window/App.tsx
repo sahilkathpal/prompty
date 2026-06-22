@@ -22,13 +22,13 @@ type ChecklistItemR = { id: string; text: string; done: boolean };
 type PrepComp =
   | { type: "goal"; id: string; text: string }
   | { type: "checklist"; id: string; title?: string; items: ChecklistItemR[] };
-type CallInsight = { text: string; assisted?: boolean; via?: string };
+// `text` is the legacy single field (pre-redesign logs); `takeaway`/`quote` are
+// the current shape. The renderer reads `takeaway ?? text` so both render.
+type CallInsight = { takeaway?: string; quote?: string; text?: string; assisted?: boolean; via?: string };
 type CallSummary = {
   title?: string;
   recap: string;
   insights: CallInsight[];
-  questionsNotAsked: { text: string }[];
-  stat: { surfaced: number; used: number };
 };
 type ParsedCall = {
   title?: string;
@@ -89,26 +89,36 @@ function intoCall(startMs: number, baseMs: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// Per-item checklist coverage, shown on the post-call screen below the headline
-// stat. Renders nothing when the call carried no checklist.
+// Per-item checklist coverage — reference, not a headline. Collapsed by default
+// (the gist + insights are the page; this is what you planned to cover, on tap).
+// Renders nothing when the call carried no checklist.
 function ChecklistCoverage(props: { components?: PrepComp[] }): JSX.Element | null {
+  const [open, setOpen] = useState(false);
   const checklist = props.components?.find((c) => c.type === "checklist");
   if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) return null;
   const total = checklist.items.length;
   const covered = checklist.items.filter((it) => it.done).length;
   return (
-    <div className="pcs-section" data-testid="call-checklist">
-      <div className="pcs-section-label" data-testid="call-checklist-stat">
-        Checklist · covered {covered}/{total}
-      </div>
-      <ul className="pcs-coverage-list">
-        {checklist.items.map((it) => (
-          <li key={it.id} className={`pcs-coverage-item${it.done ? " done" : ""}`}>
-            <span className="pcs-coverage-glyph" aria-hidden>{it.done ? "✓" : "○"}</span>
-            <span>{it.text}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="pcs-section pcs-checklist" data-testid="call-checklist">
+      <button className="pcs-checklist-head" onClick={() => setOpen((o) => !o)}>
+        <span className="pcs-section-label" style={{ margin: 0 }}>What you planned to cover</span>
+        <span className="pcs-checklist-count" data-testid="call-checklist-stat">
+          {covered} of {total}
+          <svg className={`pcs-chevron${open ? " open" : ""}`} width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </span>
+      </button>
+      {open && (
+        <ul className="pcs-coverage-list">
+          {checklist.items.map((it) => (
+            <li key={it.id} className={`pcs-coverage-item${it.done ? " done" : ""}`}>
+              <span className="pcs-coverage-glyph" aria-hidden>{it.done ? "✓" : "○"}</span>
+              <span>{it.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1157,7 +1167,6 @@ function PostCallScreen(props: {
   // Quiet, user-authored "note how Ruby nudged" affordance (Phase 2c) — never a
   // reflexive pre-filled suggestion.
   const [tab, setTab] = useState<"summary" | "transcript">("summary");
-  const [questionsOpen, setQuestionsOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
@@ -1206,19 +1215,50 @@ function PostCallScreen(props: {
   const title = call?.title || call?.attendee?.name || "Call";
   const mins = call?.startedAt && call?.endedAt && call.endedAt > call.startedAt
     ? Math.max(1, Math.round((call.endedAt - call.startedAt) / 60000)) : null;
-  // Legacy call logs carry an older summary schema ({goalRecap, items}) whose
-  // recap/insights/questionsNotAsked/stat are absent. Treat anything that isn't a
-  // current-shape summary as "no summary" so we render the raw-log fallback rather
-  // than crashing on `summary.insights.length`.
+  // Legacy call logs carry an older summary schema ({goalRecap, items}) with no
+  // recap/insights. Treat anything that isn't a current-shape summary as "no
+  // summary" so we render the raw-log fallback rather than crashing on
+  // `summary.insights.length`. (Pre-redesign logs that DO have recap+insights
+  // still render — sanitize/the renderer fall `takeaway` back to legacy `text`.)
   const rawSummary = call?.summary;
   const summary =
     rawSummary &&
     typeof rawSummary.recap === "string" &&
-    Array.isArray(rawSummary.insights) &&
-    Array.isArray(rawSummary.questionsNotAsked) &&
-    rawSummary.stat
+    Array.isArray(rawSummary.insights)
       ? rawSummary
       : undefined;
+
+  // The hero (company · serif title · duration/date) is the call's header and is
+  // shared by every state — Summary, Transcript, Summarizing, raw fallback — so
+  // each tab opens with the same structural shell and only the body differs.
+  const hero = call ? (
+    <div className="pcs-hero" data-testid="call-card">
+      {call.attendee?.company && <div className="pcs-hero-company">{call.attendee.company}</div>}
+      <h1 className="pcs-title">{title}</h1>
+      {(mins || call.startedAt) && (
+        <div className="pcs-meta-row">
+          {mins && (
+            <span className="pcs-meta-chip">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
+                <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {mins} min
+            </span>
+          )}
+          {call.startedAt && (
+            <span className="pcs-meta-chip">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.75" />
+                <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+              </svg>
+              {new Date(call.startedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="pcs-root">
@@ -1272,113 +1312,52 @@ function PostCallScreen(props: {
           <div className="pcs-loading">Loading…</div>
         ) : !call ? (
           <div className="pcs-loading">Couldn't load this call.</div>
-        ) : call.summaryPending ? (
-          tab === "transcript" ? (
-            <TranscriptSection transcript={call.transcript} />
-          ) : (
-            <div data-testid="call-summarizing">
-              <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
-              <ChecklistCoverage components={call.components} />
-            </div>
-          )
-        ) : !summary ? (
-          // Raw-log fallback — a dev-facing state for legacy/un-summarized logs.
-          tab === "transcript" ? (
-            <TranscriptSection transcript={call.transcript} />
-          ) : (
-            <>
-              <div className="pcs-title">{title}</div>
-              {mins && <div className="pcs-meta">{mins} min</div>}
-              <div className="pcs-meta">No summary card for this call — showing the raw log.</div>
-              <ChecklistCoverage components={call.components} />
-              <pre className="pcs-raw">{call.raw}</pre>
-            </>
-          )
         ) : (
           <>
-            <div className="pcs-hero" data-testid="call-card">
-              {call.attendee?.company && (
-                <div className="pcs-hero-company">{call.attendee.company}</div>
-              )}
-              <h1 className="pcs-title">{title}</h1>
-              <div className="pcs-meta-row">
-                {mins && (
-                  <span className="pcs-meta-chip">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75"/>
-                      <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    {mins} min
-                  </span>
-                )}
-                {call.startedAt && (
-                  <span className="pcs-meta-chip">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                      <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.75"/>
-                      <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
-                    </svg>
-                    {new Date(call.startedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-                  </span>
-                )}
-              </div>
-            </div>
+            {hero}
             <hr className="pcs-divider" />
 
-            {tab === "transcript" ? <TranscriptSection transcript={call.transcript} /> : (<>
-            <div className="pcs-section">
-              <div className="pcs-section-label">Recap</div>
-              <p className="pcs-recap">{summary.recap}</p>
-            </div>
-
-            <div className="pcs-section">
-              {summary.insights.length > 0 && (
-                <div className="pcs-section-label">Insights &amp; quotes</div>
-              )}
-              <div className="pcs-stats" data-testid="call-stat">
-                <div className="pcs-stat-card">
-                  <div className="pcs-stat-num">{summary.stat.surfaced}</div>
-                  <div className="pcs-stat-label">Nudges surfaced</div>
-                </div>
-                <div className="pcs-stat-card">
-                  <div className="pcs-stat-num">{summary.stat.used}</div>
-                  <div className="pcs-stat-label">Used by you</div>
-                </div>
+            {tab === "transcript" ? (
+              <TranscriptSection transcript={call.transcript} />
+            ) : call.summaryPending ? (
+              <div data-testid="call-summarizing">
+                <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
+                <ChecklistCoverage components={call.components} />
               </div>
-              {summary.insights.length > 0 && (
-                <ul className="pcs-insight-list">
+            ) : !summary ? (
+              (call.transcript && call.transcript.length > 0) || rawSummary ? (
+                // Raw-log fallback — a dev-facing state for legacy logs that have
+                // a transcript or some (un-recognised) summary blob, but no
+                // current-shape summary.
+                <>
+                  <div className="pcs-meta">No summary card for this call — showing the raw log.</div>
+                  <ChecklistCoverage components={call.components} />
+                  <pre className="pcs-raw">{call.raw}</pre>
+                </>
+              ) : (
+                // No transcript was captured (e.g. a call ended before anyone
+                // spoke). Nothing to summarize — a clean empty state, never JSON.
+                <div className="pcs-empty-summary" data-testid="call-no-transcript">
+                  Nothing was captured on this call.
+                </div>
+              )
+            ) : (<>
+            <p className="pcs-recap">{summary.recap}</p>
+
+            {summary.insights.length > 0 && (
+              <div className="pcs-section">
+                <div className="pcs-section-label">Insights</div>
+                <ul className="pcs-insight-list" data-testid="call-insights">
                   {summary.insights.map((ins, i) => (
                     <li key={i} className="pcs-insight-item">
-                      <p className="pcs-insight-text">{ins.text}</p>
+                      <p className="pcs-insight-take">{ins.takeaway ?? ins.text}</p>
+                      {ins.quote && <p className="pcs-insight-quote">{ins.quote}</p>}
                       {ins.assisted && (
-                        <span className="pcs-assisted-pill">✓ {ins.via || "Ruby"}</span>
+                        <span className="pcs-insight-via">{ins.via || "after a Ruby nudge"}</span>
                       )}
                     </li>
                   ))}
                 </ul>
-              )}
-            </div>
-
-            {summary.questionsNotAsked.length > 0 && (
-              <div className="pcs-section">
-                <button className="pcs-collapsible-header" onClick={() => setQuestionsOpen((o) => !o)}>
-                  <span className="pcs-section-label pcs-label-missed" style={{ margin: 0 }}>Questions you didn't ask</span>
-                  <svg
-                    className={`pcs-chevron${questionsOpen ? " open" : ""}`}
-                    width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  >
-                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-                {questionsOpen && (
-                  <ul className="pcs-q-list">
-                    {summary.questionsNotAsked.map((q, i) => (
-                      <li key={i} className="pcs-q-item">
-                        <span className="pcs-q-mark">?</span>
-                        <span className="pcs-q-text">{q.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
             )}
 
@@ -1399,13 +1378,13 @@ function PostCallScreen(props: {
             ) : noteOpen ? (
               <div className="pcs-memory-card pcs-memory-open">
                 <div className="pcs-memory-content">
-                  <div className="pcs-memory-title">Note how Ruby nudged</div>
+                  <div className="pcs-memory-title">Tell Ruby what to remember</div>
                   <textarea
                     className="pcs-note-input"
                     data-testid="nudge-note-input"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="e.g. The pricing nudge landed at the right moment — do that more."
+                    placeholder="e.g. Hold pricing nudges until they bring up budget."
                     rows={3}
                     autoFocus
                   />
@@ -1423,8 +1402,8 @@ function PostCallScreen(props: {
                   </svg>
                 </div>
                 <div className="pcs-memory-content">
-                  <div className="pcs-memory-title">Save to memory</div>
-                  <div className="pcs-memory-desc">Tell Ruby how the coaching landed — it applies to future calls.</div>
+                  <div className="pcs-memory-title">Tell Ruby what to remember</div>
+                  <div className="pcs-memory-desc">Liked or disliked something this call? Leave an instruction for next time.</div>
                 </div>
                 <button className="pcs-memory-btn" data-testid="nudge-note-open" onClick={() => setNoteOpen(true)}>
                   Add note
