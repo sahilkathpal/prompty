@@ -20,3 +20,6 @@ relay/.wrangler/
 # distribution artifacts
 *.dmg
 *.zip
+
+# here.now agent workspace
+.herenow/
