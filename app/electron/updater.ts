@@ -25,6 +25,11 @@ import type { AppUpdater } from "electron-updater";
 import { capture } from "./analytics";
 
 const E2E = process.env.PROMPTY_E2E === "1";
+// Kill switch (audit finding #4). Lets a bad release be halted without shipping
+// a code change: set PROMPTY_DISABLE_UPDATER=1 (e.g. via the launch environment)
+// and the updater never wires up — no feed check, no download, no install. Fails
+// safe: anything other than exactly "1" leaves auto-update on.
+const DISABLED = process.env.PROMPTY_DISABLE_UPDATER === "1";
 
 // Re-check cadence: once a few seconds after launch, then every 6h. Long-lived
 // menu-bar app, so a periodic check catches releases without a relaunch.
@@ -48,7 +53,8 @@ export function isUpdateDownloaded(): boolean {
  * Idempotent — calling twice does nothing the second time.
  */
 export function initUpdater(opts: { onUpdateDownloaded?: () => void } = {}): void {
-  if (!app.isPackaged || E2E) return; // inert in dev and tests
+  if (DISABLED) console.warn("[updater] disabled via PROMPTY_DISABLE_UPDATER");
+  if (!app.isPackaged || E2E || DISABLED) return; // inert in dev, tests, kill-switch
   if (updater) return; // already initialized
 
   let autoUpdater: AppUpdater;

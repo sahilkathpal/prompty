@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { buildSystemPrompt } from "./prompts/system";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
+import { toolPolicy } from "./agent-guard";
 import { modelFor } from "./models";
 import { debugFullPrompt } from "./debug-logger";
 
@@ -286,23 +287,19 @@ export async function openAgent(setup: CallSetup, events: AgentEvents): Promise<
       // Keep the CLI's workspace scan out of the user's protected folders.
       cwd: agentCwd(),
       mcpServers: { "prompty-nudges": mcp },
-      // Restrict to ONLY our MCP nudge tools. Without this the agent inherits the
-      // full claude_code built-in preset (Bash/Read/ToolSearch/…), which in recent
-      // CLIs makes MCP tools *deferred* — the model must ToolSearch them into
-      // context before each use, and over a long, per-turn-interrupted session it
-      // loses them, then falls back to emitting decisions as inert text (which the
-      // user never sees) and misreads the failure as a "permission" problem. An
-      // empty `tools` removes all built-ins so emit_nudge/stay_quiet/mark_covered
-      // are the only tools — directly callable, no deferral. (Also correct on
-      // principle: a coaching agent has no business with filesystem/shell tools.)
-      tools: [],
-      allowedTools: [
+      maxTurns: 200,
+      // Restrict to ONLY our MCP nudge tools. `tools: []` removes the full
+      // claude_code built-in preset (Bash/Read/ToolSearch/…) — both for safety
+      // (a coaching agent reading untrusted transcript has no business with
+      // filesystem/shell tools) and because the preset makes MCP tools *deferred*
+      // (the model must ToolSearch them in, then loses them over a long
+      // per-turn-interrupted session and falls back to inert text). The
+      // deny-by-default canUseTool gate is the real barrier — see agent-guard.ts.
+      ...toolPolicy([
         "mcp__prompty-nudges__emit_nudge",
         "mcp__prompty-nudges__stay_quiet",
         "mcp__prompty-nudges__mark_covered",
-      ],
-      maxTurns: 200,
-      permissionMode: "bypassPermissions",
+      ]),
     },
   });
 

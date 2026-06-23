@@ -21,6 +21,7 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 
 import type { CallSetup, TranscriptUtterance } from "./types";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
+import { toolPolicy } from "./agent-guard";
 import { modelFor } from "./models";
 
 // Refresh once this many new final utterances have landed since the last pass.
@@ -73,7 +74,11 @@ async function runSummary(
       // Keep the CLI's workspace scan out of the user's protected folders.
       cwd: agentCwd(),
       maxTurns: 1,
-      permissionMode: "bypassPermissions",
+      // Ingests the FULL untrusted transcript. tools:[] + deny-by-default gate
+      // keep a [them] prompt injection away from any filesystem/shell tool
+      // (audit finding #1 — this query previously set neither while on
+      // bypassPermissions). See agent-guard.ts.
+      ...toolPolicy(),
     },
   });
   let collected = "";

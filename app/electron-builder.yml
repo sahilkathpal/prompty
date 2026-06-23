@@ -21,7 +21,14 @@ extraResources:
 mac:
   category: public.app-category.productivity
   target:
+    # dmg = the hand-off download. zip = what Squirrel.Mac / electron-updater
+    # actually applies on macOS — latest-mac.yml references the .zip, so OTA
+    # auto-update does NOT work with a dmg-only build (OTA plan prereq #6).
     - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
       arch:
         - arm64
         - x64

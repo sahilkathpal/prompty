@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { loadPrepPrompt } from "./prompts/prep";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
+import { toolPolicy } from "./agent-guard";
 import { modelFor } from "./models";
 import { addMemory } from "./memory-store";
 import type { PrepComponent } from "./types";
@@ -188,19 +189,17 @@ export async function openPrepAgent(
       includePartialMessages: true,
       cwd: agentCwd(),
       mcpServers: { "prompty-prep": mcp },
-      // Only our MCP prep tools — no claude_code built-ins. Without this the agent
-      // inherits the full preset, which defers MCP tools behind ToolSearch (see the
-      // detailed note in agent.ts) and hands a chat agent needless filesystem/shell
-      // access.
-      tools: [],
-      allowedTools: [
+      maxTurns: 200,
+      // Only our MCP prep tools — `tools: []` drops the claude_code built-ins so a
+      // chat agent gets no filesystem/shell access, and the deny-by-default gate
+      // enforces the allowlist even if a built-in is ever reintroduced. See
+      // agent-guard.ts.
+      ...toolPolicy([
         "mcp__prompty-prep__update_direction",
         "mcp__prompty-prep__set_goal",
         "mcp__prompty-prep__set_checklist",
         "mcp__prompty-prep__write_memory",
-      ],
-      maxTurns: 200,
-      permissionMode: "bypassPermissions",
+      ]),
     },
   });
 

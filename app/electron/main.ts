@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut, nativeImage, Notification } from "electron";
+import { app, dialog, globalShortcut, nativeImage, Notification, session } from "electron";
 import path from "node:path";
 import {
   createOverlayWindow,
@@ -152,7 +152,41 @@ function maybePromptLoginItem(): void {
   }, 1500);
 }
 
+/**
+ * Content-Security-Policy for the renderer (audit finding: no CSP). Applied as a
+ * response header on the default session in PACKAGED builds only — the Vite dev
+ * server needs inline scripts + an HMR websocket that a strict policy would
+ * break, and dev loads from VITE_DEV_SERVER_URL anyway. style-src allows
+ * 'unsafe-inline' because the UI uses React inline styles; scripts are restricted
+ * to our own bundle. The renderer reaches the backend over IPC (not governed by
+ * CSP), so connect-src can stay tight.
+ */
+function applyContentSecurityPolicy(): void {
+  if (!app.isPackaged) return;
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [csp],
+      },
+    });
+  });
+}
+
 app.on("ready", () => {
+  applyContentSecurityPolicy();
+
   // Dock icon. Packaged builds get this from build/icon.icns automatically;
   // in dev the running binary is Electron's, so set it explicitly from the same
   // generated art (build/ isn't bundled, so this path only resolves in dev).

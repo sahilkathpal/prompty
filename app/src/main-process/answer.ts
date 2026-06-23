@@ -25,6 +25,7 @@ function loadSdk(): Promise<ClaudeAgentSdk> {
 import type { CallSetup, Nudge, TranscriptUtterance } from "./types";
 import { memoryBlock } from "./memory-store";
 import { agentCwd, resolveClaudeCli } from "./claude-cli";
+import { toolPolicy } from "./agent-guard";
 import { modelFor } from "./models";
 import { debugFullPrompt } from "./debug-logger";
 
@@ -112,12 +113,12 @@ export async function answerNow(input: AnswerInput): Promise<Nudge | null> {
         pathToClaudeCodeExecutable: resolveClaudeCli(),
         // Keep the CLI's workspace scan out of the user's protected folders.
         cwd: agentCwd(),
-        // This one-shot answers in plain text and uses no tools — disable the
-        // claude_code built-in preset so it can't burn its single turn on a
-        // ToolSearch/built-in instead of answering (and gets no filesystem access).
-        tools: [],
         maxTurns: 1,
-        permissionMode: "bypassPermissions",
+        // One-shot, plain-text, NO tools: tools:[] disables the claude_code
+        // built-in preset (so it can't burn its single turn on a ToolSearch and
+        // gets no filesystem access) and the deny-by-default gate refuses any
+        // tool — defending against transcript prompt-injection. See agent-guard.ts.
+        ...toolPolicy(),
       },
     });
     let collected = "";

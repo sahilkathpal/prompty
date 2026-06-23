@@ -1,7 +1,15 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { execSync, execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  statSync,
+  realpathSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 let cached: string | undefined;
 let cachedLoginPath: string | undefined;
@@ -94,6 +102,9 @@ export function resolveClaudeCli(): string {
   // Repair PATH before spawning so the CLI (and any `node` it needs) is found.
   repairProcessPath();
   if (process.env.CLAUDE_CLI_PATH) {
+    // The env override is NOT exempt from the trust check (audit finding #3) —
+    // it's the easiest hijack vector if an attacker can influence the launch env.
+    assertTrustedCli(process.env.CLAUDE_CLI_PATH);
     cached = process.env.CLAUDE_CLI_PATH;
     return cached;
   }
@@ -103,8 +114,96 @@ export function resolveClaudeCli(): string {
       "`claude` CLI not found. Install Claude Code or set CLAUDE_CLI_PATH.",
     );
   }
+  assertTrustedCli(found);
   cached = found;
   return cached;
+}
+
+/**
+ * Trust check run before we hand a path to the SDK to spawn (audit finding #3).
+ *
+ * The resolved `claude` binary runs as our agent — a hijacked one would see every
+ * prompt and transcript and execute with the user's privileges. We can't defend
+ * against malware already running as this user (it could patch the app itself),
+ * but we refuse the clearly-illegitimate cases and leave an audit trail:
+ *
+ *   - HARD FAIL if the binary file itself is world-writable — no legitimate
+ *     install is, and it means any local process can overwrite the executable.
+ *   - WARN if the containing directory is world-writable (don't block: sticky
+ *     temp dirs like /tmp are world-writable yet routinely used), and if a
+ *     Mach-O binary doesn't pass code-signature verification (don't block:
+ *     npm-installed `claude` is a script launcher, not a signed Mach-O).
+ *   - Always log the resolved real path so a binary swap is visible in logs.
+ */
+function assertTrustedCli(path: string): void {
+  let real = path;
+  try {
+    real = realpathSync(path);
+  } catch {
+    // realpath can fail (e.g. broken symlink); existsSync upstream already gated
+    // discovered paths, so fall back to the given path.
+  }
+
+  try {
+    const fileMode = statSync(real).mode & 0o777;
+    if (fileMode & 0o002) {
+      throw new Error(
+        `Refusing to launch the claude CLI: "${real}" is world-writable ` +
+          `(mode ${fileMode.toString(8)}). Any local process could replace it. ` +
+          `Fix its permissions, or set CLAUDE_CLI_PATH to a trusted install.`,
+      );
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("Refusing to launch")) throw e;
+    // stat failed for another reason — leave the spawn to surface a clear error.
+  }
+
+  try {
+    const dirMode = statSync(dirname(real)).mode & 0o777;
+    if (dirMode & 0o002) {
+      console.warn(
+        `[claude-cli] resolved binary lives in a world-writable directory ` +
+          `(${dirname(real)}, mode ${dirMode.toString(8)}) — verify it is the genuine CLI.`,
+      );
+    }
+  } catch {
+    // best-effort
+  }
+
+  auditCliSignature(real);
+  console.log(`[claude-cli] using ${real}`);
+}
+
+/**
+ * Best-effort code-signature audit. If the resolved file is a Mach-O binary,
+ * verify its signature and warn (never block) on failure. Script launchers
+ * (npm installs) aren't Mach-O, so they're skipped silently.
+ */
+function auditCliSignature(real: string): void {
+  try {
+    const buf = Buffer.alloc(4);
+    const fd = openSync(real, "r");
+    try {
+      readSync(fd, buf, 0, 4, 0);
+    } finally {
+      closeSync(fd);
+    }
+    const magic = buf.readUInt32BE(0);
+    // Mach-O thin (feedface/feedfacf) and fat (cafebabe) magics, both byte orders.
+    const machO = new Set([
+      0xfeedface, 0xfeedfacf, 0xcafebabe, 0xcefaedfe, 0xcffaedfe, 0xbebafeca,
+    ]);
+    if (!machO.has(magic)) return; // script / non-Mach-O — nothing to verify
+    execFileSync("codesign", ["--verify", "--strict", real], {
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: 5000,
+    });
+  } catch (e) {
+    console.warn(
+      `[claude-cli] code-signature check did not pass for the resolved binary — ` +
+        `proceeding, but confirm this is the genuine claude CLI: ${(e as Error).message}`,
+    );
+  }
 }
 
 /**

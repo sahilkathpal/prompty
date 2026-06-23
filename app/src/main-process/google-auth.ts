@@ -4,12 +4,13 @@
 // at a loopback redirect, exchanges for tokens via PKCE (no client secret),
 // and persists tokens encrypted with safeStorage.
 
-import { app, BrowserWindow, safeStorage } from "electron";
+import { app, BrowserWindow } from "electron";
 import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { relayBaseUrl } from "./relay-config";
+import { readSecretFile, writeSecretFile } from "./secret-file";
 
 const SESSION_FILENAME = "google-session.bin";
 
@@ -91,37 +92,20 @@ function decodeJwtPayload<T = Record<string, unknown>>(jwt: string): T {
 }
 
 function readSessionFile(): GoogleSession | null {
+  const decoded = readSecretFile(sessionPath());
+  if (!decoded) return null;
   try {
-    const p = sessionPath();
-    if (!fs.existsSync(p)) return null;
-    const raw = fs.readFileSync(p);
-    let decoded: string;
-    if (safeStorage.isEncryptionAvailable()) {
-      try {
-        decoded = safeStorage.decryptString(raw);
-      } catch {
-        // May have been written as plaintext during e2e.
-        decoded = raw.toString("utf8");
-      }
-    } else {
-      decoded = raw.toString("utf8");
-    }
     return JSON.parse(decoded) as GoogleSession;
   } catch (e) {
-    console.error("[google-auth] readSession failed:", (e as Error).message);
+    console.error("[google-auth] readSession parse failed:", (e as Error).message);
     return null;
   }
 }
 
 function writeSessionFile(s: GoogleSession): void {
-  const p = sessionPath();
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  if (safeStorage.isEncryptionAvailable()) {
-    const enc = safeStorage.encryptString(JSON.stringify(s));
-    fs.writeFileSync(p, enc);
-  } else {
-    fs.writeFileSync(p, JSON.stringify(s), "utf8");
-  }
+  // The Google session holds a long-lived refresh token — never persisted in
+  // cleartext in a packaged build (writeSecretFile skips rather than leak it).
+  writeSecretFile(sessionPath(), JSON.stringify(s));
 }
 
 export function getSession(): GoogleSession | null {

@@ -11,11 +11,12 @@
 // minting a fresh one — so the daily mint cap reflects real usage windows, not
 // restart count (RUBY_AUTH_RELAY_PLAN.md §Phase B 2b).
 
-import { app, safeStorage } from "electron";
+import { app } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { getSession, signInWithGoogle } from "./google-auth";
 import { relayBaseUrl } from "./relay-config";
+import { readSecretFile, writeSecretFile } from "./secret-file";
 
 const DEEPGRAM_KEY_FILENAME = "deepgram-key.bin";
 // Reuse a cached key only while it has comfortably more than this left. The
@@ -41,41 +42,22 @@ function deepgramKeyPath(): string {
 }
 
 function readDeepgramKeyFile(): DeepgramKeyCache | null {
+  const decoded = readSecretFile(deepgramKeyPath());
+  if (!decoded) return null;
   try {
-    const p = deepgramKeyPath();
-    if (!fs.existsSync(p)) return null;
-    const raw = fs.readFileSync(p);
-    let decoded: string;
-    if (safeStorage.isEncryptionAvailable()) {
-      try {
-        decoded = safeStorage.decryptString(raw);
-      } catch {
-        decoded = raw.toString("utf8"); // may be plaintext from e2e
-      }
-    } else {
-      decoded = raw.toString("utf8");
-    }
     const parsed = JSON.parse(decoded) as DeepgramKeyCache;
     if (!parsed.key || typeof parsed.expiresAt !== "number") return null;
     return parsed;
   } catch (e) {
-    console.error("[relay] readDeepgramKey failed:", (e as Error).message);
+    console.error("[relay] readDeepgramKey parse failed:", (e as Error).message);
     return null;
   }
 }
 
 function writeDeepgramKeyFile(c: DeepgramKeyCache): void {
-  try {
-    const p = deepgramKeyPath();
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    if (safeStorage.isEncryptionAvailable()) {
-      fs.writeFileSync(p, safeStorage.encryptString(JSON.stringify(c)));
-    } else {
-      fs.writeFileSync(p, JSON.stringify(c), "utf8");
-    }
-  } catch (e) {
-    console.error("[relay] writeDeepgramKey failed:", (e as Error).message);
-  }
+  // Encrypted, or skipped entirely in a packaged build without encryption — the
+  // on-disk cache is only an optimization, so losing it is safe (we re-mint).
+  writeSecretFile(deepgramKeyPath(), JSON.stringify(c));
 }
 
 function clearDeepgramKeyFile(): void {
