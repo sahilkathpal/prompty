@@ -36,6 +36,7 @@ type ParsedCall = {
   startedAt?: number;
   endedAt?: number;
   attendee?: { name?: string; company?: string };
+  direction?: string;
   components?: PrepComp[];
   transcript?: Utterance[];
   summaryPending?: boolean;
@@ -96,32 +97,68 @@ function intoCall(startMs: number, baseMs: number): string {
 
 // Per-item checklist coverage — reference, not a headline. Collapsed by default
 // (the gist + insights are the page; this is what you planned to cover, on tap).
-// Renders nothing when the call carried no checklist.
-function ChecklistCoverage(props: { components?: PrepComp[] }): JSX.Element | null {
+// The full prep snapshot for a finished call — the brief you wrote, the goal you
+// set, and your checklist with what got covered. Collapsed by default: the recap
+// is the headline; the prep is reference you can expand. The in-progress screen
+// owns these live; this is the only place to revisit them once the call ends.
+// Renders nothing when the call carried no prep at all.
+function PrepRecap(props: { direction?: string; components?: PrepComp[] }): JSX.Element | null {
   const [open, setOpen] = useState(false);
+  const direction = props.direction?.trim();
+  const goal = props.components?.find((c) => c.type === "goal") as
+    | { type: "goal"; text: string }
+    | undefined;
   const checklist = props.components?.find((c) => c.type === "checklist");
-  if (!checklist || checklist.type !== "checklist" || checklist.items.length === 0) return null;
-  const total = checklist.items.length;
+  const hasChecklist = checklist?.type === "checklist" && checklist.items.length > 0;
+  if (!direction && !goal && !hasChecklist) return null;
+
+  const parts: string[] = [];
+  if (direction) parts.push("brief");
+  if (goal) parts.push("goal");
+  if (hasChecklist && checklist?.type === "checklist") {
+    const n = checklist.items.length;
+    parts.push(`${n} topic${n === 1 ? "" : "s"}`);
+  }
+
   return (
-    <div className="pcs-section pcs-checklist" data-testid="call-checklist">
-      <button className="pcs-checklist-head" onClick={() => setOpen((o) => !o)}>
-        <span className="pcs-section-label" style={{ margin: 0 }}>Your prep checklist</span>
-        <span className="pcs-checklist-count" data-testid="call-checklist-stat">
-          {total} topic{total === 1 ? "" : "s"}
+    <div className="pcs-section pcs-prep" data-testid="call-prep">
+      <button className="pcs-checklist-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="pcs-section-label" style={{ margin: 0 }}>Your prep</span>
+        <span className="pcs-checklist-count" data-testid="call-prep-summary">
+          {parts.join(" · ")}
           <svg className={`pcs-chevron${open ? " open" : ""}`} width="13" height="13" viewBox="0 0 24 24" fill="none">
             <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
       </button>
       {open && (
-        <ul className="pcs-coverage-list">
-          {checklist.items.map((it) => (
-            <li key={it.id} className={`pcs-coverage-item${it.done ? " done" : ""}`}>
-              <span className="pcs-coverage-glyph" aria-hidden>{it.done ? "✓" : "○"}</span>
-              <span>{it.text}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="pcs-prep-body">
+          {direction && (
+            <div className="pcs-prep-block" data-testid="call-prep-direction">
+              <div className="pcs-prep-label">Your brief</div>
+              <p className="pcs-prep-direction">{direction}</p>
+            </div>
+          )}
+          {goal && (
+            <div className="pcs-prep-block" data-testid="call-prep-goal">
+              <div className="pcs-prep-label">Goal</div>
+              <p className="pcs-prep-goal">{goal.text}</p>
+            </div>
+          )}
+          {hasChecklist && checklist?.type === "checklist" && (
+            <div className="pcs-prep-block" data-testid="call-checklist">
+              <div className="pcs-prep-label">Checklist</div>
+              <ul className="pcs-coverage-list">
+                {checklist.items.map((it) => (
+                  <li key={it.id} className={`pcs-coverage-item${it.done ? " done" : ""}`}>
+                    <span className="pcs-coverage-glyph" aria-hidden>{it.done ? "✓" : "○"}</span>
+                    <span>{it.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -266,6 +303,7 @@ export default function App(): JSX.Element {
           startedAt: obj.startedAt as number | undefined,
           endedAt: obj.endedAt as number | undefined,
           attendee: obj.attendee as ParsedCall["attendee"],
+          direction: obj.direction as string | undefined,
           components: obj.components as PrepComp[] | undefined,
           transcript,
           summaryPending: obj.summaryPending as boolean | undefined,
@@ -1594,6 +1632,11 @@ function PostCallScreen(props: {
   const [savedMemId, setSavedMemId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  // Inline title editing: the hero title doubles as an editable field so a call
+  // can be renamed from its recap (persisted via calls:rename).
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   const copyTranscript = () => {
     if (!call?.transcript || call.transcript.length === 0) return;
@@ -1673,6 +1716,23 @@ function PostCallScreen(props: {
   };
 
   const title = call?.title || call?.attendee?.name || "Call";
+
+  const startEditTitle = () => {
+    setTitleDraft(call?.title || call?.attendee?.name || "");
+    setEditingTitle(true);
+  };
+  const commitTitle = () => {
+    if (!editingTitle) return;
+    setEditingTitle(false);
+    const next = titleDraft.trim();
+    // No-op on empty or unchanged — leave the existing (possibly auto-derived) title.
+    if (!next || next === (call?.title ?? "")) return;
+    setCall((c) => (c ? { ...c, title: next } : c));
+    void window.prompty.invoke("calls:rename", { name: callName, title: next });
+  };
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.select();
+  }, [editingTitle]);
   const mins = call?.startedAt && call?.endedAt && call.endedAt > call.startedAt
     ? Math.max(1, Math.round((call.endedAt - call.startedAt) / 60000)) : null;
   // Legacy call logs carry an older summary schema ({goalRecap, items}) with no
@@ -1694,7 +1754,34 @@ function PostCallScreen(props: {
   const hero = call ? (
     <div className="pcs-hero" data-testid="call-card">
       {call.attendee?.company && <div className="pcs-hero-company">{call.attendee.company}</div>}
-      <h1 className="pcs-title">{title}</h1>
+      {editingTitle ? (
+        <input
+          ref={titleInputRef}
+          className="pcs-title pcs-title-input"
+          data-testid="call-title-input"
+          value={titleDraft}
+          autoFocus
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onBlur={commitTitle}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitTitle(); }
+            else if (e.key === "Escape") { e.preventDefault(); setEditingTitle(false); }
+          }}
+        />
+      ) : (
+        <button
+          className="pcs-title pcs-title-edit"
+          data-testid="call-title"
+          onClick={startEditTitle}
+          title="Rename this call"
+        >
+          {title}
+          <svg className="pcs-title-pencil" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 20h4L18.5 9.5a2.121 2.121 0 0 0-3-3L5 17v3z" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M13.5 6.5l3 3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+          </svg>
+        </button>
+      )}
       {(mins || call.startedAt) && (
         <div className="pcs-meta-row">
           {mins && (
@@ -1802,6 +1889,12 @@ function PostCallScreen(props: {
             {hero}
             <hr className="pcs-divider" />
 
+            {/* The whole prep — brief, goal, checklist — collapsed at the top of
+                the recap so it's reviewable after the call. Summary tab only. */}
+            {tab !== "transcript" && (
+              <PrepRecap direction={call.direction} components={call.components} />
+            )}
+
             {tab === "transcript" ? (
               <TranscriptSection transcript={call.transcript} />
             ) : call.summaryPending ? (
@@ -1816,7 +1909,6 @@ function PostCallScreen(props: {
                   <span className="pcs-skel-line" />
                   <span className="pcs-skel-line short" />
                 </div>
-                <ChecklistCoverage components={call.components} />
               </div>
             ) : !summary ? (
               (call.transcript && call.transcript.length > 0) || rawSummary ? (
@@ -1830,7 +1922,6 @@ function PostCallScreen(props: {
                       ? "This call was recorded before summaries — here's the transcript."
                       : "This call was recorded before summaries, so there's no recap."}
                   </div>
-                  <ChecklistCoverage components={call.components} />
                   {call.transcript && call.transcript.length > 0 && (
                     <TranscriptSection transcript={call.transcript} />
                   )}
@@ -1871,8 +1962,6 @@ function PostCallScreen(props: {
               </div>
               );
             })()}
-
-            <ChecklistCoverage components={call.components} />
 
             {noteSaved ? (
               <div className="pcs-memory-card" data-testid="nudge-note-saved">

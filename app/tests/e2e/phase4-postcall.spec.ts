@@ -85,10 +85,11 @@ test("post-call rework: softened coverage, attribution, tab a11y, copy aria, not
       "Surfaced after a Ruby nudge",
     );
 
-    // PC1: coverage is a calm descriptive count, not "X of Y".
-    const stat = page.getByTestId("call-checklist-stat");
+    // PC1: prep (collapsed at the top of the recap) carries a calm descriptive
+    // count, not "X of Y".
+    const stat = page.getByTestId("call-prep-summary");
     await expect(stat).toContainText("3 topics");
-    await expect(stat).not.toContainText("of");
+    await expect(stat).not.toContainText(" of ");
 
     // PC3: tab a11y semantics.
     const summaryTab = page.getByTestId("post-call-tab-summary");

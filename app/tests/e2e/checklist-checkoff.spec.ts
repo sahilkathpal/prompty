@@ -26,7 +26,7 @@ import {
 //
 // We drive the real built Electron app: prep+arm, start, inject one final
 // utterance, end, then (1) read the newest CallLog JSON's components, and
-// (2) open the call in Past Calls and read call-checklist-stat.
+// (2) open the call in Past Calls and read the "Your prep" coverage.
 
 type PrepComp = { type: string; items?: Array<{ text: string; done?: boolean }> };
 type CallLog = { components?: PrepComp[] };
@@ -126,16 +126,18 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     await expect(firstRow).toBeVisible({ timeout: 10_000 });
     await firstRow.click();
 
-    const stat = page.getByTestId("call-checklist-stat");
+    // Prep (brief + goal + checklist) is collapsed at the top of the recap.
+    const stat = page.getByTestId("call-prep-summary");
     await expect(stat).toBeVisible({ timeout: 10_000 });
     const statText = (await stat.textContent())?.trim();
-    console.log("CHECKLIST STAT TEXT:", statText);
-    // Coverage is no longer a judgmental "X of Y" score — the header is a calm
-    // descriptive count (PC1/X3). Coverage detail (✓/○) lives in the expanded list.
+    console.log("PREP SUMMARY TEXT:", statText);
+    // Coverage is no longer a judgmental "X of Y" score — the header carries a
+    // calm descriptive count (PC1/X3). Coverage detail (✓/○) lives in the
+    // expanded checklist block.
     await expect(stat).toContainText("2 topics");
 
-    // The checklist is collapsed by default (reference, not a headline) — expand
-    // it, then the covered item renders with a ✓ and the uncovered with ○.
+    // The prep is collapsed by default (reference, not a headline) — expand it,
+    // then the covered item renders with a ✓ and the uncovered with ○.
     await stat.click();
     const checklistCard = page.getByTestId("call-checklist");
     await expect(checklistCard).toContainText("✓");

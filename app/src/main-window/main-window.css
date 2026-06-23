@@ -522,6 +522,24 @@ html, body, #root {
   font-variant-numeric: tabular-nums;
 }
 
+/* The live call's row sits above the dated groups with no day label, so a
+   coloured dot alone leaves it reading as just another past-call row. Give it a
+   persistent ruby-tinted card and ring, an always-visible arrow, and a haloed
+   dot so it clearly reads as the active call to return to. */
+.home-live-row { margin-bottom: 16px; }
+.home-live-row::before {
+  opacity: 1;
+  background: rgba(237, 12, 72, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(237, 12, 72, 0.22);
+}
+.home-live-row:hover::before { background: rgba(237, 12, 72, 0.1); }
+.home-live-row .home-call-title { font-weight: 600; }
+.home-live-row .home-call-arrow { opacity: 1; color: #ED0C48; }
+.home-live-row .home-call-dot-live {
+  width: 8px; height: 8px;
+  box-shadow: 0 0 0 4px rgba(237, 12, 72, 0.14);
+}
+
 .home-call-title {
   flex: 1;
   min-width: 0;
@@ -1169,6 +1187,42 @@ html, body, #root {
   margin: 0 0 13px;
 }
 
+/* The title doubles as a rename affordance: a borderless button at rest that
+   reveals a faint pencil + tinted hover, and an inline input while editing. */
+.pcs-title-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: 8px;
+  cursor: text;
+  transition: background 140ms ease;
+}
+.pcs-title-edit:hover { background: rgba(26, 24, 20, 0.05); }
+.pcs-title-pencil {
+  flex-shrink: 0;
+  color: #b0a898;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.pcs-title-edit:hover .pcs-title-pencil,
+.pcs-title-edit:focus-visible .pcs-title-pencil { opacity: 1; }
+.pcs-title-input {
+  display: block;
+  width: 100%;
+  background: #fff;
+  border: 1px solid rgba(237, 12, 72, 0.4);
+  border-radius: 8px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  outline: none;
+}
+
 .pcs-meta { font-size: 13px; color: #857d72; }
 
 .pcs-meta-row {
@@ -1290,6 +1344,41 @@ html, body, #root {
   gap: 6px;
   font-size: 12px;
   color: #b0a898;
+}
+
+/* Your prep — collapsed at the top of the recap, hairline-separated from the
+   gist below. Reuses the checklist head + coverage-list markup. */
+.pcs-prep {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2ddd5;
+}
+.pcs-prep-body {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pcs-prep-block { display: flex; flex-direction: column; gap: 7px; }
+.pcs-prep-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #b0a898;
+}
+.pcs-prep-direction {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #4a443c;
+  white-space: pre-wrap;
+}
+.pcs-prep-goal {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #1a1814;
 }
 
 /* ── Tell Ruby what to remember (quiet, hairline-topped row) ───────────────── */

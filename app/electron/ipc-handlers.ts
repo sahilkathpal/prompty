@@ -451,6 +451,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       const obj = JSON.parse(await fs.readFile(full, "utf8")) as Record<string, unknown>;
       obj.title = payload.title.trim();
       await fs.writeFile(full, JSON.stringify(obj, null, 2));
+      // Tell any open Past Calls / recap view to re-read the renamed log.
+      broadcast("calls:updated", { name: path.basename(full) });
       return { ok: true };
     } catch (e) {
       console.error("[ipc] calls:rename failed:", (e as Error).message);
