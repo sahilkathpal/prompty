@@ -218,32 +218,6 @@ html, body, #root {
   color: rgba(255, 233, 238, 0.9);
 }
 
-/* ---- Expand affordance under the gem: caret + live note count ---- */
-.gem-expand-hint {
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  line-height: 1;
-  color: rgba(255, 233, 238, 0.62);
-  pointer-events: none;
-  animation: gem-hint-in 0.4s ease both;
-}
-.gem-expand-caret {
-  font-size: 11px;
-}
-.gem-expand-count {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-@keyframes gem-hint-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
 /* ---- Expanded panel: dark-glass scrollback + End-call footer ---- */
 .gem-panel {
   margin-top: 10px;

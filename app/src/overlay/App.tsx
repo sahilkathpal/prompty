@@ -454,21 +454,6 @@ export default function App(): JSX.Element {
           </div>
         )}
 
-        {/* Discoverability: a caret + live note count signals the gem expands
-            into the note history + End-call control. Persistent whenever live
-            (even with a note bloomed), but hidden behind the onboarding bubble
-            to keep that moment clean (V8). */}
-        {!expanded && !rubyMessage && (history.length > 0 || liveish) && (
-          <div className="gem-expand-hint" data-testid="gem-expand-hint" aria-hidden>
-            <span className="gem-expand-caret">⌄</span>
-            {history.length > 0 && (
-              <span className="gem-expand-count">
-                {history.length} note{history.length === 1 ? "" : "s"}
-              </span>
-            )}
-          </div>
-        )}
-
         {/* Expanded panel: a quiet scrollback of every note this call, plus an
             End-call control so the call can be ended without hunting for the
             tray or main window. */}
