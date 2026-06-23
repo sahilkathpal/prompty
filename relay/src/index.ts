@@ -15,6 +15,24 @@ import type { Env } from "./types";
 
 const app = new Hono<{ Bindings: Env }>();
 
+// The desktop app runs the PKCE authorize flow against a loopback redirect
+// (http://localhost:<ephemeral-port>/callback — see app/.../google-auth.ts).
+// Restrict the brokered code exchange to exactly that shape so a caller can't
+// point the exchange at an attacker-controlled redirect_uri (audit finding).
+function isAllowedRedirectUri(uri: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(uri);
+  } catch {
+    return false;
+  }
+  return (
+    u.protocol === "http:" &&
+    (u.hostname === "localhost" || u.hostname === "127.0.0.1") &&
+    u.pathname === "/callback"
+  );
+}
+
 // Permissive CORS for /health only (lets us hit it from anywhere).
 app.use("/health", cors({ origin: "*" }));
 
@@ -84,6 +102,9 @@ app.post("/auth/google/exchange", async (c) => {
     !redirectUri
   ) {
     return c.json({ error: "code, codeVerifier, redirectUri required" }, 400);
+  }
+  if (!isAllowedRedirectUri(redirectUri)) {
+    return c.json({ error: "redirectUri must be a loopback /callback URL" }, 400);
   }
   try {
     const tokens = await exchangeAuthCode(c.env, { code, codeVerifier, redirectUri });
