@@ -357,10 +357,6 @@ html, body, #root {
   margin-top: 2px;
 }
 
-.ob-actions-right {
-  justify-content: flex-end;
-}
-
 .ob-btn-primary {
   appearance: none;
   font-family: inherit;
@@ -549,33 +545,6 @@ html, body, #root {
 
 .ob-dev-restart:hover {
   color: #888;
-}
-
-/* ── DEV: Ruby copy reference (remove when pill is implemented) ── */
-
-.ob-dev-ruby-copy {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: 'New York', 'Georgia', ui-serif, serif;
-  font-size: 12px;
-  color: #888;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.ob-dev-ruby-label {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #bb163d;
-  opacity: 0.7;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════

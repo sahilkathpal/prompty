@@ -310,3 +310,21 @@ html, body, #root {
   opacity: 0.55;
   cursor: default;
 }
+
+/* Reduced motion: the overlay is the most-seen surface, so honor the preference —
+   no slide/scale entrance, no urgency flash, no draining bar. The static thicker
+   ruby border on .gem-bloom-high still carries high urgency without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .gem-bloom,
+  .gem-bloom-high { animation: none; }
+  .gem-note-bar { display: none; }
+}
+
+/* O5: keyboard focus indication on the overlay's custom buttons. (The overlay is
+   usually click-through, so this rarely shows — but it must exist when it does.) */
+.gem:focus-visible,
+.gem-note-dismiss:focus-visible,
+.gem-end-btn:focus-visible {
+  outline: 2px solid rgba(255, 45, 85, 0.9);
+  outline-offset: 2px;
+}

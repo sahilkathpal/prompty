@@ -397,8 +397,8 @@ export default function App(): JSX.Element {
             data-testid="gem"
             data-tone={tone}
             data-status={status ?? "idle"}
-            aria-label={`Ruby — ${meta?.label ?? "Idle"}. Drag to move; click to show notes and call controls.`}
-            title={statusReason ?? "Drag to move • Click for notes & end call"}
+            aria-label={`Ruby — ${meta?.label ?? "Idle"}. Drag to move; ${liveish || isEnding ? "click to show notes and end the call." : "click to see notes."}`}
+            title={statusReason ?? (liveish || isEnding ? "Drag to move • Click for notes & end call" : "Drag to move • Click to see notes")}
             onMouseDown={onGemMouseDown}
             onClick={onGemClick}
           >
@@ -423,8 +423,8 @@ export default function App(): JSX.Element {
             className={`gem-bloom${bloom.urgency === "high" ? " gem-bloom-high" : ""}${hiding ? " gem-bloom-out" : ""}`}
             data-testid="gem-bloom"
             data-nudge-id={bloom.id}
-            role="status"
-            aria-live="polite"
+            role={bloom.urgency === "high" ? "alert" : "status"}
+            aria-live={bloom.urgency === "high" ? "assertive" : "polite"}
           >
             <button
               type="button"
@@ -439,7 +439,7 @@ export default function App(): JSX.Element {
               </svg>
             </button>
             <div className="gem-note-tag">
-              {bloom.urgency === "high" ? "Ask now" : "Ruby"}
+              {bloom.urgency === "high" ? "Ask now" : "Worth asking"}
             </div>
             <div className="gem-note-q">{bloom.text}</div>
             {bloom.urgency === "high" && (

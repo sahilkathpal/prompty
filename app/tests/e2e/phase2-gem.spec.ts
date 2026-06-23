@@ -42,11 +42,11 @@ test("the gem: faced pill, urgency-driven tag/bar, dismiss, note count", async (
     // V5: the signature faced gem (the .pgem svg) is what renders on the pill.
     await expect(overlay.locator(".gem-pill .pgem")).toHaveCount(1);
 
-    // V2/V12: a calm (medium) note tags "Ruby" and carries NO drain bar.
+    // V2/V12: a calm (medium) note tags "Worth asking" and carries NO drain bar.
     await emitNudge(app, "Calm note body", "medium");
     const bloom = overlay.locator('[data-testid="gem-bloom"]');
     await expect(bloom).toHaveCount(1, { timeout: 4000 });
-    await expect(bloom.locator(".gem-note-tag")).toHaveText("Ruby");
+    await expect(bloom.locator(".gem-note-tag")).toHaveText("Worth asking");
     await expect(bloom.locator(".gem-note-bar")).toHaveCount(0);
 
     // V3: the per-note × dismisses it (queue empties → the note clears).
@@ -61,12 +61,9 @@ test("the gem: faced pill, urgency-driven tag/bar, dismiss, note count", async (
     await expect(bloom).toHaveClass(/gem-bloom-high/);
     await expect(bloom.locator(".gem-note-bar")).toHaveCount(1);
 
-    // V8: once notes exist, the expand affordance shows a live count. Wait for
-    // the high note to fade so the hint (hidden while a note blooms? no — it's
-    // persistent) reads the retained-history count.
+    // The note fades after its dwell, leaving the gem at rest. (The old always-on
+    // expand-count hint was removed — the panel opens on gem click instead.)
     await expect(bloom).toHaveCount(0, { timeout: 4000 });
-    const count = overlay.locator(".gem-expand-count");
-    await expect(count).toContainText("2 notes");
   } finally {
     await app.close();
   }

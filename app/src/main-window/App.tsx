@@ -15,7 +15,7 @@ type CallMeta = {
   summaryPending?: boolean;
   attendee?: string;
 };
-type Mem = { id: string; text: string; createdAt: number; source?: "manual" | "suggested" };
+type Mem = { id: string; text: string; createdAt: number };
 type SkillOpt = { name: string; title: string; description: string };
 type Utterance = { speaker: "me" | "them"; text: string; startMs: number };
 type ChecklistItemR = { id: string; text: string; done: boolean };
@@ -117,15 +117,17 @@ function PrepRecap(props: { direction?: string; components?: PrepComp[] }): JSX.
   if (goal) parts.push("goal");
   if (hasChecklist && checklist?.type === "checklist") {
     const n = checklist.items.length;
-    parts.push(`${n} topic${n === 1 ? "" : "s"}`);
+    parts.push(`${n} to cover`);
   }
+  // A lone "brief" reads like a truncation — name it.
+  const summaryText = parts.length === 1 && direction ? "your brief" : parts.join(" · ");
 
   return (
     <div className="pcs-section pcs-prep" data-testid="call-prep">
       <button className="pcs-checklist-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className="pcs-section-label" style={{ margin: 0 }}>Your prep</span>
+        <span className="pcs-section-label" style={{ margin: 0 }}>Your game plan</span>
         <span className="pcs-checklist-count" data-testid="call-prep-summary">
-          {parts.join(" · ")}
+          {summaryText}
           <svg className={`pcs-chevron${open ? " open" : ""}`} width="13" height="13" viewBox="0 0 24 24" fill="none">
             <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -135,7 +137,7 @@ function PrepRecap(props: { direction?: string; components?: PrepComp[] }): JSX.
         <div className="pcs-prep-body">
           {direction && (
             <div className="pcs-prep-block" data-testid="call-prep-direction">
-              <div className="pcs-prep-label">Your brief</div>
+              <div className="pcs-prep-label">Brief</div>
               <p className="pcs-prep-direction">{direction}</p>
             </div>
           )}
@@ -197,6 +199,9 @@ export default function App(): JSX.Element {
   const [direction, setDirection] = useState("");
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [error, setError] = useState<string | null>(null);
+  // True while a call:start is in flight — disables the Start button so a second
+  // click can't fire a duplicate call (P2).
+  const [isStarting, setIsStarting] = useState(false);
   const [hotkey, setHotkey] = useState("Alt+Shift+Space");
   const [calls, setCalls] = useState<CallMeta[]>([]);
   const [skills, setSkills] = useState<SkillOpt[]>([]);
@@ -327,25 +332,31 @@ export default function App(): JSX.Element {
   const startCall = useCallback(async (dir: string) => {
     setError(null);
     if (!dir.trim()) { setError("Describe the call first."); return; }
-    const r = await window.prompty.invoke("call:start", { direction: dir, skill: skill || undefined });
-    if (!r.ok) {
-      const pf = await window.prompty.invoke("preflight:get", undefined as never).catch(() => null);
-      setError(pf?.message ?? r.error ?? "Couldn't start the call.");
-      if (pf?.code === "mic") refreshMic();
-      return;
+    if (isStarting) return; // guard against a double-fire while one is in flight
+    setIsStarting(true);
+    try {
+      const r = await window.prompty.invoke("call:start", { direction: dir, skill: skill || undefined });
+      if (!r.ok) {
+        const pf = await window.prompty.invoke("preflight:get", undefined as never).catch(() => null);
+        setError(pf?.message ?? r.error ?? "Couldn't start the call.");
+        if (pf?.code === "mic") refreshMic();
+        return;
+      }
+      // Snapshot the plan for the in-progress view BEFORE clearing it — the live
+      // call still needs its direction/goal/checklist as read-only reference.
+      setLivePlan({ direction: dir, components: prepComponents });
+      // The brief was consumed by this call — clear the pending prep so it doesn't
+      // carry into the next one. The main process clears the persisted copy
+      // (directionDraft + prepComponents); this clears the live editor state to
+      // match. Skill is sticky and deliberately left as-is.
+      setDirection("");
+      setPrepComponents([]);
+      // Starting a call means the loop has been learned — retire the first-run tour.
+      if (firstRun) dismissFirstRun();
+    } finally {
+      setIsStarting(false);
     }
-    // Snapshot the plan for the in-progress view BEFORE clearing it — the live
-    // call still needs its direction/goal/checklist as read-only reference.
-    setLivePlan({ direction: dir, components: prepComponents });
-    // The brief was consumed by this call — clear the pending prep so it doesn't
-    // carry into the next one. The main process clears the persisted copy
-    // (directionDraft + prepComponents); this clears the live editor state to
-    // match. Skill is sticky and deliberately left as-is.
-    setDirection("");
-    setPrepComponents([]);
-    // Starting a call means the loop has been learned — retire the first-run tour.
-    if (firstRun) dismissFirstRun();
-  }, [refreshMic, skill, prepComponents, firstRun, dismissFirstRun]);
+  }, [refreshMic, skill, prepComponents, firstRun, dismissFirstRun, isStarting]);
 
   // Sticky skill: a discrete pick, so persist it synchronously on change (no
   // debounce — immune to the directionDraft quick-close race).
@@ -368,16 +379,18 @@ export default function App(): JSX.Element {
   // streams in via broadcast) appends after it.
   const enterPrep = useCallback(async () => {
     const brief = direction.trim();
-    if (!brief) return;
+    // Allow resuming a restored draft that has components even if the brief was
+    // cleared (the "Continue prep" path); only a wholly-empty plan no-ops.
+    if (!brief && prepComponents.length === 0) return;
     track("prep_started", { skill: skill || "none" });
     setPrepError(null);
-    setPrepMessages([{ role: "user", text: brief }]);
+    setPrepMessages(brief ? [{ role: "user", text: brief }] : []);
     streamingRef.current = false;
     void window.prompty.invoke("main:set-prep-layout", { wide: true });
     setScreen({ id: "prep" });
     const r = await window.prompty.invoke("prep:start", { direction: brief });
     if (!r.ok) setPrepError("Couldn't start prep — is Claude Code installed?");
-  }, [direction, skill]);
+  }, [direction, skill, prepComponents]);
 
   // "Start fresh" — discard the whole pending prep (direction + components),
   // state and persisted, returning home to a clean slate.
@@ -420,45 +433,56 @@ export default function App(): JSX.Element {
     });
   }, [newMemory]);
 
-  const saveMemoryEdit = useCallback(() => {
-    if (!editingMem) return;
-    const { id, draft } = editingMem;
-    const text = draft.trim();
-    setEditingMem(null);
-    if (!text) return;
-    void window.prompty.invoke("memory:update", { id, text }).then((r) => {
-      if (r.ok) setMemories((list) => list.map((m) => (m.id === id ? { ...m, text } : m)));
-    });
-  }, [editingMem]);
-
   // Delete is reversible (M2): the row goes immediately, but the deleted memory
-  // lingers as an Undo toast for a few seconds. Undo re-adds it (a fresh id, same
-  // text) — there's no soft-delete on the backend, so this re-persists it.
+  // lingers as an Undo toast for a few seconds. Undo restores it in place (same
+  // id, createdAt, and list position) via memory:restore.
   const memUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [memUndo, setMemUndo] = useState<Mem | null>(null);
+  const [memUndo, setMemUndo] = useState<{ item: Mem; index: number } | null>(null);
+  const dismissMemUndo = useCallback(() => {
+    if (memUndoTimer.current) clearTimeout(memUndoTimer.current);
+    setMemUndo(null);
+  }, []);
   const deleteMemory = useCallback((id: string) => {
-    const victim = memories.find((m) => m.id === id);
+    const index = memories.findIndex((m) => m.id === id);
+    const victim = index === -1 ? undefined : memories[index];
     void window.prompty.invoke("memory:delete", { id }).then((r) => {
       if (!r.ok) return;
       setMemories((list) => list.filter((m) => m.id !== id));
       if (victim) {
-        setMemUndo(victim);
+        setMemUndo({ item: victim, index });
         if (memUndoTimer.current) clearTimeout(memUndoTimer.current);
         memUndoTimer.current = setTimeout(() => setMemUndo(null), 6000);
       }
     });
   }, [memories]);
   const undoDeleteMemory = useCallback(() => {
-    setMemUndo((victim) => {
+    setMemUndo((u) => {
       if (memUndoTimer.current) clearTimeout(memUndoTimer.current);
-      if (victim) {
-        void window.prompty.invoke("memory:add", { text: victim.text }).then((r) => {
-          if (r.item) setMemories((list) => [...list, r.item as Mem]);
+      if (u) {
+        void window.prompty.invoke("memory:restore", { item: u.item, index: u.index }).then((r) => {
+          if (r.item) setMemories((list) => {
+            const next = list.slice();
+            next.splice(Math.min(u.index, next.length), 0, r.item as Mem);
+            return next;
+          });
         });
       }
       return null;
     });
   }, []);
+
+  // M3: emptying an edit is treated as "remove this" (routed to delete-with-undo),
+  // not a silent no-op that snaps back to the old text.
+  const saveMemoryEdit = useCallback(() => {
+    if (!editingMem) return;
+    const { id, draft } = editingMem;
+    const text = draft.trim();
+    setEditingMem(null);
+    if (!text) { deleteMemory(id); return; }
+    void window.prompty.invoke("memory:update", { id, text }).then((r) => {
+      if (r.ok) setMemories((list) => list.map((m) => (m.id === id ? { ...m, text } : m)));
+    });
+  }, [editingMem, deleteMemory]);
 
   // ── Auto-scroll prep chat ───────────────────────────────────────────────────
 
@@ -641,6 +665,7 @@ export default function App(): JSX.Element {
         sendPrep={sendPrep}
         onClose={closePrep}
         onBeginCall={() => startCall(direction)}
+        starting={isStarting}
         skills={skills}
         skill={skill}
         pickSkill={pickSkill}
@@ -676,6 +701,7 @@ export default function App(): JSX.Element {
         deleteMemory={deleteMemory}
         memUndo={memUndo}
         onUndoDelete={undoDeleteMemory}
+        onDismissUndo={dismissMemUndo}
         onBack={() => setScreen({ id: "home" })}
       />
     );
@@ -703,6 +729,7 @@ export default function App(): JSX.Element {
       calls={calls}
       isLive={isLive}
       liveTimer={liveTimer}
+      liveTitle={livePlan?.direction}
       error={error}
       onDismissError={() => setError(null)}
       onRetryError={() => { window.prompty.invoke("preflight:get", undefined as never).then((pf) => setError(pf?.message ?? null)).catch(() => {}); }}
@@ -785,6 +812,7 @@ function HomeScreen(props: {
   calls: CallMeta[];
   isLive: boolean;
   liveTimer: string;
+  liveTitle?: string;
   error: string | null;
   onDismissError: () => void;
   onRetryError: () => void;
@@ -808,7 +836,10 @@ function HomeScreen(props: {
   firstRun: boolean;
   onDismissFirstRun: () => void;
 }): JSX.Element {
-  const { calls, isLive, liveTimer, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings, firstRun, onDismissFirstRun } = props;
+  const { calls, isLive, liveTimer, liveTitle, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings, firstRun, onDismissFirstRun } = props;
+  // Anchor the live row to the prepped call's brief (first line, trimmed) so it
+  // reads as this specific call, not a generic "Current call" (H3).
+  const liveRowTitle = liveTitle?.split("\n")[0].trim().slice(0, 50) || "Current call";
   useScreenDwell("home");
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -942,7 +973,7 @@ function HomeScreen(props: {
             </div>
           )}
 
-          {firstRun && !isLive && components.length === 0 && (
+          {firstRun && !isLive && calls.length === 0 && (
             <div className="home-coach" data-testid="home-coach" role="status">
               <button
                 className="home-coach-dismiss"
@@ -983,14 +1014,22 @@ function HomeScreen(props: {
           {components.length > 0 && (
             <div className="home-pinned" data-testid="home-pinned">
               <span className="home-pinned-text">
-                Pinned:
-                {goal ? " a goal" : ""}
-                {goal && checklistCount ? " ·" : ""}
-                {checklistCount ? ` ${checklistCount} checklist item${checklistCount === 1 ? "" : "s"}` : ""}
+                Picking up your prep
+                {(() => {
+                  const bits: string[] = [];
+                  if (goal) bits.push("a goal");
+                  if (checklistCount) bits.push(`${checklistCount} thing${checklistCount === 1 ? "" : "s"} to cover`);
+                  return bits.length ? ` — ${bits.join(", ")}.` : ".";
+                })()}
               </span>
-              <button className="home-pinned-clear" data-testid="home-start-fresh" onClick={onDiscard}>
-                Start fresh
-              </button>
+              <div className="home-pinned-actions">
+                <button className="home-pinned-continue" data-testid="home-continue-prep" onClick={onSend}>
+                  Continue prep
+                </button>
+                <button className="home-pinned-clear" data-testid="home-start-fresh" onClick={onDiscard}>
+                  Start fresh
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1054,9 +1093,10 @@ function HomeScreen(props: {
                     className="home-call-row home-live-row"
                     data-testid="home-live-row"
                     onClick={onViewLive}
+                    aria-label={`${liveRowTitle}, live ${liveTimer} — open`}
                   >
                     <span className="home-call-dot home-call-dot-live" />
-                    <span className="home-call-title">Current call</span>
+                    <span className="home-call-title">{liveRowTitle}</span>
                     <span className="home-call-rhs">
                       <span className="home-call-time home-live-time">Live · {liveTimer}</span>
                       <svg className="home-call-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -1117,19 +1157,27 @@ function CompMenu(props: { onDelete: () => void }): JSX.Element {
   const { onDelete } = props;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   return (
     <div className="comp-menu" ref={ref}>
-      <button className="comp-menu-trigger" onClick={() => setOpen((o) => !o)} type="button" aria-label="Options">
+      <button ref={triggerRef} className="comp-menu-trigger" onClick={() => setOpen((o) => !o)} type="button" aria-label="Options" aria-haspopup="menu" aria-expanded={open}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <circle cx="2" cy="7" r="1.25" fill="currentColor"/>
           <circle cx="7" cy="7" r="1.25" fill="currentColor"/>
@@ -1161,16 +1209,24 @@ function SkillDropdown(props: {
   const { skills, value, onChange, noteStyle } = props;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const selected = skills.find((s) => s.name === value);
   const label = selected?.title ?? "General";
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   const base = noteStyle ? "skill-dd note-style" : "skill-dd";
@@ -1178,9 +1234,12 @@ function SkillDropdown(props: {
   return (
     <div className={`${base}${open ? " open" : ""}`} ref={ref} data-testid="playground-skill">
       <button
+        ref={triggerRef}
         className="skill-dd-trigger"
         onClick={() => setOpen((o) => !o)}
         type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         <span className="skill-dd-label">{label}</span>
         <svg className={`skill-dd-chevron${open ? " open" : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -1228,6 +1287,7 @@ function PrepScreen(props: {
   sendPrep: () => void;
   onClose: () => void;
   onBeginCall: () => void;
+  starting: boolean;
   skills: SkillOpt[];
   skill: string;
   pickSkill: (name: string) => void;
@@ -1238,7 +1298,7 @@ function PrepScreen(props: {
   const {
     direction, setDirection, prepMessages, prepThinking, prepError,
     prepInput, setPrepInput, prepInputRef, chatLogRef, prepComponents, syncComponents,
-    sendPrep, onClose, onBeginCall, skills, skill, pickSkill, error,
+    sendPrep, onClose, onBeginCall, starting, skills, skill, pickSkill, error,
     firstRun, onDismissFirstRun,
   } = props;
   useScreenDwell("prep");
@@ -1310,7 +1370,6 @@ function PrepScreen(props: {
     <div className="prep-root">
       <div className="app-dragbar" />
 
-      {error && <div className="prep-error-banner">{error}</div>}
       <div className="prep-body">
         <section className="prep-chat-col">
           <div className="prep-chat-toprow">
@@ -1319,7 +1378,7 @@ function PrepScreen(props: {
           </div>
           <div className="prep-chat-log" ref={chatLogRef} data-testid="prep-log" role="log" aria-live="polite">
             {prepMessages.length === 0 && !prepThinking
-              ? <div className="prep-chat-empty">What's this call about? Tell Ruby and she'll help you prep.</div>
+              ? <div className="prep-chat-empty">What's this call about? Tell me and I'll help you prep.</div>
               : prepMessages.map((m, i) => (
                 <div key={i} data-testid={`prep-msg-${m.role}`} className={m.role === "user" ? "prep-bubble-user" : "prep-bubble-asst"}>{m.text}</div>
               ))}
@@ -1386,7 +1445,7 @@ function PrepScreen(props: {
               {prepThinking ? (
                 <div className="prep-sticky-updating" data-testid="prep-panel-updating">
                   <span className="prep-shimmer-dot" />
-                  Ruby is updating your plan…
+                  I'm updating your plan…
                 </div>
               ) : (
                 <div className="prep-sticky-help" tabIndex={0} aria-label="How to edit the game plan">
@@ -1395,13 +1454,14 @@ function PrepScreen(props: {
                     <path d="M6.5 6C6.5 5.17 7.17 4.5 8 4.5C8.83 4.5 9.5 5.17 9.5 6C9.5 6.83 8 7.5 8 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                     <circle cx="8" cy="11" r="0.75" fill="currentColor"/>
                   </svg>
-                  <div className="prep-sticky-tooltip">Click anywhere in the note to edit it</div>
+                  <div className="prep-sticky-tooltip">Click the brief or any item to edit</div>
                 </div>
               )}
             </div>
             <textarea
               className="prep-direction-input"
               data-testid="prep-direction"
+              aria-label="Call brief"
               value={direction}
               onChange={(e) => setDirection(e.target.value)}
               placeholder="What a good call looks like…"
@@ -1428,7 +1488,7 @@ function PrepScreen(props: {
                         </span>
                         <CompMenu onDelete={() => deleteComponent(c.id)} />
                       </div>
-                      <textarea className="prep-comp-goal-input" data-testid="goal-input" value={c.text} rows={2}
+                      <textarea className="prep-comp-goal-input" data-testid="goal-input" aria-label="Goal" value={c.text} rows={2}
                         placeholder="The outcome that makes this call a win…"
                         onChange={(e) => editGoal(c.id, e.target.value)} />
                     </div>
@@ -1448,7 +1508,7 @@ function PrepScreen(props: {
                         {c.items.map((it) => (
                           <li key={it.id} className="prep-comp-item" data-testid="checklist-item">
                             <span className="prep-comp-dot">○</span>
-                            <textarea className="prep-comp-item-input" value={it.text} rows={1}
+                            <textarea className="prep-comp-item-input" aria-label="Checklist item" value={it.text} rows={1}
                               placeholder={!it.text ? "Type to add a new item…" : undefined}
                               ref={(el) => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } }}
                               onChange={(e) => { editItem(c.id, it.id, e.target.value); const el = e.target; el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }} />
@@ -1486,11 +1546,14 @@ function PrepScreen(props: {
                 </div>
               )}
               <SkillDropdown skills={skills} value={skill} onChange={pickSkill} noteStyle />
-              <div className="prep-skill-caption">Shapes how Ruby helps on this call.</div>
-              {selectedSkill?.description && (
+              {/* P5: a selected playbook brings its own description; only show the
+                  generic caption when there's none (i.e. on "General"). */}
+              {selectedSkill?.description ? (
                 <div className="prep-skill-hint" data-testid="playground-skill-hint">
                   {selectedSkill.description}
                 </div>
+              ) : (
+                <div className="prep-skill-caption">Shapes how I help on this call.</div>
               )}
               <div className="prep-add-playbook" data-testid="prep-add-playbook">
                 Want to add your own playbook?{" "}
@@ -1507,11 +1570,14 @@ function PrepScreen(props: {
 
           </div>
           <div className="prep-panel-begin">
-            <button className="prep-begin-btn" data-testid="prep-begin" onClick={onBeginCall}>
+            {/* P1: surface the call-start error right by the button that triggers
+                it (not the far-away top of the screen), in a live region. */}
+            {error && <div className="prep-begin-error" role="alert">{error}</div>}
+            <button className="prep-begin-btn" data-testid="prep-begin" onClick={onBeginCall} disabled={starting}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="prep-begin-mic">
                 <path d="M11.9999 1C12.6565 1 13.3067 1.12933 13.9133 1.3806C14.52 1.63188 15.0712 2.00017 15.5355 2.46447C15.9998 2.92876 16.3681 3.47995 16.6193 4.08658C16.8706 4.69321 16.9999 5.34339 16.9999 6V10C16.9999 11.3261 16.4731 12.5979 15.5355 13.5355C14.5978 14.4732 13.326 15 11.9999 15C10.6738 15 9.40208 14.4732 8.4644 13.5355C7.52672 12.5979 6.99993 11.3261 6.99993 10V6C6.99993 4.67392 7.52672 3.40215 8.4644 2.46447C9.40208 1.52678 10.6738 1 11.9999 1ZM3.05493 11H5.06993C5.31222 12.6648 6.1458 14.1867 7.41816 15.2873C8.69053 16.3879 10.3166 16.9936 11.9989 16.9936C13.6813 16.9936 15.3073 16.3879 16.5797 15.2873C17.8521 14.1867 18.6856 12.6648 18.9279 11H20.9439C20.7166 13.0287 19.8066 14.9199 18.3631 16.3635C16.9197 17.8071 15.0286 18.7174 12.9999 18.945V23H10.9999V18.945C8.97107 18.7176 7.07972 17.8074 5.63611 16.3638C4.1925 14.9202 3.28234 13.0289 3.05493 11Z" fill="currentColor"/>
               </svg>
-              Start listening
+              {starting ? "Starting…" : "Start listening"}
             </button>
           </div>
         </aside>
@@ -1555,7 +1621,7 @@ function InProgressScreen(props: {
 
       <div className="pcs-body ip-body">
         {/* Calm status — Ruby works on the overlay; the recap arrives here. */}
-        <div className="ip-status" data-testid="in-progress-status">
+        <div className="ip-status" data-testid="in-progress-status" role="status" aria-live="polite">
           <p className="ip-status-line">I'm listening on the overlay pill.</p>
           <p className="ip-status-sub">Your recap lands here when you wrap up.</p>
         </div>
@@ -1597,7 +1663,7 @@ function InProgressScreen(props: {
       <div className="ip-footer">
         {isEnding && (
           <div className="ip-ending" data-testid="playground-ending">
-            <span className="mw-spinner" aria-hidden /> Wrapping up — saving your call summary. This lands in a few seconds.
+            <span className="mw-spinner" aria-hidden /> Wrapping up — saving your recap. This lands in a few seconds.
           </div>
         )}
         <button className="ip-finish-btn" data-testid="end-call" onClick={onEnd} disabled={isEnding}>
@@ -1774,6 +1840,7 @@ function PostCallScreen(props: {
           data-testid="call-title"
           onClick={startEditTitle}
           title="Rename this call"
+          aria-label={`Rename call: ${title}`}
         >
           {title}
           <svg className="pcs-title-pencil" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1855,7 +1922,7 @@ function PostCallScreen(props: {
             <path d="M15 4H7M18 16L21 19L18 22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M3 4V17C3 17.5304 3.21071 18.0391 3.58579 18.4142C3.96086 18.7893 4.46957 19 5 19H21M7 14H14M7 9H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          Summary
+          Recap
         </button>
         <button role="tab" id="pcs-tab-transcript" aria-selected={tab === "transcript"} aria-controls="pcs-tabpanel" className={`pcs-tab${tab === "transcript" ? " active" : ""}`} data-testid="post-call-tab-transcript" onClick={() => setTab("transcript")}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -1900,7 +1967,7 @@ function PostCallScreen(props: {
             ) : call.summaryPending ? (
               <div data-testid="call-summarizing">
                 <div className="pcs-summarizing">
-                  <div className="pcs-loading"><span className="mw-spinner" /> Summarizing this call…</div>
+                  <div className="pcs-loading"><span className="mw-spinner" /> Writing your recap…</div>
                   <p className="pcs-summarizing-sub">This takes a few seconds. You can leave — it'll be here when you're back.</p>
                 </div>
                 {/* Greyed recap skeleton so the page has shape while Ruby writes. */}
@@ -1972,7 +2039,7 @@ function PostCallScreen(props: {
                 </div>
                 <div className="pcs-memory-content">
                   <div className="pcs-memory-title">Saved to memory</div>
-                  <div className="pcs-memory-desc">Ruby will apply this to future calls.</div>
+                  <div className="pcs-memory-desc">I'll apply this to future calls.</div>
                 </div>
                 <div className="pcs-memory-savedactions">
                   <button className="pcs-memory-link" data-testid="nudge-note-view" onClick={onViewMemory}>View</button>
@@ -1982,7 +2049,7 @@ function PostCallScreen(props: {
             ) : noteOpen ? (
               <div className="pcs-memory-card pcs-memory-open">
                 <div className="pcs-memory-content">
-                  <div className="pcs-memory-title">Tell Ruby what to remember</div>
+                  <div className="pcs-memory-title">Tell me what to remember</div>
                   <textarea
                     className="pcs-note-input"
                     data-testid="nudge-note-input"
@@ -2006,8 +2073,8 @@ function PostCallScreen(props: {
                   </svg>
                 </div>
                 <div className="pcs-memory-content">
-                  <div className="pcs-memory-title">Tell Ruby what to remember</div>
-                  <div className="pcs-memory-desc">Want Ruby to nudge differently? Leave a note and it'll adjust next call.</div>
+                  <div className="pcs-memory-title">Tell me what to remember</div>
+                  <div className="pcs-memory-desc">Want me to nudge differently? Leave a note and I'll adjust next call.</div>
                 </div>
                 <button className="pcs-memory-btn" data-testid="nudge-note-open" onClick={() => setNoteOpen(true)}>
                   Add note
@@ -2034,11 +2101,12 @@ function MemoryScreen(props: {
   addMemory: () => void;
   saveMemoryEdit: () => void;
   deleteMemory: (id: string) => void;
-  memUndo: Mem | null;
+  memUndo: { item: Mem; index: number } | null;
   onUndoDelete: () => void;
+  onDismissUndo: () => void;
   onBack: () => void;
 }): JSX.Element {
-  const { memories, newMemory, setNewMemory, editingMem, setEditingMem, addMemory, saveMemoryEdit, deleteMemory, memUndo, onUndoDelete, onBack } = props;
+  const { memories, newMemory, setNewMemory, editingMem, setEditingMem, addMemory, saveMemoryEdit, deleteMemory, memUndo, onUndoDelete, onDismissUndo, onBack } = props;
   useScreenDwell("memory");
   return (
     <div className="fullscreen-root">
@@ -2103,7 +2171,6 @@ function MemoryScreen(props: {
                       <>
                         <span className="mem-text">{m.text}</span>
                         <div className="mem-actions">
-                          {m.source === "suggested" && <span className="mem-tag">suggested</span>}
                           <button className="mem-action-btn" aria-label="Edit memory" onClick={() => setEditingMem({ id: m.id, draft: m.text })}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -2130,8 +2197,15 @@ function MemoryScreen(props: {
       </div>
       {memUndo && (
         <div className="mem-undo-toast" data-testid="memory-undo" role="status" aria-live="polite">
-          <span className="mem-undo-text">Memory deleted</span>
+          <span className="mem-undo-text">Memory deleted. Undo available.</span>
           <button className="mem-undo-btn" data-testid="memory-undo-btn" onClick={onUndoDelete}>Undo</button>
+          <button className="mem-undo-dismiss" data-testid="memory-undo-dismiss" aria-label="Dismiss" onClick={onDismissUndo}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+          {/* M4: a draining bar shows how long Undo stays available (6s). */}
+          <span className="mem-undo-countdown" aria-hidden />
         </div>
       )}
     </div>
@@ -2228,7 +2302,6 @@ function SettingsScreen(props: {
             label="Microphone"
             value={micFriendly}
             tone={micOk ? "green" : micBlocked ? "red" : "amber"}
-            pill={micOk ? "Allowed" : undefined}
             hint={micOk ? `Listening to: ${defaultInput ?? "your default microphone"}` : undefined}
           >
             {!micOk && (micBlocked
@@ -2240,7 +2313,6 @@ function SettingsScreen(props: {
             label="Claude Code"
             value={claude ? (claude.found ? "Connected" : "Not found") : "checking…"}
             tone={claude?.found ? "green" : claude ? "red" : "amber"}
-            pill={claude?.found ? "Connected" : undefined}
             valueTitle={claude?.path ?? undefined}
             hint="Ruby thinks with Claude Code — it drafts your prep and live nudges."
           >
@@ -2253,13 +2325,14 @@ function SettingsScreen(props: {
           <SettingRow
             label="Account"
             value={account ? (account.signedIn ? account.email ?? "Signed in" : "Not signed in") : "checking…"}
+            valueTitle={account?.email}
             tone={account?.signedIn ? "green" : account ? "amber" : "muted"}
-            pill={account?.signedIn ? "Signed in" : undefined}
+            pill={account?.signedIn && account.email ? "Signed in" : undefined}
           >
             {account && (account.signedIn
               ? (confirmingSignOut
                   ? <div className="set-confirm">
-                      <span className="set-confirm-text">Sign out? You'll need to sign in again to use transcription and the relay.</span>
+                      <span className="set-confirm-text">Sign out? I won't be able to transcribe your calls until you sign in again.</span>
                       <button className="set-btn" onClick={() => setConfirmingSignOut(false)}>Cancel</button>
                       <button className="set-btn set-btn-danger" disabled={authBusy} onClick={() => { setConfirmingSignOut(false); signOut(); }}>Sign out</button>
                     </div>
@@ -2289,7 +2362,7 @@ function SettingsScreen(props: {
           <SettingRow
             label="Share anonymous usage data"
             value={analyticsOptOut ? "Off" : "On"}
-            tone={analyticsOptOut ? "muted" : "green"}
+            tone="muted"
             hint="Anonymous product analytics that help improve Ruby — usage events only, never your call audio, transcripts, or notes."
           >
             <button className="set-btn" data-testid="set-analytics-toggle" onClick={toggleAnalytics}>

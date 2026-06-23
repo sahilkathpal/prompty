@@ -114,7 +114,7 @@ test("a summary-pending call shows the 'Summarizing…' hint + placeholder card"
     // Opening it shows the placeholder card, not the raw-JSON fallback.
     await row.click();
     await expect(page.getByTestId("call-summarizing")).toBeVisible();
-    await expect(page.getByTestId("call-summarizing")).toContainText("Summarizing this call");
+    await expect(page.getByTestId("call-summarizing")).toContainText("Writing your recap");
     // The hero (title shell) is shared by every state, so it shows while the
     // summary is still generating too — not just once the card lands.
     await expect(page.getByTestId("call-card")).toBeVisible();

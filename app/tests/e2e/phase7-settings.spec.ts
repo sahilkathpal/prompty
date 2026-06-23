@@ -134,20 +134,25 @@ test("Memory: delete is reversible via the Undo toast", async () => {
     const page = await getMainPage(app);
 
     await page.getByTestId("nav-memory").click();
-    const TEXT = "Don't interrupt when I'm mid-sentence.";
-    await page.getByTestId("memory-input").fill(TEXT);
+    const FIRST = "Don't interrupt when I'm mid-sentence.";
+    const SECOND = "Keep nudges short.";
+    await page.getByTestId("memory-input").fill(FIRST);
     await page.getByTestId("memory-add").click();
-    await expect(page.getByTestId("memory-item")).toHaveCount(1);
+    await page.getByTestId("memory-input").fill(SECOND);
+    await page.getByTestId("memory-add").click();
+    await expect(page.getByTestId("memory-item")).toHaveCount(2);
+    await expect(page.getByTestId("memory-item").first()).toContainText(FIRST);
 
-    // Delete → the row goes, but an Undo toast appears.
-    await page.getByTestId("memory-delete").click();
-    await expect(page.getByTestId("memory-item")).toHaveCount(0);
+    // Delete the FIRST row → it goes, but an Undo toast appears.
+    await page.getByTestId("memory-delete").first().click();
+    await expect(page.getByTestId("memory-item")).toHaveCount(1);
     await expect(page.getByTestId("memory-undo")).toBeVisible();
 
-    // Undo restores it.
+    // M2: Undo restores it IN PLACE — back at the front, not appended to the end.
     await page.getByTestId("memory-undo-btn").click();
-    await expect(page.getByTestId("memory-item")).toHaveCount(1);
-    await expect(page.getByTestId("memory-item").first()).toContainText(TEXT);
+    await expect(page.getByTestId("memory-item")).toHaveCount(2);
+    await expect(page.getByTestId("memory-item").first()).toContainText(FIRST);
+    await expect(page.getByTestId("memory-item").nth(1)).toContainText(SECOND);
   } finally {
     await app.close();
     await fs.rm(dir, { recursive: true, force: true });

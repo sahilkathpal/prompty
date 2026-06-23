@@ -9,7 +9,7 @@ import fs from "node:fs/promises";
 // and the __prompty_e2e bridge only exists in that mode. So this spec launches
 // the REAL app WITHOUT PROMPTY_E2E (onboarding actually opens) and drives the
 // onboarding renderer directly. Onboarding only touches claude-detection /
-// permission-status / celebrate / complete IPC — none of which need the audio,
+// permission-status / complete IPC — none of which need the audio,
 // agent, or Deepgram mocks, so a clean launch is correct and needs no API key.
 //
 // Deliberately NOT exercised (can't be driven without flaking the OS):
@@ -60,7 +60,7 @@ async function findWindow(
   throw new Error(`${fragment} window not found within ${timeoutMs}ms`);
 }
 
-test("onboarding: flow renders, advances, goes back, celebrates, and completes", async () => {
+test("onboarding: flow renders, advances, goes back, and completes", async () => {
   test.setTimeout(60_000);
 
   const dir = await freshUserDataDir("e2e-onboarding");
@@ -116,16 +116,6 @@ test("onboarding: flow renders, advances, goes back, celebrates, and completes",
     await expect(ob.locator("text=How Ruby works")).toBeVisible({ timeout: 5_000 });
     await ob.click("button.ob-btn-primary"); // "Continue →" again
     await expect(ob.locator("text=Ruby thinks with Claude Code")).toBeVisible({ timeout: 5_000 });
-
-    // ── celebrate: must resolve (regression guard for the hardcoded image path)
-    //    and spawn the full-screen confetti window. ────────────────────────────
-    const before = app.windows().length;
-    await ob.evaluate(async () => {
-      await (window as unknown as Bridge).prompty.invoke("onboarding:celebrate", undefined);
-    });
-    await expect
-      .poll(() => app.windows().length, { timeout: 5_000 })
-      .toBeGreaterThan(before);
 
     // ── complete: flips the persisted flag, hides overlay, closes onboarding. ─
     // Fire-and-forget: the complete handler tears down this very window, so
@@ -198,7 +188,7 @@ test("onboarding: arming the hotkey blooms a real nudge in the gem", async () =>
     // tag (the sample nudges are medium urgency), and one of the sample questions.
     const bloom = overlay.locator('[data-testid="gem-bloom"]');
     await expect(bloom).toBeVisible({ timeout: 5_000 });
-    await expect(bloom.locator(".gem-note-tag")).toHaveText("Ruby");
+    await expect(bloom.locator(".gem-note-tag")).toHaveText("Worth asking");
     const firstText = (await bloom.locator(".gem-note-q").textContent())?.trim() ?? "";
     expect(firstText.length).toBeGreaterThan(0);
 

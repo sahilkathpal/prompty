@@ -84,6 +84,12 @@ export interface InvokeChannels {
     request: { id: string };
     response: { ok: boolean };
   };
+  // Undo a delete (M2): re-insert the item at its original index, preserving id +
+  // createdAt so the list order and identity are restored, not appended afresh.
+  "memory:restore": {
+    request: { item: MemoryItem; index: number };
+    response: { item: MemoryItem | null };
+  };
   // Prep chat (RUBY B2 phase 2b): a conversational pre-call session. Start opens
   // the prep agent seeded with the current working direction; send is one user
   // turn; end tears it down. Assistant replies + live direction rewrites arrive
@@ -244,10 +250,6 @@ export interface InvokeChannels {
   // apps behind it, and only captures while the cursor is over the gem/note/panel.
   "overlay:set-mouse-ignore": {
     request: { ignore: boolean };
-    response: void;
-  };
-  "onboarding:celebrate": {
-    request: void;
     response: void;
   };
   // Register the real global hotkey for the onboarding hotkey step and put the

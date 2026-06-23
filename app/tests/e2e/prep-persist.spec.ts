@@ -67,6 +67,10 @@ test("prepped brief (direction + components) survives an app restart, then clear
     // the bar shows the direction and the "Pinned" line summarises the components.
     await expect(page.getByTestId("home-direction")).toHaveValue(DIR, { timeout: 10_000 });
     await expect(page.getByTestId("home-pinned")).toBeVisible();
+    // H1: the restored-draft surface offers a primary "Continue prep" beside the
+    // quieter "Start fresh".
+    await expect(page.getByTestId("home-continue-prep")).toBeVisible();
+    await expect(page.getByTestId("home-start-fresh")).toBeVisible();
     // ...and the persistence layer agrees.
     await expect
       .poll(
@@ -80,8 +84,10 @@ test("prepped brief (direction + components) survives an app restart, then clear
     console.log("RESTART: brief restored to the home bar + pinned line, and on disk");
 
     // ===== Resume into prep — the restored components actually reach the agent ==
-    // The bar already holds the restored direction; send straight into prep.
-    await page.getByTestId("home-send").click();
+    // "Continue prep" re-enters the draft with components intact (H1). Blur the
+    // autofocused home textarea first so its mousedown-blur doesn't race the click.
+    await page.locator(".home-section-heading").click();
+    await page.getByTestId("home-continue-prep").click();
     // Entering prep does NOT wipe the restored prep: both cards re-render...
     await expect(page.getByTestId("component-goal")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("component-checklist")).toBeVisible({ timeout: 15_000 });

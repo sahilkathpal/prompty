@@ -62,6 +62,18 @@ export function addMemory(text: string): MemoryItem | null {
   return item;
 }
 
+/** Re-insert a previously-deleted item at a given index, preserving its id, text,
+ *  and createdAt (Undo, M2). No-ops to the existing item if the id is already
+ *  present; clamps the index into range. */
+export function restoreMemory(item: MemoryItem, index: number): MemoryItem {
+  const items = readMemory();
+  if (items.some((i) => i.id === item.id)) return item;
+  const at = Math.max(0, Math.min(index, items.length));
+  items.splice(at, 0, item);
+  writeMemory(items);
+  return item;
+}
+
 /** Edit an item's text in place. False if the id is unknown or text is empty. */
 export function updateMemory(id: string, text: string): boolean {
   const clean = text.trim();

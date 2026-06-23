@@ -170,9 +170,9 @@ export default function App(): JSX.Element {
   // Focus moves to the step container on each advance/goBack (O9 a11y).
   const stepRef = useRef<HTMLDivElement>(null);
 
-  // Ruby copy (dev reference — pill not yet implemented)
-  const [bubbleText, setBubbleTextState] = useState("");
-  const [bubbleVisible, setBubbleVisible] = useState(false);
+  // Ruby's narration is pushed to the gem overlay via onboarding:set-ruby-message.
+  // The refs track the current text/visibility so re-sends and step transitions
+  // debounce correctly (no React state — nothing in this window renders it).
   const bubbleVisibleRef = useRef(false);
   const bubbleTextRef = useRef("");
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -189,25 +189,19 @@ export default function App(): JSX.Element {
 
     if (text === null) {
       bubbleVisibleRef.current = false;
-      setBubbleVisible(false);
       return;
     }
     if (bubbleVisibleRef.current && bubbleTextRef.current === text) return;
     if (bubbleVisibleRef.current) {
       bubbleVisibleRef.current = false;
-      setBubbleVisible(false);
       bubbleTimerRef.current = setTimeout(() => {
         bubbleTextRef.current = text;
-        setBubbleTextState(text);
         bubbleVisibleRef.current = true;
-        setBubbleVisible(true);
         bubbleTimerRef.current = null;
       }, 300);
     } else {
       bubbleTextRef.current = text;
-      setBubbleTextState(text);
       bubbleVisibleRef.current = true;
-      setBubbleVisible(true);
     }
   }
 
@@ -215,7 +209,7 @@ export default function App(): JSX.Element {
 
   function bubbleForStep(idx: number, c: typeof claude, mg: boolean) {
     const s = STEPS[idx];
-    if (s === "welcome") return "Hi, I'm Ruby. I sit in on your calls and whisper the right thing to say, live. Let's get you set up.";
+    if (s === "welcome") return "Hi, I'm Ruby. Let's get you set up — this takes about two minutes.";
     if (s === "how") return "Here's how I'll help on every call — watch the pill up in the corner.";
     if (s === "claude") {
       if (c === null) return null;
@@ -255,7 +249,7 @@ export default function App(): JSX.Element {
   // ── Welcome bubble on mount ───────────────────────────────────────────────
 
   useEffect(() => {
-    setBubble("Hi, I'm Ruby. I sit in on your calls and whisper the right thing to say, live. Let's get you set up.");
+    setBubble("Hi, I'm Ruby. Let's get you set up — this takes about two minutes.");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── React to claude loading while on step 2 ───────────────────────────────
@@ -505,11 +499,13 @@ export default function App(): JSX.Element {
           )}
         </div>
 
+        {/* No aria-live here: focus moves into this container on each advance
+            (stepRef), and the inner check rows are their own role="status"
+            regions — an outer live region would double-announce (OB5). */}
         <div
           className={`ob-step${stepVisible ? " ob-step-in" : " ob-step-out"}`}
           ref={stepRef}
           tabIndex={-1}
-          aria-live="polite"
         >
             {step === "welcome" && (
               <StepWelcome onNext={advance} />
@@ -593,9 +589,9 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
       <div style={{ marginBottom: 18 }}><RubyLogo size={48} /></div>
       <h1 className="ob-title">Meet Ruby.</h1>
       <p className="ob-body">
-        Ruby sits in on your calls and whispers the right thing to say, live —
-        watch the pill up in the corner. She preps you before, listens during,
-        and writes the recap after. Everything runs on your machine.
+        Ruby sits in on your calls and whispers the right thing to say, live.
+        She preps you before, listens during, and writes the recap after.
+        Everything runs on your machine.
       </p>
       <div className="ob-actions">
         <button className="ob-btn-primary" onClick={onNext}>
@@ -614,7 +610,7 @@ function StepHow({ onNext }: { onNext: () => void }) {
     { n: 1, title: "Prep", body: "Tell Ruby what the call's about and pick a playbook for the kind of call." },
     { n: 2, title: "Live", body: "Ruby listens and whispers the right thing to say through a little floating pill ↗", live: true },
     { n: 3, title: "Recap", body: "Finish the call and Ruby writes up what was said — and what surfaced." },
-    { n: 4, title: "Memory", body: "Tell Ruby how you like to be nudged. It sticks across every call." },
+    { n: 4, title: "Memory", body: "Tell Ruby how you like to be nudged — she remembers it across every call." },
   ];
   return (
     <div className="ob-step-content">
@@ -695,6 +691,10 @@ function StepClaude({
           </div>
           <div className="ob2-instructions">
             <ol>
+              <li>
+                Make sure Node.js is installed{" "}
+                <button className="ob-link" onClick={() => onOpenExternal("https://nodejs.org/en/download")}>Install Node</button>
+              </li>
               <li>Open Terminal on your Mac</li>
               <li>Install Claude Code: <Code>npm install -g @anthropic-ai/claude-code</Code></li>
               <li>Log in to your Anthropic account: <Code>claude login</Code></li>
@@ -703,8 +703,6 @@ function StepClaude({
             </ol>
           </div>
           <p className="ob-note">
-            Requires Node.js — don't have it?{" "}
-            <button className="ob-link" onClick={() => onOpenExternal("https://nodejs.org/en/download")}>Install Node</button>.
             More AI agents coming soon: Gemini CLI, OpenCode, and others.
           </p>
           <div className="ob-actions">

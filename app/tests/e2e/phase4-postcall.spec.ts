@@ -88,7 +88,7 @@ test("post-call rework: softened coverage, attribution, tab a11y, copy aria, not
     // PC1: prep (collapsed at the top of the recap) carries a calm descriptive
     // count, not "X of Y".
     const stat = page.getByTestId("call-prep-summary");
-    await expect(stat).toContainText("3 topics");
+    await expect(stat).toContainText("3 to cover");
     await expect(stat).not.toContainText(" of ");
 
     // PC3: tab a11y semantics.
@@ -116,6 +116,53 @@ test("post-call rework: softened coverage, attribution, tab a11y, copy aria, not
     // Back to the un-saved "Add note" affordance.
     await expect(page.getByTestId("nudge-note-open")).toBeVisible();
     await expect(page.getByTestId("nudge-note-saved")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+// X19: the click-to-edit title renames the call (Enter commits + persists,
+// Escape reverts).
+test("post-call: rename title persists on Enter and reverts on Escape", async () => {
+  const userDataDir = await freshUserDataDir("e2e-rename");
+  const callLogDir = path.join(userDataDir, "calls");
+  const memoryFile = path.join(userDataDir, "memory.json");
+  await fs.mkdir(callLogDir, { recursive: true });
+  await seedSettings(userDataDir);
+  const callFile = path.join(callLogDir, "2024-05-01T10-00-00-000Z-acme.json");
+  await fs.writeFile(callFile, JSON.stringify(modernCall(1_714_557_600_000)), "utf8");
+
+  const app = await launchApp(userDataDir, {
+    env: { PROMPTY_CALL_LOG_DIR: callLogDir, PROMPTY_MEMORY_FILE: memoryFile },
+  });
+  try {
+    await waitForReady(app);
+    await openMainWindow(app);
+    const page = await getMainPage(app);
+
+    await page.getByTestId("call-row").first().click();
+    const title = page.getByTestId("call-title");
+    await expect(title).toContainText("Acme discovery");
+
+    // Enter commits the new title and updates the hero.
+    await title.click();
+    const input = page.getByTestId("call-title-input");
+    await expect(input).toBeVisible();
+    await input.fill("Renamed via test");
+    await input.press("Enter");
+    await expect(page.getByTestId("call-title")).toContainText("Renamed via test");
+
+    // It persisted to the call log on disk.
+    await expect
+      .poll(async () => JSON.parse(await fs.readFile(callFile, "utf8")).title)
+      .toBe("Renamed via test");
+
+    // Escape discards an in-progress edit, leaving the committed title.
+    await page.getByTestId("call-title").click();
+    const input2 = page.getByTestId("call-title-input");
+    await input2.fill("Should not stick");
+    await input2.press("Escape");
+    await expect(page.getByTestId("call-title")).toContainText("Renamed via test");
   } finally {
     await app.close();
   }

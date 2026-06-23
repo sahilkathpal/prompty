@@ -134,7 +134,7 @@ test("in-call check-off persists done state and renders post-call coverage", asy
     // Coverage is no longer a judgmental "X of Y" score — the header carries a
     // calm descriptive count (PC1/X3). Coverage detail (✓/○) lives in the
     // expanded checklist block.
-    await expect(stat).toContainText("2 topics");
+    await expect(stat).toContainText("2 to cover");
 
     // The prep is collapsed by default (reference, not a headline) — expand it,
     // then the covered item renders with a ✓ and the uncovered with ○.

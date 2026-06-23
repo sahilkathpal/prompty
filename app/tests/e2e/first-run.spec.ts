@@ -33,8 +33,13 @@ test("first run: complete onboarding opens Home with the prep + playbook coachma
   });
 
   try {
+    const ob = await findWindow(app, "onboarding");
+    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
+
     // Stub shell.openExternal so "Speak to founders" records its URL instead of
-    // launching a real browser during the test.
+    // launching a real browser during the test. Done after the onboarding window
+    // is up — evaluating the main process mid-launch races window navigation and
+    // can throw "Execution context was destroyed".
     await app.evaluate(({ shell }) => {
       (globalThis as unknown as { __opened: string[] }).__opened = [];
       shell.openExternal = (url: string) => {
@@ -42,9 +47,6 @@ test("first run: complete onboarding opens Home with the prep + playbook coachma
         return Promise.resolve();
       };
     });
-
-    const ob = await findWindow(app, "onboarding");
-    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
 
     // Complete (fire-and-forget: the handler tears down this window).
     await ob.evaluate(() => {
