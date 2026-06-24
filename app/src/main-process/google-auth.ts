@@ -1,10 +1,12 @@
 // Google OAuth (installed-app PKCE flow) for Electron.
 //
-// Opens a BrowserWindow at Google's authorize URL, captures the auth code
-// at a loopback redirect, exchanges for tokens via PKCE (no client secret),
-// and persists tokens encrypted with safeStorage.
+// Opens Google's authorize URL in the user's *system browser* (not an embedded
+// BrowserWindow — Google blocks OAuth in embedded webviews with a
+// "disallowed_useragent" error, which renders as a broken/JS-less page), then
+// captures the auth code at a loopback redirect, exchanges for tokens via PKCE
+// (no client secret), and persists tokens encrypted with safeStorage.
 
-import { app, BrowserWindow } from "electron";
+import { app, shell } from "electron";
 import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -290,39 +292,32 @@ export async function signInWithGoogle(): Promise<{ userId: string; email: strin
   authUrl.searchParams.set("access_type", "offline");
   authUrl.searchParams.set("prompt", "consent");
 
-  const win = new BrowserWindow({
-    width: 500,
-    height: 700,
-    title: "Sign in with Google",
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
-  });
-  win.loadURL(authUrl.toString());
+  // Open in the system browser. Google rejects OAuth in embedded webviews
+  // (Electron BrowserWindow), so the loopback redirect is what brings the code
+  // back to us — see RFC 8252 (OAuth 2.0 for Native Apps).
+  await shell.openExternal(authUrl.toString());
 
-  // If the user closes the auth window before Google redirects to our loopback,
-  // the loopback callback never fires — so race the result against a "window
-  // closed" rejection. Without this the await hangs forever and the caller's
-  // in-flight sign-in (and its disabled button) never clears.
-  let closed = false;
-  const cancelled = new Promise<never>((_, reject) => {
-    win.on("closed", () => {
-      closed = true;
-      reject(new Error("Sign-in was cancelled."));
-    });
+  // The system browser has no "window closed" signal we can observe, so if the
+  // user abandons sign-in the loopback callback never fires. Time the wait out
+  // so the await doesn't hang forever and the caller's in-flight sign-in (and
+  // its disabled button) eventually clears.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Sign-in timed out. Please try again.")),
+      5 * 60 * 1000,
+    );
   });
-  // Swallow the rejection when cancellation isn't the race winner (success or a
+  // Swallow the rejection when the timeout isn't the race winner (success or a
   // loopback error settled first) so it never surfaces as an unhandled rejection.
-  cancelled.catch(() => {});
+  timedOut.catch(() => {});
 
   let result: LoopbackResult;
   try {
-    result = await Promise.race([loopback.result, cancelled]);
+    result = await Promise.race([loopback.result, timedOut]);
   } finally {
+    if (timer) clearTimeout(timer);
     loopback.close();
-    if (!closed) {
-      try {
-        win.close();
-      } catch {}
-    }
   }
 
   const tokens = await exchangeCode(result.code, verifier, redirectUri);

@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import { getSettings, updateSettings } from "./settings-store";
 
@@ -20,8 +20,7 @@ export function openMainWindow(tab?: MainTab): BrowserWindow {
     tab ?? (getSettings().lastTab as MainTab | undefined) ?? "prep";
 
   if (mainWin && !mainWin.isDestroyed()) {
-    mainWin.show();
-    mainWin.focus();
+    raiseToFront(mainWin);
     mainWin.webContents.send("main:tab-changed", { tab: target });
     updateSettings({ lastTab: target });
     return mainWin;
@@ -65,7 +64,7 @@ export function openMainWindow(tab?: MainTab): BrowserWindow {
   }
 
   mainWin.once("ready-to-show", () => {
-    mainWin?.show();
+    raiseToFront(mainWin);
     mainWin?.webContents.send("main:tab-changed", { tab: target });
   });
   mainWin.on("closed", () => {
@@ -74,6 +73,23 @@ export function openMainWindow(tab?: MainTab): BrowserWindow {
 
   updateSettings({ lastTab: target });
   return mainWin;
+}
+
+// Bring the window above every other app's windows, not just our own. On macOS
+// show()/focus() alone often leaves the window buried behind whatever the user
+// was last in, so we also pull the whole app forward (steal: true) and briefly
+// pin the window on top to win the z-order race, then release it so it behaves
+// like a normal window afterwards.
+function raiseToFront(win: BrowserWindow | null): void {
+  if (!win || win.isDestroyed()) return;
+  if (process.platform === "darwin") {
+    app.focus({ steal: true });
+  }
+  win.show();
+  win.setAlwaysOnTop(true);
+  win.focus();
+  win.moveTop();
+  win.setAlwaysOnTop(false);
 }
 
 export function closeMainWindow(): void {
