@@ -52,8 +52,9 @@ dmg:
   sign: false
 afterSign: scripts/notarize.mjs
 publish:
-  # Block G4: auto-update feed. Host `latest-mac.yml`, the .dmg, and the
-  # .blockmap files at this URL. See RELEASING.md for the layout.
+  # Block G4: auto-update feed. Host `latest-mac.yml`, the .zip, and the
+  # .blockmap files at this URL. See RELEASING.md for the layout. Namespaced
+  # under /ruby/ since codeongrass.com is the umbrella domain for multiple apps.
   provider: generic
-  url: https://updates.prompty.app/mac/
+  url: https://updates.codeongrass.com/ruby/mac/
   channel: latest
