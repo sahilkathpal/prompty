@@ -23,3 +23,6 @@ relay/.wrangler/
 
 # here.now agent workspace
 .herenow/
+
+# design reference (mockups + screenshots, kept local — 11MB of binaries)
+design/
