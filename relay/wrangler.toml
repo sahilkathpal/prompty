@@ -29,3 +29,7 @@ preview_id = "e31c10cf9e324710b5e07ab8dfbfcbe2"
 # bounding a single account. See RUBY_AUTH_RELAY_PLAN.md §Rethink #3.
 [vars]
 DAILY_MINT_LIMIT = "50"
+# App config links served by GET /config. Edit + `wrangler deploy` to change a
+# link live — the desktop app picks it up on next launch, no rebuild needed.
+FOUNDERS_URL = "https://cal.com/team/revise-ai/quick-chat"
+HOW_IT_WORKS_URL = "https://howrubyworks.codeongrass.com"

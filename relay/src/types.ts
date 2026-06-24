@@ -13,6 +13,10 @@ export interface Env {
 
   // Plain vars (from wrangler.toml [vars])
   DAILY_MINT_LIMIT?: string;
+  // App config links served by GET /config — editable via wrangler.toml + deploy
+  // (no app rebuild). Optional so a missing var falls back in the handler.
+  FOUNDERS_URL?: string;
+  HOW_IT_WORKS_URL?: string;
 }
 
 export interface PromptySessionClaims {

@@ -13,6 +13,8 @@ import type {
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
 import { capture as analyticsCapture, identifyUser } from "./analytics";
+import { openExternalSafely } from "./safe-open";
+import { getRemoteConfig } from "../src/main-process/remote-config";
 import { openMainWindow, getMainWindow } from "./main-window";
 import {
   showOverlay,
@@ -174,6 +176,9 @@ function broadcastSessionState(state: SessionState | "idle"): void {
   broadcast("session:state-changed", {
     state,
     setup: activeSessionSetup,
+    // First-call primer flag: true while the user's first call is starting/live.
+    firstCall:
+      (state === "starting" || state === "live") && getSettings().firstCallCoach,
   });
   // Legacy: also send the simpler call:status for existing listeners.
   const legacy =
@@ -362,6 +367,9 @@ async function doEndSession(): Promise<{ ok: boolean; error?: string }> {
     broadcastSessionState("idle");
     return { ok: true };
   }
+  // The first real call has now happened — retire the one-time in-call primer so
+  // it never shows again (regardless of how this call ends).
+  if (getSettings().firstCallCoach) updateSettings({ firstCallCoach: false });
   try {
     await s.end("user");
   } catch (e) {
@@ -755,7 +763,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   });
 
   handle("onboarding:open-external", (payload) => {
-    void shell.openExternal(payload.url);
+    // Scheme-allowlisted (audit finding #5) — see openExternalSafely.
+    openExternalSafely(payload.url);
+  });
+
+  // Dynamic links (founders call, "How Ruby works") whose URLs come from the
+  // relay's /config so they can change without an app rebuild. The renderer only
+  // names WHICH link; the URL is resolved here from the cached remote config and
+  // run through the same scheme allowlist.
+  handle("links:open", (payload) => {
+    const cfg = getRemoteConfig();
+    const url = payload.which === "howItWorks" ? cfg.howItWorksUrl : cfg.foundersUrl;
+    openExternalSafely(url);
   });
 
   // Renderer-emitted analytics. Allowlisted so only known, content-free events
@@ -823,7 +842,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     // Hand the global hotkey back to the live nudge path.
     onboardingHotkeyArmed = false;
     // Arm the one-time guided first run in Home (prep + playbook coachmarks).
-    updateSettings({ onboardingCompleted: true, firstRunCoach: true });
+    updateSettings({ onboardingCompleted: true, firstRunCoach: true, firstCallCoach: true });
     analyticsCapture("onboarding_completed");
     sendTo(getOverlayWindow(), "overlay:ruby-message", { text: null });
     // Clear the canned onboarding demo nudge so it can't linger in the gem's

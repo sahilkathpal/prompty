@@ -1,6 +1,7 @@
 ---
 title: Sales discovery
 description: Listen and qualify — mine pain before pitching.
+sample: Ask what they've already tried to fix this.
 ---
 
 ## Playbook: sales discovery — apply on top of the Direction (when present)

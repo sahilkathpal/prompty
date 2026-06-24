@@ -227,6 +227,12 @@ export interface InvokeChannels {
     request: { url: string };
     response: void;
   };
+  // Open a dynamic link whose URL is resolved in the main process from the
+  // relay's /config (so links change without a rebuild). Renderer names which.
+  "links:open": {
+    request: { which: "founders" | "howItWorks" };
+    response: void;
+  };
   // Renderer-emitted product-analytics event. Properties must be metadata only
   // (no call content) — the main process forwards them to PostHog. Fire-and-forget.
   "analytics:capture": {
@@ -300,6 +306,9 @@ export interface EventChannels {
   "session:state-changed": {
     state: "idle" | "starting" | "live" | "ending" | "ended" | "error";
     setup?: CallSetup | null;
+    // True only while the user's first-ever call is starting/live — gates the
+    // one-time overlay "ready" primer. Cleared once that call ends.
+    firstCall?: boolean;
   };
   // Live audio/transcription health for the overlay status dot.
   "session:status": SessionStatusEvent;

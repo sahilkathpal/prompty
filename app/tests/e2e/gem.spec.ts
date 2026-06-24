@@ -15,8 +15,8 @@ import {
 // Phase 3 verification (RUBY_MVP decision #14): the in-call overlay is "the
 // gem" — a small ruby anchor that blooms ONE ephemeral note beneath it, paces
 // a burst of notes (dwell + queue + high-urgency preempt, ported from the old
-// teleprompter), and expands into a quiet scrollback history on click. This
-// runs against the BUILT app under real (non-headless) Electron.
+// teleprompter), and expands into a quiet scrollback history on hover (a click
+// pins it open). This runs against the BUILT app under real (non-headless) Electron.
 
 const SCREENS = path.join(__dirname, "__screens__");
 
@@ -85,9 +85,9 @@ test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async
     // Let the bloom settle/fade before exercising the history.
     await expect(bloom).toHaveCount(0, { timeout: 4000 });
 
-    // 6) Click the gem → expand the scrollback history of every note this call,
-    //    each with a timestamp.
-    await gem.click();
+    // 6) Hover the gem → expand the scrollback history of every note this call,
+    //    each with a timestamp. (Hover is the primary path; a click pins it open.)
+    await gem.hover();
     const history = overlay.locator('[data-testid="gem-history"]');
     await expect(history).toHaveCount(1);
     // All the notes surfaced above are retained, newest first.
@@ -100,8 +100,9 @@ test("the gem: idle, bloom, fade, queue, preempt, and expandable history", async
     ).not.toHaveText("");
     await overlay.screenshot({ path: path.join(SCREENS, "gem-history.png") });
 
-    // 7) Click the gem again → collapse back to the calm single-gem state.
-    await gem.click();
+    // 7) Move the cursor off the gem → collapse back to the calm single-gem
+    //    state. Hover-open isn't pinned, so leaving the gem closes the panel.
+    await overlay.mouse.move(8, 8);
     await expect(history).toHaveCount(0);
   } finally {
     await app.close();
@@ -127,7 +128,7 @@ test("the gem: starting a call wipes any leftover nudge history", async () => {
 
     // Leftover nudge from "before" lands in the gem's history.
     await emitNudge(app, "LEFTOVER nudge from before this call");
-    await gem.click();
+    await gem.hover();
     const history = overlay.locator('[data-testid="gem-history"]');
     await expect(history).toContainText("LEFTOVER nudge from before this call");
 
@@ -138,7 +139,7 @@ test("the gem: starting a call wipes any leftover nudge history", async () => {
     // also collapses the gem and can race our re-expand, so poll: expand if
     // collapsed, then assert the cleared empty-state shows.
     await expect(async () => {
-      if ((await history.count()) === 0) await gem.click();
+      if ((await history.count()) === 0) await gem.hover();
       // Live empty-state copy (V7) — the call is starting/live after reset.
       await expect(history).toContainText(
         /Nothing worth flagging yet|Notes I surface will collect/,

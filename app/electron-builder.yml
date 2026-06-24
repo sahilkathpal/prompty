@@ -46,7 +46,7 @@ mac:
   # Core Audio process tap (system-audio capture) requires macOS 14.4+.
   minimumSystemVersion: "14.4"
   extendInfo:
-    NSMicrophoneUsageDescription: "Prompty needs microphone access to transcribe your side of the call."
+    NSMicrophoneUsageDescription: "Ruby needs microphone access to transcribe your side of the call."
 dmg:
   writeUpdateInfo: true
   sign: false

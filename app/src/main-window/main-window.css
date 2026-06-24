@@ -1876,6 +1876,24 @@ html, body, #root {
 .skill-dd-item:hover { background: #f5f0e8; }
 .skill-dd-item.active { background: #f5f0e8; font-weight: 500; }
 
+/* Enriched picker rows: each playbook shows what Ruby does + a sample nudge, so
+   the choice is informed and "what's a playbook" answers itself in context. */
+.skill-dd-item.rich { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; }
+.skill-dd-item-title { font-weight: 600; }
+.skill-dd-item-desc { font-size: 12px; line-height: 1.4; color: #6f6459; }
+.skill-dd-item-sample {
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #a81e39;
+  background: rgba(214, 48, 79, 0.08);
+  border-radius: 6px;
+  padding: 4px 7px;
+}
+.skill-dd.note-style .skill-dd-item-desc { color: #7a6336; }
+.skill-dd.note-style .skill-dd-item-sample { color: #9a3b2a; background: rgba(168, 30, 57, 0.09); }
+
 /* Note-style variant — matches the sticky note's warm yellow palette */
 .skill-dd.note-style {
   background: transparent;

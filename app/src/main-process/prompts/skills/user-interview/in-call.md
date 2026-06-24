@@ -1,6 +1,7 @@
 ---
 title: User interview (Mom Test)
 description: Learn their life, not your idea — past specifics, talk less.
+sample: Ask when they last ran into this.
 ---
 
 ## Playbook: user research interview (Mom Test) — apply on top of the Direction (when present)

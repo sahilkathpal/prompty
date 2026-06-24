@@ -123,6 +123,7 @@ export function listBundledSkills(): SkillInfo[] {
       name,
       title: data.title?.trim() || titleCase(name),
       description: data.description?.trim() || "",
+      sample: data.sample?.trim() || "",
     });
   }
   return out;

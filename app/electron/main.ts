@@ -19,6 +19,7 @@ import {
   shutdownIpc,
 } from "./ipc-handlers";
 import { recoverOrphanedJournals } from "../src/main-process/journal";
+import { fetchRemoteConfig } from "../src/main-process/remote-config";
 import { getSettings, updateSettings } from "./settings-store";
 import { loadEnv } from "./load-env";
 
@@ -205,6 +206,11 @@ app.on("ready", () => {
   configureOverlayWindow(DEV_URL);
   configureOnboardingWindow(DEV_URL);
 
+  // Pull dynamic link config (founders / how-it-works) from the relay so those
+  // URLs can change without a rebuild. Fire-and-forget — UI uses fallbacks until
+  // it lands, and falls back permanently if the relay is unreachable.
+  void fetchRemoteConfig();
+
   registerIpcHandlers({
     getOverlayWindow,
     onOnboardingComplete: () => {
@@ -324,6 +330,9 @@ app.on("ready", () => {
     openOnboardingWindow();
   } else {
     startTrayAndOverlay();
+    // Open the main window on launch. Previously an onboarded user got only the
+    // tray + gem overlay at startup and no visible window; bring up Home directly.
+    openMainWindow();
     maybePromptLoginItem();
   }
 });

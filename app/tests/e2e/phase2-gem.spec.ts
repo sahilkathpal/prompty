@@ -62,7 +62,7 @@ test("the gem: faced pill, urgency-driven tag/bar, dismiss, note count", async (
     await expect(bloom.locator(".gem-note-bar")).toHaveCount(1);
 
     // The note fades after its dwell, leaving the gem at rest. (The old always-on
-    // expand-count hint was removed — the panel opens on gem click instead.)
+    // expand-count hint was removed — the panel opens on gem hover instead.)
     await expect(bloom).toHaveCount(0, { timeout: 4000 });
   } finally {
     await app.close();

@@ -8,9 +8,11 @@ import {
   e2e,
 } from "./_helpers";
 
-// The gem overlay can end the call itself: click the gem to expand its panel,
-// then "End call" in the footer drives the same teardown as the tray / main
-// window. This runs against the BUILT app under real (non-headless) Electron.
+// The gem overlay can end the call itself: open its panel (hover reveals it; a
+// click pins it open), then "Finish listening" in the footer drives the same
+// teardown as the tray / main window. The clicks below pin the panel open, which
+// is why they still reveal the End control. Runs against the BUILT app under real
+// (non-headless) Electron.
 
 async function launchApp(): Promise<ElectronApplication> {
   const userDataDir = await freshUserDataDir("e2e-overlayend");

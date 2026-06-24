@@ -16,7 +16,7 @@ type CallMeta = {
   attendee?: string;
 };
 type Mem = { id: string; text: string; createdAt: number };
-type SkillOpt = { name: string; title: string; description: string };
+type SkillOpt = { name: string; title: string; description: string; sample: string };
 type Utterance = { speaker: "me" | "them"; text: string; startMs: number };
 type ChecklistItemR = { id: string; text: string; done: boolean };
 type PrepComp =
@@ -801,11 +801,12 @@ function useScreenDwell(screen: string): void {
   }, [screen]);
 }
 
-// "Speak to founders" — opens the founders' scheduling page in the browser.
-const FOUNDERS_URL = "https://calendly.com/sahil-revise";
+// "Speak to founders" — opens the founders' scheduling page in the browser. The
+// URL is resolved in the main process from the relay's /config (dynamic), so the
+// link can change without an app rebuild; the renderer only names which link.
 const openFounders = (where: "home" | "prep") => {
   track("speak_to_founders_clicked", { where });
-  void window.prompty.invoke("onboarding:open-external", { url: FOUNDERS_URL });
+  void window.prompty.invoke("links:open", { which: "founders" });
 };
 
 function HomeScreen(props: {
@@ -929,7 +930,7 @@ function HomeScreen(props: {
         <div className="home-chat-bg">
         <div className="home-chat-container">
           <div className="home-logo"><RubyLogo size={52} /></div>
-          <h2 className="home-section-heading">Let me help with your next call</h2>
+          <h2 className="home-section-heading">Hi — what call are you prepping for?</h2>
 
           {/* Chat input bar */}
           <div className={`home-bar${focused ? " focused" : ""}`}>
@@ -989,8 +990,7 @@ function HomeScreen(props: {
                 <span className="home-coach-title">Try your first prep</span>
                 <p className="home-coach-text">
                   Tell me what your next call's about and I'll help you prep —
-                  getting clear on what you want out of it. Next, pick a{" "}
-                  <strong>playbook</strong> for the kind of call.
+                  getting clear on what you want out of it.
                 </p>
                 <button
                   className="home-coach-example"
@@ -1250,20 +1250,23 @@ function SkillDropdown(props: {
         <div className="skill-dd-menu">
           <div className="skill-dd-divider" />
           <button
-            className={`skill-dd-item${!value ? " active" : ""}`}
+            className={`skill-dd-item rich${!value ? " active" : ""}`}
             onClick={() => { onChange(""); setOpen(false); }}
             type="button"
           >
-            General
+            <span className="skill-dd-item-title">General</span>
+            <span className="skill-dd-item-desc">No playbook — general-purpose help.</span>
           </button>
           {skills.map((s) => (
             <button
               key={s.name}
-              className={`skill-dd-item${value === s.name ? " active" : ""}`}
+              className={`skill-dd-item rich${value === s.name ? " active" : ""}`}
               onClick={() => { onChange(s.name); setOpen(false); }}
               type="button"
             >
-              {s.title}
+              <span className="skill-dd-item-title">{s.title}</span>
+              {s.description && <span className="skill-dd-item-desc">{s.description}</span>}
+              {s.sample && <span className="skill-dd-item-sample">e.g. “{s.sample}”</span>}
             </button>
           ))}
         </div>
@@ -1534,7 +1537,8 @@ function PrepScreen(props: {
               {firstRun && (
                 <div className="prep-skill-coach" data-testid="prep-skill-coach" role="status">
                   <span className="prep-skill-coach-text">
-                    Pick a playbook — it shapes how I prep and nudge for this kind of call.
+                    A <strong>playbook</strong> tunes what I listen for and what I
+                    whisper. Pick one that fits your call, or stay on General.
                   </span>
                   <button
                     className="prep-skill-coach-dismiss"
@@ -1553,7 +1557,7 @@ function PrepScreen(props: {
                   {selectedSkill.description}
                 </div>
               ) : (
-                <div className="prep-skill-caption">Shapes how I help on this call.</div>
+                <div className="prep-skill-caption">No playbook — I'll help broadly. Pick one to focus what I listen for.</div>
               )}
               <div className="prep-add-playbook" data-testid="prep-add-playbook">
                 Want to add your own playbook?{" "}

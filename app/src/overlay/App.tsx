@@ -76,8 +76,24 @@ export default function App(): JSX.Element {
   // Every note surfaced this call, newest first. Retained in renderer state for
   // the session and shown only when the gem is expanded (decision #5).
   const [history, setHistory] = useState<Nudge[]>([]);
-  // Whether the gem is expanded into the scrollback history list.
+  // The panel (history + end-call) opens on HOVER over the gem; a CLICK pins it
+  // open so it survives the cursor leaving. `expanded` is the hover-open state;
+  // `pinned` is the click-locked state. Panel shows when either is true. This is
+  // the fix for "the end button is hidden behind a click" — hovering reveals it.
   const [expanded, setExpanded] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const pinnedRef = useRef(false);
+  useEffect(() => { pinnedRef.current = pinned; }, [pinned]);
+  const expandedRef = useRef(false);
+  useEffect(() => { expandedRef.current = expanded; }, [expanded]);
+  // Hover-intent: leaving the pill doesn't collapse the panel instantly, so the
+  // cursor can travel down to the panel (and its Finish button) without the
+  // expansion vanishing under it. Re-entering the gem/panel cancels the timer.
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // First-call only: the one-time "ready" primer that re-homes the cut hotkey
+  // demo into the live moment. Driven by the firstCall flag on session state.
+  const [firstCall, setFirstCall] = useState(false);
+  const [primerDismissed, setPrimerDismissed] = useState(false);
   const [rubyMessage, setRubyMessage] = useState<string | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -172,6 +188,9 @@ export default function App(): JSX.Element {
 
     const offState = window.prompty.on("session:state-changed", (p) => {
       setSessionState(p.state);
+      if (p.state === "starting" || p.state === "live") setFirstCall(!!p.firstCall);
+      if (p.state === "starting") setPrimerDismissed(false);
+      if (p.state === "ended" || p.state === "idle") setFirstCall(false);
       if (p.state === "starting") {
         setStatus("starting");
         // New call: clear any lingering note + history + queue so nothing from
@@ -265,13 +284,16 @@ export default function App(): JSX.Element {
 
   useLayoutEffect(() => {
     fitHeight();
-  }, [bloom, expanded, history, status, rubyMessage, fitHeight]);
+  }, [bloom, expanded, pinned, history, status, rubyMessage, fitHeight]);
 
-  const toggleExpanded = useCallback(() => {
-    setExpanded((cur) => {
-      // Only the open transition is the engagement signal worth counting.
-      if (!cur) track("nudge_expanded", { history_count: history.length });
-      return !cur;
+  // A click PINS the panel open (so it stays when the cursor leaves); clicking
+  // again unpins. Hover-open is handled by the hit-test in the mouse-ignore
+  // effect below. The pin transition is the deliberate-engagement signal.
+  const togglePinned = useCallback(() => {
+    setPinned((cur) => {
+      const next = !cur;
+      if (next) { setExpanded(true); track("nudge_expanded", { history_count: history.length }); }
+      return next;
     });
   }, [history.length]);
 
@@ -312,19 +334,19 @@ export default function App(): JSX.Element {
     document.addEventListener("mouseup", onUp);
   }, []);
   const onGemClick = useCallback(() => {
-    // Swallow the click that ends a drag so moving never toggles the history.
+    // Swallow the click that ends a drag so moving never toggles the panel.
     if (drag.current.moved) {
       drag.current.moved = false;
       return;
     }
-    toggleExpanded();
-  }, [toggleExpanded]);
+    togglePinned();
+  }, [togglePinned]);
 
   // Click-away: a click that lands on the transparent root (i.e. outside the
-  // gem and the history surface) collapses the expanded history back to the
-  // calm single-gem state.
+  // gem and the history surface) unpins and collapses back to the calm gem.
   const onRootClick = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget || e.target === contentRef.current) {
+      setPinned(false);
       setExpanded(false);
     }
   }, []);
@@ -349,12 +371,31 @@ export default function App(): JSX.Element {
       }
       const el = e.target as HTMLElement | null;
       const overInteractive = !!el?.closest(
-        ".gem, .gem-ruby-bubble, .gem-bloom, .gem-panel",
+        ".gem, .gem-ruby-bubble, .gem-bloom, .gem-panel, .gem-primer",
       );
       apply(!overInteractive);
+      // Hover-to-expand: opening when the cursor is over the gem or the panel.
+      // Leaving doesn't collapse immediately — a short grace timer lets the
+      // cursor cross the gap from the pill to the panel without it disappearing.
+      const overGemOrPanel = !!el?.closest(".gem, .gem-panel");
+      if (overGemOrPanel) {
+        if (collapseTimer.current) {
+          clearTimeout(collapseTimer.current);
+          collapseTimer.current = null;
+        }
+        setExpanded(true);
+      } else if (!pinnedRef.current && expandedRef.current && !collapseTimer.current) {
+        collapseTimer.current = setTimeout(() => {
+          collapseTimer.current = null;
+          if (!pinnedRef.current) setExpanded(false);
+        }, 350);
+      }
     };
     document.addEventListener("mousemove", onMove);
-    return () => document.removeEventListener("mousemove", onMove);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    };
   }, []);
 
   const meta = status ? STATUS_META[status] : null;
@@ -393,12 +434,12 @@ export default function App(): JSX.Element {
         <div className="gem-anchor-row">
           <button
             type="button"
-            className={`gem${expanded ? " gem-expanded" : ""}`}
+            className={`gem${expanded || pinned ? " gem-expanded" : ""}`}
             data-testid="gem"
             data-tone={tone}
             data-status={status ?? "idle"}
-            aria-label={`Ruby — ${meta?.label ?? "Idle"}. Drag to move; ${liveish || isEnding ? "click to show notes and end the call." : "click to see notes."}`}
-            title={statusReason ?? (liveish || isEnding ? "Drag to move • Click for notes & end call" : "Drag to move • Click to see notes")}
+            aria-label={`Ruby — ${meta?.label ?? "Idle"}. Drag to move; ${liveish || isEnding ? "hover for notes and to end the call." : "hover to see notes."}`}
+            title={statusReason ?? (liveish || isEnding ? "Drag to move • Hover for notes & end • Click to keep open" : "Drag to move • Hover to see notes")}
             onMouseDown={onGemMouseDown}
             onClick={onGemClick}
           >
@@ -407,9 +448,34 @@ export default function App(): JSX.Element {
         </div>
 
         {/* Ruby onboarding speech bubble */}
-        {rubyMessage && !bloom && !expanded && (
+        {rubyMessage && !bloom && !expanded && !pinned && (
           <div className="gem-ruby-bubble" key={rubyMessage}>
             <div className="gem-ruby-bubble-text">{rubyMessage}</div>
+          </div>
+        )}
+
+        {/* First-call "ready" primer: re-homes the cut hotkey demo into the one
+            moment it's true. Non-blocking, retires after the first call ends (the
+            firstCall flag is cleared in the main process). Yields to a real
+            bloom or the expanded panel so it never competes with live nudges. */}
+        {firstCall && liveish && !primerDismissed && !rubyMessage && !bloom && !expanded && !pinned && (
+          <div className="gem-primer" data-testid="gem-primer">
+            <button
+              type="button"
+              className="gem-note-dismiss"
+              data-testid="gem-primer-dismiss"
+              aria-label="Dismiss"
+              title="Dismiss"
+              onClick={() => setPrimerDismissed(true)}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+            <div className="gem-primer-tag">Ruby · listening</div>
+            <div className="gem-primer-text">I'll whisper when I catch something worth saying.</div>
+            <div className="gem-primer-key">Want one now? <kbd>⌥⇧Space</kbd></div>
+            <div className="gem-primer-tip">Hover me for notes, or to end.</div>
           </div>
         )}
 
@@ -418,7 +484,7 @@ export default function App(): JSX.Element {
             draining bar — shown only for high-urgency notes so a calm note
             doesn't animate in the corner — empties exactly when the note
             actually leaves (V1/V12). */}
-        {bloom && !expanded && (
+        {bloom && !expanded && !pinned && (
           <div
             className={`gem-bloom${bloom.urgency === "high" ? " gem-bloom-high" : ""}${hiding ? " gem-bloom-out" : ""}`}
             data-testid="gem-bloom"
@@ -457,7 +523,7 @@ export default function App(): JSX.Element {
         {/* Expanded panel: a quiet scrollback of every note this call, plus an
             End-call control so the call can be ended without hunting for the
             tray or main window. */}
-        {expanded && (
+        {(expanded || pinned) && (
           <div className="gem-panel" data-testid="gem-panel">
             <div className="gem-history" data-testid="gem-history">
               {history.length === 0 ? (

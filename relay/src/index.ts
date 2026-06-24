@@ -40,6 +40,16 @@ app.get("/health", (c) => {
   return c.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
 });
 
+// Public app config — dynamic links the desktop app fetches on launch so they
+// can be changed via wrangler vars + deploy without shipping a new signed build.
+// No secrets here; the app also hardcodes fallbacks for when this is unreachable.
+app.get("/config", (c) => {
+  return c.json({
+    foundersUrl: c.env.FOUNDERS_URL ?? "https://cal.com/team/revise-ai/quick-chat",
+    howItWorksUrl: c.env.HOW_IT_WORKS_URL ?? "https://cal.com/team/revise-ai/quick-chat",
+  });
+});
+
 app.post("/auth/google", async (c) => {
   let body: { idToken?: unknown };
   try {

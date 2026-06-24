@@ -111,6 +111,11 @@ export interface AppSettings {
   // Cleared the first time the user engages or dismisses, and never returns.
   // Defaults false so existing installs don't suddenly see the tour.
   firstRunCoach: boolean;
+  // Set true the moment onboarding completes; gates the one-time in-call "ready"
+  // primer (and the "hover to end" hint) on the overlay during the user's FIRST
+  // live call. Cleared when that first call ends, and never returns. Defaults
+  // false so existing installs don't suddenly see it.
+  firstCallCoach: boolean;
   lastTab: MainTab;
   // The working direction, persisted as a draft so a prepped brief survives
   // closing/reopening the window. Empty until the user types or preps one.
@@ -144,6 +149,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   loginItemPrompted: false,
   firstRunCoach: false,
+  firstCallCoach: false,
   lastTab: "prep",
   directionDraft: "",
   skill: "",
@@ -160,6 +166,9 @@ export interface SkillInfo {
   name: string;
   title: string;
   description: string;
+  /** A short example nudge this playbook would surface — shown in the picker so
+   *  the choice is informed and "what's a playbook" answers itself in context. */
+  sample: string;
 }
 
 export type MediaPermissionStatus =

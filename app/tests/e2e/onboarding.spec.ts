@@ -18,7 +18,6 @@ import fs from "node:fs/promises";
 // Every IPC path those steps hit is still covered below by invoking it directly.
 
 type Bridge = { prompty: { invoke: (c: string, p?: unknown) => Promise<unknown> } };
-type ArmResult = { ok: boolean; registered: boolean; conflict: boolean };
 type TrayItem = { label?: string; enabled: boolean };
 
 // Read the tray's existence + menu template from the main process. The tray menu
@@ -86,11 +85,17 @@ test("onboarding: flow renders, advances, goes back, and completes", async () =>
     });
     ob.on("pageerror", (e) => consoleErrors.push(e.message));
 
-    // ── Step 1: welcome renders — value-first, no "coach", dev button gated ──
-    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
-    await expect(ob.locator(".ob-body").first()).toContainText("whispers the right thing to say");
+    // ── Step 1: welcome renders the HERO — value-first, no "coach", dev gated.
+    //    The in-app teaching tour is cut, so welcome leads straight into setup;
+    //    the headline carries the value and a looping demo shows the magic (the
+    //    bloom in the real overlay material). A small "How Ruby works" link sits
+    //    by the CTA and opens the external explainer page.
+    await expect(ob.locator(".ob-title")).toContainText("whispers the right thing to say", { timeout: 5_000 });
+    await expect(ob.locator(".ob-hero-nudge-text")).toContainText("Q3 timeline");
     await expect(ob.locator("body")).not.toContainText(/coach/i);
+    await expect(ob.getByTestId("ob-how-it-works")).toBeVisible();
     await expect(ob.locator(".ob-dev-restart")).toHaveCount(0); // O15: hidden in prod build
+    // (No progress label on welcome — the bar shows from step 2 onward.)
 
     // ── The gem overlay appears with Ruby's speech bubble (set-ruby-message) ──
     // and shows the listening face (wave suppressed) during onboarding.
@@ -98,24 +103,27 @@ test("onboarding: flow renders, advances, goes back, and completes", async () =>
     await expect(overlay.locator(".gem-ruby-bubble")).toBeVisible({ timeout: 5_000 });
     await expect(overlay.locator('[data-testid="gem"]')).toHaveCount(1);
 
-    // ── Advance welcome → "How Ruby works": the four moments, Live demoed ─────
+    // ── Advance welcome → Claude. The gate is now step 2 of 5 (was step 3 of 7
+    //    behind the cut "How Ruby works" slide). ──────────────────────────────
     await ob.click("button.ob-btn-primary"); // "Get started →"
-    await expect(ob.locator("text=How Ruby works")).toBeVisible({ timeout: 5_000 });
-    for (const t of ["Prep", "Live", "Recap", "Memory"]) {
-      await expect(ob.locator(`.ob-how-title:has-text("${t}")`)).toBeVisible();
-    }
-    await expect(ob.locator(".ob-how-live")).toHaveCount(1);
-    await expect(ob.locator(".ob-progress-label")).toHaveText("Step 2 of 7"); // O8
-
-    // ── Continue → Claude step (value-framed; exercises check-claude). ───────
-    await ob.click("button.ob-btn-primary"); // "Continue →"
     await expect(ob.locator("text=Ruby thinks with Claude Code")).toBeVisible({ timeout: 5_000 });
+    await expect(ob.locator(".ob-progress-label")).toHaveText("Step 2 of 5");
 
-    // ── O3 back nav: the back chevron returns to the How screen, then forward. ─
+    // ── Back nav: the back chevron returns to welcome, then forward to Claude. ─
     await ob.getByTestId("ob-back").click();
-    await expect(ob.locator("text=How Ruby works")).toBeVisible({ timeout: 5_000 });
-    await ob.click("button.ob-btn-primary"); // "Continue →" again
+    await expect(ob.locator(".ob-title")).toContainText("whispers the right thing to say", { timeout: 5_000 });
+    await ob.click("button.ob-btn-primary"); // "Get started →" again
     await expect(ob.locator("text=Ruby thinks with Claude Code")).toBeVisible({ timeout: 5_000 });
+
+    // ── Reorder: Mic now comes BEFORE sign-in. When Claude is present (the local
+    //    case), advancing lands on the mic step at position 3 of 5. ────────────
+    if (await ob.getByText(/Claude Code found/i).isVisible().catch(() => false)) {
+      await ob.click("button.ob-btn-primary"); // "Continue →"
+      await expect(ob.getByText(/Just the microphone/i)).toBeVisible({ timeout: 5_000 });
+      await expect(ob.locator(".ob-progress-label")).toHaveText("Step 3 of 5");
+      await ob.getByTestId("ob-back").click(); // back to Claude before completing
+      await expect(ob.locator("text=Ruby thinks with Claude Code")).toBeVisible({ timeout: 5_000 });
+    }
 
     // ── complete: flips the persisted flag, hides overlay, closes onboarding. ─
     // Fire-and-forget: the complete handler tears down this very window, so
@@ -143,70 +151,6 @@ test("onboarding: flow renders, advances, goes back, and completes", async () =>
   }
 });
 
-// The hotkey step lets the user actually experience the hotkey: pressing it
-// blooms a real nudge in the gem (the same dark-glass surface as in-call). The
-// OS-level global shortcut can't be driven from a test, but the fallback IPC
-// path (onboarding:fire-nudge) goes through the exact same fireOnboardingNudge →
-// nudge:received → overlay bloom plumbing, so it's the faithful proxy. We also
-// assert arm-hotkey registers the real shortcut and that repeat presses cycle
-// the sample question.
-test("onboarding: arming the hotkey blooms a real nudge in the gem", async () => {
-  test.setTimeout(60_000);
-
-  const dir = await freshUserDataDir("e2e-onboarding-hotkey");
-  await fs.writeFile(
-    path.join(dir, "prompty-settings.json"),
-    JSON.stringify({ onboardingCompleted: false, hotkey: "Alt+Shift+Space" }),
-    "utf8",
-  );
-
-  const app = await electron.launch({
-    args: [APP_ROOT, `--user-data-dir=${dir}`],
-    env: { ...process.env },
-  });
-
-  try {
-    const ob = await findWindow(app, "onboarding");
-    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
-    const overlay = await findWindow(app, "overlay");
-
-    // Arm the real global shortcut + enter onboarding-nudge mode. On a clean CI
-    // box Alt+Shift+Space is free, so it registers.
-    const arm = (await ob.evaluate(async () =>
-      (window as unknown as Bridge).prompty.invoke("onboarding:arm-hotkey", undefined),
-    )) as ArmResult;
-    expect(arm.ok).toBe(true);
-    expect(arm.registered).toBe(true);
-    expect(arm.conflict).toBe(false);
-
-    // Simulate the press (the fallback path == the real callback's body).
-    await ob.evaluate(async () =>
-      (window as unknown as Bridge).prompty.invoke("onboarding:fire-nudge", undefined),
-    );
-
-    // The real nudge surface blooms in the gem: dark-glass card, a calm "Ruby"
-    // tag (the sample nudges are medium urgency), and one of the sample questions.
-    const bloom = overlay.locator('[data-testid="gem-bloom"]');
-    await expect(bloom).toBeVisible({ timeout: 5_000 });
-    await expect(bloom.locator(".gem-note-tag")).toHaveText("Worth asking");
-    const firstText = (await bloom.locator(".gem-note-q").textContent())?.trim() ?? "";
-    expect(firstText.length).toBeGreaterThan(0);
-
-    // A second press cycles to a different sample question.
-    await ob.evaluate(async () =>
-      (window as unknown as Bridge).prompty.invoke("onboarding:fire-nudge", undefined),
-    );
-    await expect
-      .poll(async () => (await bloom.locator(".gem-note-q").textContent())?.trim() ?? "", {
-        timeout: 5_000,
-      })
-      .not.toBe(firstText);
-  } finally {
-    await app.close();
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
-
 // The menu-bar tray must exist during onboarding (the app is already live then),
 // but "Open main window" stays disabled until onboarding completes so the tray
 // can't yank the user out of the guided flow. Quit is always available.
@@ -228,7 +172,7 @@ test("onboarding: tray is present, with Open main window gated until complete", 
 
   try {
     const ob = await findWindow(app, "onboarding");
-    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
+    await expect(ob.locator(".ob-title")).toContainText("whispers the right thing to say", { timeout: 5_000 });
 
     // During onboarding: tray exists; "Open main window" disabled; Quit enabled.
     const during = await readTray(app);

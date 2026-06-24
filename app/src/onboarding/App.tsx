@@ -3,7 +3,14 @@ import { RubyLogo } from "../shared/RubyLogo";
 import type { MediaPermissionStatus, PermissionStatus } from "../shared/types";
 
 type StepKey = "welcome" | "how" | "claude" | "mic" | "hotkey" | "signin" | "done";
-const STEPS: StepKey[] = ["welcome", "how", "claude", "mic", "hotkey", "signin", "done"];
+// Onboarding rethink: the teaching slides ("how" four-moments + the "hotkey"
+// demo) are cut — concept-teaching out of context doesn't transfer, and the
+// hotkey is re-homed into the first real call. Gates are ordered
+// Claude → Mic → Sign-in: the core mic permission (the thing Ruby can't work
+// without) is asked before sign-in, so account creation never gates getting the
+// permission that matters. ("how"/"hotkey" stay in StepKey/render as dead
+// branches; they're simply never sequenced.)
+const STEPS: StepKey[] = ["welcome", "claude", "mic", "signin", "done"];
 
 // Fire a product-analytics event. The main process owns identity + base props
 // (see electron/analytics.ts); onboarding sends metadata only.
@@ -584,18 +591,37 @@ export default function App(): JSX.Element {
 // ─── Step components ──────────────────────────────────────────────────────────
 
 function StepWelcome({ onNext }: { onNext: () => void }) {
+  // Hook: show the magic moment instead of describing it — a looping demo of
+  // Ruby whispering mid-call, in the real bloom material. (Replaces the old
+  // "Meet Ruby" text slide; the cut "How Ruby works" tour used to do the telling.)
   return (
     <div className="ob-step-content">
-      <div style={{ marginBottom: 18 }}><RubyLogo size={48} /></div>
-      <h1 className="ob-title">Meet Ruby.</h1>
+      <div className="ob-hero" aria-hidden="true">
+        <div className="ob-hero-gem"><RubyLogo size={34} /></div>
+        <div className="ob-hero-speaker">Them · live</div>
+        <div className="ob-hero-said">
+          “…honestly, we're just trying to figure out if the timing's right this quarter.”
+        </div>
+        <div className="ob-hero-nudge">
+          <div className="ob-hero-nudge-tag">Worth asking</div>
+          <div className="ob-hero-nudge-text">What's driving the Q3 timeline?</div>
+        </div>
+      </div>
+      <h1 className="ob-title">Ruby whispers the right thing to say — live.</h1>
       <p className="ob-body">
-        Ruby sits in on your calls and whispers the right thing to say, live.
-        She preps you before, listens during, and writes the recap after.
-        Everything runs on your machine.
+        She preps you before the call, sits in while you talk, and writes the
+        recap after. Everything runs on your machine.
       </p>
       <div className="ob-actions">
         <button className="ob-btn-primary" onClick={onNext}>
           Get started →
+        </button>
+        <button
+          className="ob-link ob-howto-link"
+          data-testid="ob-how-it-works"
+          onClick={() => window.prompty.invoke("links:open", { which: "howItWorks" })}
+        >
+          How Ruby works
         </button>
       </div>
     </div>

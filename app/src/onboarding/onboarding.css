@@ -218,6 +218,63 @@ html, body, #root {
   margin: 0 0 20px;
 }
 
+/* ---- Hook hero: the looping "magic moment" demo on the welcome step. A dark
+   live-call scene with the gem and a nudge that blooms on a loop, in the real
+   overlay bloom material so the demo matches the live artifact. ---- */
+.ob-hero {
+  position: relative;
+  margin: 0 auto 22px;
+  max-width: 392px;
+  min-height: 176px;
+  padding: 20px;
+  border-radius: 18px;
+  background: linear-gradient(160deg, #2c2723, #211d1a);
+  overflow: hidden;
+  text-align: left;
+}
+.ob-hero-gem { position: absolute; top: 16px; right: 16px; }
+.ob-hero-speaker { font-size: 12px; color: rgba(255, 255, 255, 0.5); margin-bottom: 5px; }
+.ob-hero-said {
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+  max-width: 74%;
+}
+.ob-hero-nudge {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  max-width: 78%;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: linear-gradient(160deg, rgba(46, 18, 26, 0.97), rgba(28, 12, 18, 0.97));
+  border: 1px solid rgba(255, 45, 85, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: ob-hero-bloom 4.4s ease-in-out infinite;
+}
+.ob-hero-nudge-tag {
+  display: inline-block;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255, 233, 238, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 2.5px 7px;
+  border-radius: 5px;
+  margin-bottom: 7px;
+}
+.ob-hero-nudge-text { font-size: 13.5px; font-weight: 600; line-height: 1.4; color: #ffe9ee; }
+@keyframes ob-hero-bloom {
+  0%, 14% { opacity: 0; transform: translateY(10px) scale(0.96); }
+  26%, 82% { opacity: 1; transform: none; }
+  96%, 100% { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-hero-nudge { animation: none; opacity: 1; transform: none; }
+}
+
 .ob-note {
   font-size: 11px;
   color: #a0917e;
@@ -621,6 +678,14 @@ html, body, #root {
   text-underline-offset: 2px;
 }
 .ob-link:hover { color: #8f1030; }
+
+/* Secondary "How Ruby works" link on the welcome screen: stays inline beside the
+   CTA, just a little further from "Get started", smaller and a touch lighter. */
+.ob-howto-link {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
 
 /* Mic denied guidance. */
 .ob-mic-denied {

@@ -34,7 +34,7 @@ test("first run: complete onboarding opens Home with the prep + playbook coachma
 
   try {
     const ob = await findWindow(app, "onboarding");
-    await expect(ob.locator("text=Meet Ruby")).toBeVisible({ timeout: 5_000 });
+    await expect(ob.locator(".ob-title")).toContainText("whispers the right thing to say", { timeout: 5_000 });
 
     // Stub shell.openExternal so "Speak to founders" records its URL instead of
     // launching a real browser during the test. Done after the onboarding window
@@ -91,8 +91,20 @@ test("first run: complete onboarding opens Home with the prep + playbook coachma
     await expect(main.getByTestId("prep-add-playbook")).toContainText("add your own playbook");
     await main.getByTestId("prep-speak-to-founders").click();
 
-    const opened = await app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened);
-    expect(opened.filter((u) => u.includes("calendly.com/sahil-revise")).length).toBe(2);
+    // "Speak to founders" fires a fire-and-forget IPC (links:open) that the main
+    // process resolves and opens — so poll for the captured opens rather than
+    // reading once, which races the round-trip.
+    await expect
+      .poll(
+        async () => {
+          const opened = await app.evaluate(
+            () => (globalThis as unknown as { __opened: string[] }).__opened,
+          );
+          return opened.filter((u) => u.includes("cal.com/team/revise-ai/quick-chat")).length;
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(2);
 
     // "Got it" ends the tour and persists firstRunCoach:false so it never returns.
     await main.getByTestId("prep-skill-coach-dismiss").click();

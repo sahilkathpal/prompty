@@ -1,6 +1,7 @@
 ---
 title: Hiring interview
 description: Gather evidence of fit — demand specifics, past behavior over hypotheticals.
+sample: Ask for a specific past example, not a hypothetical.
 ---
 
 ## Playbook: hiring interview — apply on top of the Direction (when present)

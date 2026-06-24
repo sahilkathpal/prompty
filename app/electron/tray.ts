@@ -5,6 +5,8 @@ import { openMainWindow } from "./main-window";
 import { getActiveSession, endActiveSession } from "./ipc-handlers";
 import { getSettings } from "./settings-store";
 import { isUpdateDownloaded, installUpdateNow } from "./updater";
+import { openExternalSafely } from "./safe-open";
+import { getRemoteConfig } from "../src/main-process/remote-config";
 
 let tray: Tray | null = null;
 
@@ -75,6 +77,10 @@ export function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
       },
     },
     { type: "separator" },
+    {
+      label: "How Ruby works",
+      click: () => openExternalSafely(getRemoteConfig().howItWorksUrl),
+    },
     {
       label: "Quit Ruby",
       click: () => app.quit(),
