@@ -33,3 +33,8 @@ DAILY_MINT_LIMIT = "50"
 # link live — the desktop app picks it up on next launch, no rebuild needed.
 FOUNDERS_URL = "https://cal.com/team/revise-ai/quick-chat"
 HOW_IT_WORKS_URL = "https://howrubyworks.codeongrass.com"
+# STOPGAP (added 2026-07-01, remove once desktop app persists session JWT +
+# wires refresh). /auth/google will accept Google ID tokens whose exp is up to
+# 14 days past, provided signature/iss/aud/email_verified all still pass and
+# iat is also within 14 days. Rollback: delete this line and `wrangler deploy`.
+ALLOW_STALE_GOOGLE_IDTOKEN_DAYS = "14"

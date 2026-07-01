@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { verifyGoogleIdentityToken } from "./auth";
+import {
+  verifyGoogleIdentityToken,
+  verifyGoogleIdentityTokenAllowingStale,
+} from "./auth";
 import { exchangeAuthCode, refreshAccessToken } from "./google-oauth";
 import { mintDeepgramKey } from "./deepgram";
 import { signSessionToken, verifySessionToken } from "./jwt";
@@ -50,6 +53,18 @@ app.get("/config", (c) => {
   });
 });
 
+// STOPGAP: parse ALLOW_STALE_GOOGLE_IDTOKEN_DAYS off env. Returns 0 (grace
+// path disabled — today's behavior) if unset, empty, "0", or unparseable.
+// A positive integer enables the grace path in /auth/google. Remove once
+// the desktop app persists its session JWT and wires refresh (see
+// google-auth.ts:354-391, currently dead code).
+function graceDaysFromEnv(raw: string | undefined): number {
+  if (typeof raw !== "string" || raw.trim() === "") return 0;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n;
+}
+
 app.post("/auth/google", async (c) => {
   let body: { idToken?: unknown };
   try {
@@ -66,10 +81,45 @@ app.post("/auth/google", async (c) => {
   try {
     claims = await verifyGoogleIdentityToken(idToken, c.env);
   } catch (err) {
-    return c.json(
-      { error: `google token invalid: ${(err as Error).message}` },
-      401
-    );
+    // STOPGAP grace path: if the token failed strictly because of exp and the
+    // env flag is set, retry with a bounded grace window. Signature, iss, aud,
+    // email_verified still enforced. See auth.ts:verifyGoogleIdentityTokenAllowingStale.
+    const message = (err as Error).message ?? "";
+    const isExpiredError =
+      (err as { code?: string })?.code === "ERR_JWT_EXPIRED" ||
+      /"exp" claim/i.test(message) ||
+      /jwt expired/i.test(message);
+    const graceDays = graceDaysFromEnv(c.env.ALLOW_STALE_GOOGLE_IDTOKEN_DAYS);
+    if (isExpiredError && graceDays > 0) {
+      try {
+        claims = await verifyGoogleIdentityTokenAllowingStale(
+          idToken,
+          c.env,
+          graceDays,
+        );
+        // Observability: count how many users are riding the stopgap so we
+        // know when it's safe to remove ALLOW_STALE_GOOGLE_IDTOKEN_DAYS.
+        console.log(
+          JSON.stringify({
+            event: "auth_google_grace_used",
+            sub: claims.sub,
+            graceDays,
+            iat: claims.iat,
+            ageSeconds: Math.floor(Date.now() / 1000) - (claims.iat ?? 0),
+          }),
+        );
+      } catch (graceErr) {
+        return c.json(
+          { error: `google token invalid: ${(graceErr as Error).message}` },
+          401,
+        );
+      }
+    } else {
+      return c.json(
+        { error: `google token invalid: ${message}` },
+        401,
+      );
+    }
   }
 
   if (await isRevoked(c.env, claims.sub)) {

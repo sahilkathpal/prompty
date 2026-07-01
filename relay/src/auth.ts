@@ -77,6 +77,60 @@ export async function verifyGoogleIdentityToken(
   return claims;
 }
 
+/**
+ * STOPGAP grace-path verifier. Accepts a Google ID token whose `exp` is past,
+ * subject to two caps:
+ *   1. clockTolerance = graceDays * 86400s (jose's built-in exp slack)
+ *   2. iat staleness — `now - iat` must also be within graceDays
+ *
+ * Every other check stays strict: RS256 signature via Google JWKS, issuer,
+ * audience, sub present, email_verified. Signature failures still reject
+ * (and Google's JWKS rotation caps the effective window at ~1–2 weeks
+ * regardless of graceDays).
+ *
+ * Used only by /auth/google when env.ALLOW_STALE_GOOGLE_IDTOKEN_DAYS is set.
+ * /deepgram/token and other protected routes never call this. Intended to
+ * be removed once the desktop app persists its 30-day session JWT and wires
+ * up the refresh-token path (see google-auth.ts:354-391, currently dead code).
+ */
+export async function verifyGoogleIdentityTokenAllowingStale(
+  idToken: string,
+  env: Env,
+  graceDays: number,
+): Promise<GoogleIdentityClaims> {
+  if (!Number.isFinite(graceDays) || graceDays <= 0) {
+    throw new Error("graceDays must be a positive number");
+  }
+  const header = decodeProtectedHeader(idToken);
+  if (!header.kid) {
+    throw new Error("Google ID token missing kid");
+  }
+  const key = await getGooglePublicKey(env, header.kid);
+  const graceSeconds = Math.floor(graceDays * 24 * 60 * 60);
+  const { payload } = await jwtVerify(idToken, key, {
+    issuer: GOOGLE_ISSUERS,
+    audience: env.GOOGLE_CLIENT_ID,
+    algorithms: ["RS256"],
+    clockTolerance: graceSeconds,
+  });
+  if (typeof payload.sub !== "string") {
+    throw new Error("Google ID token missing sub");
+  }
+  const iat = typeof payload.iat === "number" ? payload.iat : 0;
+  const now = Math.floor(Date.now() / 1000);
+  if (iat <= 0 || now - iat > graceSeconds) {
+    throw new Error("Google ID token too stale (iat outside grace window)");
+  }
+  const claims = payload as unknown as GoogleIdentityClaims;
+  const verified =
+    claims.email_verified === true ||
+    (typeof claims.email_verified === "string" && claims.email_verified === "true");
+  if (!verified) {
+    throw new Error("Google ID token email not verified");
+  }
+  return claims;
+}
+
 // Test seam: lets tests inject a custom JWKS URL / verifier without hitting
 // the real Google endpoint. Exported only for use by relay/tests.
 export async function verifyGoogleIdentityTokenWithJwks(
@@ -95,6 +149,42 @@ export async function verifyGoogleIdentityTokenWithJwks(
     algorithms: ["RS256"],
   });
   if (typeof payload.sub !== "string") throw new Error("missing sub");
+  const claims = payload as unknown as GoogleIdentityClaims;
+  const verified =
+    claims.email_verified === true ||
+    (typeof claims.email_verified === "string" && claims.email_verified === "true");
+  if (!verified) throw new Error("email not verified");
+  return claims;
+}
+
+// Test seam matching verifyGoogleIdentityTokenAllowingStale — see comment there.
+export async function verifyGoogleIdentityTokenWithJwksAllowingStale(
+  idToken: string,
+  audience: string,
+  jwks: GoogleJWKS,
+  graceDays: number,
+): Promise<GoogleIdentityClaims> {
+  if (!Number.isFinite(graceDays) || graceDays <= 0) {
+    throw new Error("graceDays must be a positive number");
+  }
+  const header = decodeProtectedHeader(idToken);
+  if (!header.kid) throw new Error("missing kid");
+  const jwk = jwks.keys.find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error("no matching kid");
+  const key = await importJWK(jwk, jwk.alg ?? "RS256");
+  const graceSeconds = Math.floor(graceDays * 24 * 60 * 60);
+  const { payload } = await jwtVerify(idToken, key, {
+    issuer: GOOGLE_ISSUERS,
+    audience,
+    algorithms: ["RS256"],
+    clockTolerance: graceSeconds,
+  });
+  if (typeof payload.sub !== "string") throw new Error("missing sub");
+  const iat = typeof payload.iat === "number" ? payload.iat : 0;
+  const now = Math.floor(Date.now() / 1000);
+  if (iat <= 0 || now - iat > graceSeconds) {
+    throw new Error("Google ID token too stale (iat outside grace window)");
+  }
   const claims = payload as unknown as GoogleIdentityClaims;
   const verified =
     claims.email_verified === true ||

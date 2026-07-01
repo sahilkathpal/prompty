@@ -17,6 +17,11 @@ export interface Env {
   // (no app rebuild). Optional so a missing var falls back in the handler.
   FOUNDERS_URL?: string;
   HOW_IT_WORKS_URL?: string;
+  // STOPGAP (remove after desktop app persists session JWT + wires refresh):
+  // if set to a positive integer, /auth/google will accept expired Google ID
+  // tokens whose signature is still valid and whose iat is within N days of
+  // now. Every other check stays strict. Unset/"" = today's behavior.
+  ALLOW_STALE_GOOGLE_IDTOKEN_DAYS?: string;
 }
 
 export interface PromptySessionClaims {
