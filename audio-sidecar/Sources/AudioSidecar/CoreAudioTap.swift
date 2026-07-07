@@ -20,6 +20,17 @@ import AudioSidecarCore
 /// This requires only an audio-capture consent — it never touches Screen
 /// Recording. It is the sole system-audio path; Prompty requires macOS 14.4+.
 ///
+/// **Bluetooth robustness (the reason the graph is rebuildable):** the aggregate
+/// is clocked by the output device captured at build time. When that device
+/// changes mode/format mid-session — most importantly a Bluetooth headset
+/// flipping A2DP→HFP the moment the mic opens — the aggregate built around the
+/// old (A2DP) device stops delivering audio and the "them" stream goes silent.
+/// Rebuilding only the converter (the previous behavior) does not fix that; the
+/// aggregate itself is stale. So we watch for the transition — via the output
+/// device's nominal sample rate changing (48 kHz→16 kHz on the A2DP→HFP flip),
+/// the default output device changing, or the tap format changing — and rebuild
+/// the whole graph around the new device state.
+///
 /// The class is available from the package's deployment target (macOS 14) so
 /// `main.swift` can hold an optional reference unconditionally; `start()` and the
 /// helpers that touch the 14.4-only Tap API are annotated `@available(macOS 14.4)`,
@@ -34,6 +45,18 @@ final class CoreAudioTap {
     private var converter: AVAudioConverter?
     private var stopped = false
     private var formatListener: AudioObjectPropertyListenerBlock?
+
+    // Rebuild machinery (see the class doc). `outputDeviceID` is the real output
+    // device the current graph is clocked by; `deviceRateListener` fires when its
+    // nominal sample rate changes (the A2DP↔HFP tell), `defaultDeviceListener`
+    // when the default output device itself changes. Both schedule a debounced
+    // full-graph rebuild. `rebuilding` guards re-entrancy; `pendingRebuild`
+    // coalesces the burst of notifications a single transition emits.
+    private var outputDeviceID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
+    private var deviceRateListener: AudioObjectPropertyListenerBlock?
+    private var defaultDeviceListener: AudioObjectPropertyListenerBlock?
+    private var pendingRebuild: DispatchWorkItem?
+    private var rebuilding = false
 
     /// 16 kHz mono, Int16, interleaved, little-endian — the wire format every
     /// downstream consumer (tag 0x03) expects. Identical to MicCapture.
@@ -50,6 +73,19 @@ final class CoreAudioTap {
 
     @available(macOS 14.4, *)
     func start() throws {
+        try buildGraph()
+        // System-wide listener for the default output device changing (e.g. the
+        // user switches from speakers to a Bluetooth headset). Added once and
+        // kept for the object's lifetime; the per-device listeners are (re)added
+        // inside buildGraph().
+        addDefaultDeviceListener()
+    }
+
+    /// Build the tap + aggregate + IOProc graph and start it. Re-runnable:
+    /// `rebuildGraph()` tears down and calls this again when the output device
+    /// flips (Bluetooth A2DP↔HFP, or a default-device change).
+    @available(macOS 14.4, *)
+    private func buildGraph() throws {
         // 1. Tap description: global mixdown of all system audio EXCEPT our own
         //    app (the Electron parent). Excluding ourselves keeps Prompty's own
         //    sounds out of the "them" stream. If we can't resolve the parent
@@ -80,11 +116,13 @@ final class CoreAudioTap {
         // 3. Aggregate device that contains the tap, clocked by the default
         //    output device. Private + auto-start so it lives only for our use and
         //    begins pulling tap audio immediately.
-        guard let outputUID = defaultOutputDeviceUID() else {
+        guard let output = defaultOutputDevice() else {
             cleanupTap()
             throw NSError(domain: "CoreAudioTap", code: -2,
                           userInfo: [NSLocalizedDescriptionKey: "No default output device for aggregate clock"])
         }
+        outputDeviceID = output.id
+        let outputUID = output.uid
 
         let aggregateUID = UUID().uuidString
         let description: [String: Any] = [
@@ -130,23 +168,34 @@ final class CoreAudioTap {
                           userInfo: [NSLocalizedDescriptionKey: "Could not build tap AVAudioConverter"])
         }
 
-        // The tapped output device can change format mid-session (e.g. a VoIP
-        // call routes audio to a Bluetooth headset, or the output sample rate
-        // shifts). When it does, the IOProc starts delivering buffers in the new
-        // format while our converter still expects the old one — resampling
-        // against a stale rate, which garbles the "them" transcript. Listen for
-        // the tap format changing and rebuild the converter on the IO queue (the
-        // same queue `process` runs on, so converter access stays serialized).
+        // The tap format changing is one signal that the output device flipped;
+        // rebuild the whole graph (not just the converter — the aggregate is
+        // stale too). Runs on ioQueue, so it never races `process`.
         var fmtAddress = AudioObjectPropertyAddress(
             mSelector: kAudioTapPropertyFormat,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.rebuildConverterForCurrentTapFormat()
+        let fmtBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.scheduleRebuild(reason: "tap format changed")
         }
-        formatListener = listener
-        AudioObjectAddPropertyListenerBlock(tapID, &fmtAddress, ioQueue, listener)
+        formatListener = fmtBlock
+        AudioObjectAddPropertyListenerBlock(tapID, &fmtAddress, ioQueue, fmtBlock)
+
+        // The most reliable signal for a Bluetooth A2DP→HFP flip: the output
+        // device's nominal sample rate drops (e.g. 48 kHz→16 kHz). This fires
+        // even when the tap's own format listener does not, so it is the primary
+        // rebuild trigger for the silent-"them"-on-Bluetooth bug.
+        var rateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let rateBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.scheduleRebuild(reason: "output device sample rate changed")
+        }
+        deviceRateListener = rateBlock
+        AudioObjectAddPropertyListenerBlock(outputDeviceID, &rateAddress, ioQueue, rateBlock)
 
         // 5. Install the IOProc and start the device.
         var newIOProcID: AudioDeviceIOProcID?
@@ -175,12 +224,96 @@ final class CoreAudioTap {
         Log.info("CoreAudio tap started (input sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount))")
     }
 
+    // MARK: - Rebuild on device / format change
+
+    /// Coalesce a burst of change notifications (one transition emits several)
+    /// into a single debounced rebuild on the IO queue.
+    @available(macOS 14.4, *)
+    private func scheduleRebuild(reason: String) {
+        guard !stopped else { return }
+        pendingRebuild?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.rebuildGraph(reason: reason) }
+        pendingRebuild = work
+        ioQueue.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    /// Tear down the current graph and build a fresh one around the current
+    /// output device. Runs on `ioQueue`, serialized with `process`.
+    @available(macOS 14.4, *)
+    private func rebuildGraph(reason: String) {
+        guard !stopped, !rebuilding else { return }
+        rebuilding = true
+        Log.info("CoreAudio tap rebuilding (\(reason))")
+        teardownGraph()
+        do {
+            try buildGraph()
+        } catch {
+            Log.error("CoreAudio tap rebuild failed: \(error.localizedDescription)")
+        }
+        rebuilding = false
+    }
+
+    /// Tear down the tap/aggregate/IOProc and their per-graph listeners, leaving
+    /// the object ready for a fresh `buildGraph()`. The system-wide
+    /// default-device listener persists across rebuilds.
+    @available(macOS 14.4, *)
+    private func teardownGraph() {
+        cleanupIOProc()
+        cleanupAggregate()
+        removeDeviceRateListener()
+        cleanupTap()          // removes the tap format listener
+        inputFormat = nil
+        converter = nil
+    }
+
+    // MARK: - Device-change listeners
+
+    @available(macOS 14.4, *)
+    private func addDefaultDeviceListener() {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.scheduleRebuild(reason: "default output device changed")
+        }
+        defaultDeviceListener = block
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, ioQueue, block)
+    }
+
+    private func removeDefaultDeviceListener() {
+        guard let block = defaultDeviceListener else { return }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, ioQueue, block)
+        defaultDeviceListener = nil
+    }
+
+    private func removeDeviceRateListener() {
+        guard outputDeviceID != AudioObjectID(kAudioObjectUnknown), let block = deviceRateListener else { return }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(outputDeviceID, &addr, ioQueue, block)
+        deviceRateListener = nil
+    }
+
     func stop() {
         if stopped { return }
         stopped = true
+        pendingRebuild?.cancel()
+        pendingRebuild = nil
+        removeDefaultDeviceListener()
         if #available(macOS 14.4, *) {
             cleanupIOProc()
             cleanupAggregate()
+            removeDeviceRateListener()
             cleanupTap()
         }
         Log.info("CoreAudio tap stopped")
@@ -232,26 +365,6 @@ final class CoreAudioTap {
         let byteCount = outFrames * MemoryLayout<Int16>.size
         let data = Data(bytes: int16[0], count: byteCount)
         FrameWriter.write(tag: .tapPCM, payload: data)
-    }
-
-    /// Re-read the tap's current stream format and rebuild the converter if it
-    /// changed. Runs on `ioQueue` (the listener's queue), so it never races the
-    /// IOProc's `process(inputData:)`.
-    @available(macOS 14.4, *)
-    private func rebuildConverterForCurrentTapFormat() {
-        guard !stopped, let newFormat = tapStreamFormat(tapID) else { return }
-        if let current = inputFormat,
-           current.sampleRate == newFormat.sampleRate,
-           current.channelCount == newFormat.channelCount {
-            return  // unchanged — nothing to do
-        }
-        guard let newConverter = AVAudioConverter(from: newFormat, to: targetFormat) else {
-            Log.error("tap reconfigure: could not rebuild converter for sr=\(newFormat.sampleRate)")
-            return
-        }
-        inputFormat = newFormat
-        converter = newConverter
-        Log.info("CoreAudio tap reconfigured (input sr=\(newFormat.sampleRate) ch=\(newFormat.channelCount))")
     }
 
     // MARK: - Teardown helpers (reverse creation order)
@@ -309,9 +422,10 @@ final class CoreAudioTap {
         return objectID
     }
 
-    /// UID string of the current default *system* output device — used as the
-    /// aggregate device's clock source / main sub-device.
-    private func defaultOutputDeviceUID() -> String? {
+    /// The current default *system* output device — its object id (used to clock
+    /// the aggregate and to watch its sample rate) and UID (used as the
+    /// aggregate's main sub-device).
+    private func defaultOutputDevice() -> (id: AudioObjectID, uid: String)? {
         var deviceAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -336,7 +450,7 @@ final class CoreAudioTap {
             AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, $0)
         }
         guard status == noErr else { return nil }
-        return uid as String
+        return (deviceID, uid as String)
     }
 
     /// The tap's output stream format (typically Float32 at the output device's

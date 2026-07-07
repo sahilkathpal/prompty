@@ -54,6 +54,8 @@ function makeDeepgramKeyProvider(usingMockDeepgram: boolean): () => Promise<stri
 
 /** Default ms of audio silence before the status flips to "no-audio". */
 const DEFAULT_NO_AUDIO_MS = 10_000;
+/** Default ms of no mic frames (while the tap is live) before flagging the mic dead. */
+const DEFAULT_MIC_DEAD_MS = 6_000;
 
 export interface SessionOpts {
   onUtterance?: (u: TranscriptUtterance) => void;
@@ -63,6 +65,12 @@ export interface SessionOpts {
   onStateChange?: (state: SessionState, errorStage?: string | null) => void;
   /** Live audio/transcription health for the overlay status dot. */
   onStatus?: (s: SessionStatusEvent) => void;
+  /**
+   * Capture-device metadata once the sidecar reports ready — currently the
+   * input device transport ("builtin" / "bluetooth" / "usb" / ...). Metadata
+   * only; lets the IPC layer attach it to call analytics.
+   */
+  onAudioInfo?: (info: { inputTransport: string | null }) => void;
   /**
    * Fired after the background summary pass has patched the saved log (or right
    * after the fast end when there's nothing to summarize). `logPath` is null if
@@ -231,6 +239,12 @@ export async function startSession(
   // Timestamp of the most recent audio frame / utterance. Drives the "No audio"
   // status indicator; never ends the session.
   let lastAudioAt = Date.now();
+  // Per-leg liveness, so a dead mic can't hide behind live tap frames: the tap
+  // stream keeps `lastAudioAt` fresh (masking a silent "me" leg from the overall
+  // no-audio check), so track the mic and tap separately.
+  let lastMicFrameAt = Date.now();
+  let lastTapFrameAt = Date.now();
+  let micDead = false;
   let ended = false;
 
   // ---- Status (overlay health dot) ----
@@ -241,6 +255,10 @@ export async function startSession(
     Number(process.env.PROMPTY_NO_AUDIO_MS) > 0
       ? Number(process.env.PROMPTY_NO_AUDIO_MS)
       : DEFAULT_NO_AUDIO_MS;
+  const micDeadMs =
+    Number(process.env.PROMPTY_MIC_DEAD_MS) > 0
+      ? Number(process.env.PROMPTY_MIC_DEAD_MS)
+      : DEFAULT_MIC_DEAD_MS;
 
   const emitStatus = (s: SessionStatus, audioPulse?: boolean, reason?: string) => {
     // Log transitions only — "listening" pulses fire every ~300ms and would
@@ -271,14 +289,30 @@ export async function startSession(
   // Called on every audio frame / utterance: flips to "listening" and pulses.
   const markAudio = () => {
     lastAudioAt = Date.now();
-    // Keep the mic-silent warning sticky — frames are arriving, they're just
-    // empty, so don't let the steady stream flip the dot back to "listening".
-    if (micSilence.isSilent()) return;
+    // Keep a mic problem sticky — don't let a steady TAP stream flip the dot back
+    // to "listening" while the mic is silent (all-zero frames) or dead (no
+    // frames at all). Both mean the user's own voice isn't being captured.
+    if (micSilence.isSilent() || micDead) return;
     const now = Date.now();
     if (currentStatus !== "listening" || now - lastPulseEmit >= 300) {
       lastPulseEmit = now;
       emitStatus("listening", true);
     }
+  };
+  const MIC_DEAD_REASON =
+    "Your microphone isn't being captured (no audio from the mic). Try switching your input to your built-in microphone.";
+  // Per-leg frame handlers: update liveness, run mic-silence inspection, pulse.
+  const onMicFrame = (chunk: Buffer) => {
+    lastMicFrameAt = Date.now();
+    // Mic frames are flowing again — clear the dead flag (the all-zero case is
+    // still caught by the silence detector).
+    if (micDead) micDead = false;
+    inspectMicChunk(chunk);
+    markAudio();
+  };
+  const onTapFrame = () => {
+    lastTapFrameAt = Date.now();
+    markAudio();
   };
   const onTransportError = (reason: string) => {
     if (ended) return;
@@ -378,6 +412,12 @@ export async function startSession(
       sidecar = spawnSidecar({});
       sidecar.controlEvents.on("control", (ev) => {
         console.log(`[sidecar control] ${JSON.stringify(ev)}`);
+        if (ev?.type === "ready") {
+          opts.onAudioInfo?.({
+            inputTransport:
+              typeof ev.inputTransport === "string" ? ev.inputTransport : null,
+          });
+        }
         if (ev?.type === "error") onTransportError("sidecar");
       });
     } catch (e) {
@@ -456,17 +496,35 @@ export async function startSession(
   // intentionally does NOT end the session — session end is fully manual
   // (overlay/tray "End session").
   if (sidecar) {
-    sidecar.micStream.on("data", markAudio);
-    sidecar.micStream.on("data", inspectMicChunk);
-    sidecar.tapStream.on("data", markAudio);
+    sidecar.micStream.on("data", onMicFrame);
+    sidecar.tapStream.on("data", onTapFrame);
   }
   // Flip to "no-audio" after a gap with no frames/utterances. Period is a
   // fraction of the threshold so the transition is timely (and fast in tests).
   const noAudioPeriod = Math.max(200, Math.min(2000, Math.floor(noAudioMs / 2)));
   noAudioTimer = setInterval(() => {
     if (ended || currentStatus === "error") return;
-    if (Date.now() - lastAudioAt > noAudioMs && currentStatus !== "no-audio") {
+    const now = Date.now();
+    if (now - lastAudioAt > noAudioMs && currentStatus !== "no-audio") {
       emitStatus("no-audio");
+      return;
+    }
+    // Mic dead while the tap is still live: the "me" leg produced no frames for a
+    // while but "them" is flowing, so the overall no-audio check above never
+    // trips. Surface it (Bluetooth HFP or a wrong input device is the usual
+    // cause) so the user can fall back to the built-in mic.
+    const tapAlive = now - lastTapFrameAt < noAudioMs;
+    const micStale = now - lastMicFrameAt > micDeadMs;
+    if (
+      tapAlive &&
+      micStale &&
+      !micDead &&
+      !micSilence.isSilent() &&
+      currentStatus !== "no-audio"
+    ) {
+      micDead = true;
+      console.error(`[coach-session] mic dead — ${MIC_DEAD_REASON}`);
+      emitStatus("mic-silent", false, MIC_DEAD_REASON);
     }
   }, noAudioPeriod);
 

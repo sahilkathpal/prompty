@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CoreAudio
 import AudioSidecarCore
 
 // MARK: - Argument parsing
@@ -54,6 +55,41 @@ func printUsage() {
     print(usage)
 }
 
+/// The transport type of the current default *input* device, as a coarse string
+/// ("builtin" / "bluetooth" / "usb" / ...). Emitted as call analytics metadata
+/// (never content) so we can measure the Bluetooth-HFP capture-failure rate in
+/// the field.
+func defaultInputTransport() -> String {
+    var devAddr = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+    var devID = AudioObjectID(kAudioObjectUnknown)
+    var sz = UInt32(MemoryLayout<AudioObjectID>.size)
+    guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &devAddr, 0, nil, &sz, &devID) == noErr,
+          devID != AudioObjectID(kAudioObjectUnknown) else { return "unknown" }
+    var trAddr = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyTransportType,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+    var transport: UInt32 = 0
+    var tsz = UInt32(MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(devID, &trAddr, 0, nil, &tsz, &transport) == noErr else { return "unknown" }
+    switch transport {
+    case kAudioDeviceTransportTypeBuiltIn: return "builtin"
+    case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "bluetooth"
+    case kAudioDeviceTransportTypeUSB: return "usb"
+    case kAudioDeviceTransportTypeAggregate: return "aggregate"
+    case kAudioDeviceTransportTypeVirtual: return "virtual"
+    case kAudioDeviceTransportTypeHDMI: return "hdmi"
+    case kAudioDeviceTransportTypeDisplayPort: return "displayport"
+    case kAudioDeviceTransportTypeAirPlay: return "airplay"
+    case kAudioDeviceTransportTypeThunderbolt: return "thunderbolt"
+    case kAudioDeviceTransportTypePCI: return "pci"
+    default: return "other"
+    }
+}
+
 // MARK: - Main
 
 let args = parseArgs(CommandLine.arguments)
@@ -106,7 +142,7 @@ if #available(macOS 14.4, *) {
     FrameWriter.writeControl(["type": "error", "msg": "unsupported_os: macOS 14.4+ required"])
 }
 
-FrameWriter.writeControl(["type": "ready"])
+FrameWriter.writeControl(["type": "ready", "inputTransport": defaultInputTransport()])
 
 // MARK: - Signal handling
 

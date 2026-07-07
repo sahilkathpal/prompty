@@ -156,6 +156,9 @@ const ONBOARDING_SAMPLE_NUDGES = [
 
 // Buffer of session:status events for the active session — read by E2E.
 let statusLog: SessionStatusEvent[] = [];
+// Input device transport ("builtin"/"bluetooth"/...) reported by the sidecar,
+// attached to call_ended analytics. Metadata only.
+let inputTransport: string | null = null;
 // Last pre-flight failure, so a just-opened main window can fetch it on mount.
 let lastPreflightFailure:
   | { code: "mic" | "auth" | "claude"; message: string; at: number }
@@ -296,6 +299,7 @@ async function doStartSession(
   broadcast("prep:components", { components: [] });
   activeSessionSetup = setup;
   statusLog = [];
+  inputTransport = null;
 
   try {
     const session = await startSession(setup, {
@@ -305,6 +309,9 @@ async function doStartSession(
       onStatus: (s) => {
         statusLog.push(s);
         broadcast("session:status", s);
+      },
+      onAudioInfo: (info) => {
+        inputTransport = info.inputTransport;
       },
       onSummaryReady: (logPath) => {
         // The background summary pass patched the saved log — tell any open
@@ -321,6 +328,12 @@ async function doStartSession(
             duration_s: sessionStartedAt ? Math.round((Date.now() - sessionStartedAt) / 1000) : null,
             skill: setup.skill || null,
             error_category: errorStage ?? (s === "error" ? "unknown" : null),
+            // Capture-health (metadata only) — closes the blind spot where a
+            // silent call looked "ended" cleanly with no signal about why.
+            audio_input_transport: inputTransport,
+            reached_listening: statusLog.some((e) => e.state === "listening"),
+            mic_silent_seen: statusLog.some((e) => e.state === "mic-silent"),
+            no_audio_seen: statusLog.some((e) => e.state === "no-audio"),
           });
           sessionStartedAt = 0;
           activeSession = null;
