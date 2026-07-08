@@ -319,6 +319,25 @@ app.on("ready", () => {
         const { getRecentEvents } = require("./analytics");
         return getRecentEvents();
       },
+      getAnalyticsErrors: () => {
+        const { getRecentErrors } = require("./analytics");
+        return getRecentErrors();
+      },
+      // Drive capture() directly (bypassing the renderer allowlist) so a spec
+      // can feed the scrubber crafted property values.
+      captureEvent: (arg: { event: string; properties?: Record<string, unknown> }) => {
+        const { capture } = require("./analytics");
+        return capture(arg.event, arg.properties ?? {});
+      },
+      // Drive the captureException wrapper with a real Error.
+      captureError: (arg: { message: string; ctx: Record<string, unknown> }) => {
+        const { captureException } = require("./analytics");
+        return captureException(new Error(arg.message), arg.ctx);
+      },
+      setAnalyticsOptOut: (v: boolean) => {
+        const { updateSettings } = require("./settings-store");
+        updateSettings({ analyticsOptOut: v });
+      },
       forceDeepgramError: (reason?: string) => {
         const { e2eForceTransportError } = require("./ipc-handlers");
         return e2eForceTransportError(reason);
