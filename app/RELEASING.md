@@ -1,78 +1,138 @@
-# Releasing Prompty
+# Releasing Ruby
 
-The MVP ships as a locally self-signed (not notarized) DMG handed directly to a
-design partner. No paid Apple Developer ID, no notarization, no auto-update feed.
+Ruby ships as a **signed (Apple Developer ID) + notarized + stapled** macOS build and
+auto-updates in the field via `electron-updater` from the generic feed at
+`https://updates.codeongrass.com/ruby/mac/` (see `electron-builder.yml` → `publish`).
 
-## Build & package
+The update *infrastructure* (DNS, the DO Space + CDN, the TLS cert and its renewal) is
+documented in **`RUBY_OTA_SPACES_CUTOVER.md`** at the repo root. This file is the
+per-release **build → publish → verify** runbook.
 
-From `app/`:
+---
 
-```bash
-npm run build
-npx electron-builder --mac --config electron-builder.yml -c.mac.identity="Prompty Local Signing"
-```
+## Versioning (the discipline)
 
-Output (both arches) lands in `app/release/`:
+- **Semver**, and the git tag is the source of truth alongside `app/package.json`:
+  **the annotated tag `vX.Y.Z` MUST equal `app/package.json` `version`.** That version
+  flows to `app.getVersion()`, the analytics base props, and the OTA `latest-mac.yml`.
+- Releases are cut on the **`ruby-rebuild`** trunk. Each release is a dedicated
+  **version-bump commit** (`release: vX.Y.Z — …`) with an **annotated tag** on it.
+- Patch = bug fix (0.1.0 → 0.1.1). Minor = features. We are pre-1.0, so minor/patch
+  semantics are loose but a fix is always a patch.
 
-- `Prompty-0.1.0-arm64.dmg` → Apple Silicon (M-series)
-- `Prompty-0.1.0.dmg`       → Intel
-
-Requires macOS **14.4+** on both the build and target machines (the CoreAudio
-process tap needs it). `swift` must be on PATH (Xcode or Command Line Tools) or
-the audio sidecar won't embed.
-
-### Why the `-c.mac.identity=...` override
-
-`electron-builder.yml` sets `identity: ${env.APPLE_DEVELOPER_ID}`, but the pinned
-electron-builder version does not expand that `${env.*}` macro — it looks for a
-keychain cert literally named `${env.APPLE_DEVELOPER_ID}`, fails, and skips signing
-entirely. An unsigned bundle is killed as "damaged" on Apple Silicon. So we
-override on the CLI with a self-signed cert in the login keychain named
-**`Prompty Local Signing`**.
-
-If that cert is missing, recreate a self-signed code-signing cert with that exact
-name via Keychain Access → Certificate Assistant → Create a Certificate (Identity
-type: Self Signed Root, Certificate type: Code Signing).
-
-Keep signing with the **same** cert across rebuilds — the recipient's microphone
-(TCC) grant is tied to the signature, so reusing it preserves their grant.
-
-## Verify the build
+Cut the version:
 
 ```bash
-codesign --verify --deep --strict app/release/mac-arm64/Prompty.app && echo OK
-codesign -dv --verbose=2 app/release/mac-arm64/Prompty.app 2>&1 | grep -E "Identifier|Authority|flags"
-# expect: Identifier=app.prompty.desktop, Authority=Prompty Local Signing, flags=...(runtime)
+# on ruby-rebuild, tree clean
+# edit app/package.json "version" → X.Y.Z
+git commit -am "release: vX.Y.Z — <one-line summary>"
+git tag -a vX.Y.Z -m "Ruby X.Y.Z — <summary>"
 ```
 
-## Hand-off instructions (give these to the recipient)
+---
 
-1. Open the DMG that matches their Mac, drag **Prompty** to Applications.
-2. Clear Gatekeeper (the build is self-signed and not notarized). The recursive
-   `-r` matters — it also un-quarantines the embedded audio sidecar, otherwise
-   far-end ("them") audio silently never starts:
+## Prerequisites (one-time on the build machine)
 
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Prompty.app
-   ```
+- **macOS 14.4+** and `swift` on `PATH` (Xcode / Command Line Tools) — the CoreAudio
+  process tap needs 14.4, and the Swift audio sidecar is built by
+  `scripts/prebuild-sidecar.mjs`.
+- **Apple Developer ID Application** certificate in the login keychain (paid Apple
+  Developer account).
+- **Signing + notarization env** (electron-builder + `scripts/notarize.mjs` afterSign
+  hook read these):
 
-   (GUI alternative: try to open → blocked → System Settings → Privacy & Security
-   → Open Anyway.)
-3. Launch it. Clicking the ruby opens the main window.
-4. Click **Allow** on the microphone prompt (or System Settings → Privacy &
-   Security → Microphone → enable Prompty).
-5. Set the Deepgram key. Transcription reads `DEEPGRAM_API_KEY` from the
-   environment / `.env`; the recipient needs a key configured the same way.
+  | Var | Purpose |
+  |---|---|
+  | `APPLE_DEVELOPER_ID` | Signing identity name, e.g. `Developer ID Application: … (TEAMID)` |
+  | `CSC_LINK` / `CSC_KEY_PASSWORD` | Cert material, if not already in the keychain |
+  | `APPLE_ID` | Apple ID email (notarization) |
+  | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password from appleid.apple.com |
+  | `APPLE_TEAM_ID` | 10-char team ID |
 
-### Permissions notes
+  If the three `APPLE_*` notarization vars are unset, `scripts/notarize.mjs` **skips
+  notarization** (a self-signed dev build) — fine for local testing, **not** for a
+  release.
+- **Publish tooling:** `doctl` authed, and `aws` configured for the DO Space
+  (`--profile do-spaces`, S3-compatible). Space `revise-testing`, region `fra1`. Have
+  the CDN endpoint id (`doctl compute cdn list` → `<CDN_ID>`).
 
-- **Microphone** is the only permission the recipient grants. The grant covers the
-  bundled sidecar (spawned by Prompty, lives inside the signed bundle).
-- **System audio** ("them") uses the CoreAudio process tap — no Screen Recording
-  permission, no prompt; it works once the app runs.
-- Granted-but-silent mic? Toggle Microphone for Prompty in System Settings and
-  relaunch.
+---
 
-## Caveat
+## 1. Build (signed + notarized)
 
-No auto-update. To ship a change, rebuild and re-send the DMG.
+```bash
+cd app
+npm run dist          # build (sidecar + renderer + main) → electron-builder → notarize (afterSign)
+```
+
+Output in `app/release/` for both arches:
+
+- `Ruby-X.Y.Z-arm64.dmg`, `Ruby-X.Y.Z.dmg` — hand-off downloads.
+- `Ruby-X.Y.Z-arm64-mac.zip`, `Ruby-X.Y.Z-mac.zip` (+ `.blockmap`) — what
+  Squirrel.Mac / `electron-updater` actually applies. **OTA references the `.zip`, not
+  the dmg.**
+- `latest-mac.yml` — the update manifest.
+
+## 2. Verify the build
+
+```bash
+codesign --verify --deep --strict app/release/mac-arm64/Ruby.app && echo signed-ok
+spctl -a -vvv -t install app/release/mac-arm64/Ruby.app     # expect: accepted, source=Notarized Developer ID
+stapler validate app/release/mac-arm64/Ruby.app             # expect: The validate action worked
+grep -E "^version:" app/release/latest-mac.yml              # must equal package.json / the tag
+```
+
+## 3. Publish to the DO Space + flush the CDN
+
+Manifest is `no-cache`; the content-addressed payloads are immutable. Set the headers at
+upload time (full commands in `RUBY_OTA_SPACES_CUTOVER.md` §1). From `app/release/`:
+
+```bash
+S3=s3://revise-testing/ruby/mac
+AWS="aws --profile do-spaces --endpoint-url https://fra1.digitaloceanspaces.com"
+
+$AWS s3 cp latest-mac.yml $S3/latest-mac.yml --acl public-read \
+  --cache-control "no-cache" --content-type "text/yaml"
+for f in *-mac.zip;  do $AWS s3 cp "$f" $S3/"$f" --acl public-read --cache-control "public, max-age=31536000, immutable" --content-type "application/zip"; done
+for f in *.blockmap; do $AWS s3 cp "$f" $S3/"$f" --acl public-read --cache-control "public, max-age=31536000, immutable" --content-type "application/octet-stream"; done
+for f in *.dmg;      do $AWS s3 cp "$f" $S3/"$f" --acl public-read --cache-control "public, max-age=31536000, immutable" --content-type "application/x-apple-diskimage"; done
+
+# Manifest must not linger at the edge:
+doctl compute cdn flush <CDN_ID> --files "ruby/mac/latest-mac.yml"
+```
+
+## 4. Verify the OTA feed + the update applying
+
+```bash
+curl -sS -D - -o /dev/null https://updates.codeongrass.com/ruby/mac/latest-mac.yml
+#   expect HTTP 200, cache-control: no-cache, and the new version inside
+curl -sS -D - -o /dev/null -r 0-1023 https://updates.codeongrass.com/ruby/mac/$(basename app/release/*-arm64-mac.zip)
+#   expect HTTP 206 Partial Content (electron-updater uses range requests)
+```
+
+Then the real proof: launch a **prior-version** install and confirm it detects, downloads,
+and applies the update (updater UX wired in `electron/updater.ts`, which also emits the
+`update_available` / `update_downloaded` / `update_installed` analytics events).
+
+---
+
+## Push the release
+
+Only after the feed + auto-update verify:
+
+```bash
+git push origin ruby-rebuild
+git push origin vX.Y.Z
+```
+
+## Notes
+
+- **Same signing identity across releases** — a recipient's microphone (TCC) grant is
+  tied to the signature; reusing the identity preserves it.
+- Notarized + stapled builds clear Gatekeeper with no `xattr` dance (unlike the old
+  self-signed MVP flow).
+- The `dmg` is only the manual hand-off; auto-update runs entirely off the `.zip` +
+  `latest-mac.yml`.
+- Rollback of a bad release = re-publish the previous `latest-mac.yml` (the old payload
+  objects are immutable and still present) and flush the CDN. See
+  `RUBY_OTA_SPACES_CUTOVER.md` § Rollback for the DNS-level fallback.
