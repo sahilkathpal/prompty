@@ -14,9 +14,46 @@
 import { app } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import { getSession, signInWithGoogle } from "./google-auth";
+import {
+  getSession,
+  getFreshIdToken,
+  forceRefreshIdToken,
+  signInWithGoogle,
+  signOut as googleSignOut,
+  RefreshTokenRevokedError,
+} from "./google-auth";
 import { relayBaseUrl } from "./relay-config";
 import { readSecretFile, writeSecretFile } from "./secret-file";
+
+/** A non-OK HTTP response from the relay, carrying the status for retry logic. */
+class RelayHttpError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RelayHttpError";
+  }
+}
+
+// Re-auth signal: when the Google refresh token is revoked/expired
+// (invalid_grant), the relay client can't recover — the app layer must clear
+// signed-in state, rotate the analytics anon id, and prompt a fresh sign-in.
+// The electron layer registers this handler (see ipc-handlers) to keep relay
+// state out of the settings/broadcast layer.
+type ReauthHandler = (reason: string) => void;
+let reauthHandler: ReauthHandler | null = null;
+export function setReauthHandler(fn: ReauthHandler | null): void {
+  reauthHandler = fn;
+}
+
+/** Refresh token is dead: drop all local auth state and notify the app layer. */
+function handleReauthRequired(reason: string): void {
+  console.warn(`[relay] re-auth required: ${reason}`);
+  googleSignOut();
+  clearSessionCache();
+  reauthHandler?.(reason);
+}
 
 const DEEPGRAM_KEY_FILENAME = "deepgram-key.bin";
 // Reuse a cached key only while it has comfortably more than this left. The
@@ -80,7 +117,7 @@ async function postAuthGoogle(idToken: string): Promise<CachedSession> {
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    throw new Error(`relay /auth/google ${resp.status}: ${text.slice(0, 200)}`);
+    throw new RelayHttpError(resp.status, `relay /auth/google ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = (await resp.json()) as CachedSession;
   if (!data.sessionToken || !data.userId) {
@@ -90,20 +127,41 @@ async function postAuthGoogle(idToken: string): Promise<CachedSession> {
 }
 
 /**
- * Returns the cached relay session token, minting one from the user's Google
- * ID token if absent. Returns null if the user is not signed into Google.
+ * Mint a relay session JWT from a fresh Google ID token. `force` force-refreshes
+ * the idToken first (used after a 401, when the current idToken may be why the
+ * relay rejected us). If /auth/google itself returns 401 on the first try, we
+ * force-refresh and retry once. Returns null when not signed in or on a
+ * non-recoverable failure; an `invalid_grant` triggers the re-auth path.
  */
-export async function getSessionToken(): Promise<string | null> {
-  if (cachedSession) return cachedSession.sessionToken;
-  const g = getSession();
-  if (!g || !g.idToken) return null;
+async function mintSession(force: boolean): Promise<string | null> {
+  let idToken: string;
   try {
-    cachedSession = await postAuthGoogle(g.idToken);
+    idToken = force ? await forceRefreshIdToken() : await getFreshIdToken();
+  } catch (e) {
+    if (e instanceof RefreshTokenRevokedError) handleReauthRequired("invalid_grant");
+    else console.error("[relay] could not get fresh idToken:", (e as Error).message);
+    return null;
+  }
+  try {
+    cachedSession = await postAuthGoogle(idToken);
     return cachedSession.sessionToken;
   } catch (e) {
+    // A stale idToken the relay rejects → force-refresh and retry once.
+    if (e instanceof RelayHttpError && e.status === 401 && !force) {
+      return mintSession(true);
+    }
     console.error("[relay] /auth/google failed:", (e as Error).message);
     return null;
   }
+}
+
+/**
+ * Returns the cached relay session token, minting one from a FRESH Google ID
+ * token if absent. Returns null if the user is not signed into Google.
+ */
+export async function getSessionToken(): Promise<string | null> {
+  if (cachedSession) return cachedSession.sessionToken;
+  return mintSession(false);
 }
 
 export async function getUserId(): Promise<string | null> {
@@ -147,10 +205,25 @@ export async function getDeepgramToken(): Promise<string> {
     return cachedDeepgramKey.key;
   }
 
-  const session = await getSessionToken();
+  let session = await getSessionToken();
   if (!session) {
     throw new Error("not signed in — sign in with Google first");
   }
+  try {
+    return cacheAndReturn(await requestDeepgramKey(session));
+  } catch (e) {
+    // Session JWT rejected (expired 30-day token, or minted from a since-rotated
+    // identity). Drop it, mint a fresh one — force-refreshing the idToken — and
+    // retry exactly once.
+    if (!(e instanceof RelayHttpError) || e.status !== 401) throw e;
+    cachedSession = null;
+    session = await mintSession(true);
+    if (!session) throw new Error("not signed in — sign in with Google first");
+    return cacheAndReturn(await requestDeepgramKey(session));
+  }
+}
+
+async function requestDeepgramKey(session: string): Promise<DeepgramKeyCache> {
   const resp = await fetch(`${relayBaseUrl()}/deepgram/token`, {
     method: "POST",
     headers: {
@@ -160,14 +233,18 @@ export async function getDeepgramToken(): Promise<string> {
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    throw new Error(`relay /deepgram/token ${resp.status}: ${text.slice(0, 200)}`);
+    throw new RelayHttpError(resp.status, `relay /deepgram/token ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = (await resp.json()) as { key: string; expiresAt: number };
   if (!data.key) throw new Error("relay returned malformed deepgram key");
-  cachedDeepgramKey = {
+  return {
     key: data.key,
     expiresAt: data.expiresAt > 1e12 ? data.expiresAt : data.expiresAt * 1000,
   };
-  writeDeepgramKeyFile(cachedDeepgramKey);
-  return data.key;
+}
+
+function cacheAndReturn(key: DeepgramKeyCache): string {
+  cachedDeepgramKey = key;
+  writeDeepgramKeyFile(key);
+  return key.key;
 }

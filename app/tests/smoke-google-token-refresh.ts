@@ -179,6 +179,86 @@ async function main() {
     assert(calls.length === 1, `expected 1 call, got ${calls.length}`);
   });
 
+  await run("getFreshIdToken refreshes a stale session and returns the fresh id_token", async () => {
+    googleAuth._writeSessionForTests({
+      accessToken: "stale-access",
+      refreshToken: "refresh-id-1",
+      expiresAt: Date.now() - 60_000, // expired
+      sub: "google-sub",
+      email: "u@example.com",
+      idToken: "old-id-token",
+    });
+
+    resetFetchLog();
+    responder = async (url) => {
+      if (url === "https://oauth2.googleapis.com/token") {
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-access",
+            id_token: "fresh-id-token",
+            expires_in: 3600,
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const id = await googleAuth.getFreshIdToken();
+    assert(id === "fresh-id-token", `expected fresh-id-token, got ${id}`);
+    assert(calls.length === 1, `expected 1 refresh call, got ${calls.length}`);
+    // The rotated id_token is persisted for next time.
+    const persisted = googleAuth.getSession();
+    assert(persisted?.idToken === "fresh-id-token", "fresh id_token persisted");
+  });
+
+  await run("getFreshIdToken returns the current id_token without refreshing when fresh", async () => {
+    googleAuth._writeSessionForTests({
+      accessToken: "fresh-access",
+      refreshToken: "refresh-id-2",
+      expiresAt: Date.now() + 60 * 60 * 1000, // fresh
+      sub: "google-sub",
+      email: "u@example.com",
+      idToken: "current-id-token",
+    });
+    resetFetchLog();
+    responder = async () => {
+      throw new Error("should not have called fetch");
+    };
+    const id = await googleAuth.getFreshIdToken();
+    assert(id === "current-id-token", `expected current-id-token, got ${id}`);
+    assert(calls.length === 0, `expected 0 calls, got ${calls.length}`);
+  });
+
+  await run("a refresh invalid_grant throws RefreshTokenRevokedError", async () => {
+    googleAuth._writeSessionForTests({
+      accessToken: "stale-access",
+      refreshToken: "revoked-refresh",
+      expiresAt: Date.now() - 60_000, // expired → forces refresh
+      sub: "google-sub",
+      email: "u@example.com",
+      idToken: "old-id-token",
+    });
+    resetFetchLog();
+    responder = async (url) => {
+      if (url === "https://oauth2.googleapis.com/token") {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    let caught: unknown = null;
+    try {
+      await googleAuth.getFreshIdToken();
+    } catch (e) {
+      caught = e;
+    }
+    assert(caught instanceof googleAuth.RefreshTokenRevokedError, "threw RefreshTokenRevokedError");
+  });
+
   if (failed > 0) {
     console.error(`\n${failed} case(s) failed`);
     process.exit(1);

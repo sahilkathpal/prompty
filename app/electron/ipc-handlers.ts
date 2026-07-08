@@ -45,6 +45,7 @@ import {
   getUserId,
   signInWithGoogleAndRelay,
   clearSessionCache,
+  setReauthHandler,
 } from "../src/main-process/relay-client";
 import {
   getSession as getGoogleSession,
@@ -413,6 +414,29 @@ async function doEndSession(): Promise<{ ok: boolean; error?: string }> {
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
+  // When the relay client hits a revoked/expired Google refresh token
+  // (invalid_grant), it has already dropped the local Google + relay session;
+  // the app layer finishes the sign-out: flip signed-in state, rotate the
+  // analytics anon id (so a later account can't cross-merge), tell every window,
+  // and nudge the user to sign in again. Same effect as an explicit sign-out.
+  setReauthHandler(() => {
+    try {
+      rotateAnonId();
+      const next = updateSettings({ signedIn: false, signedInUserId: null, signedInEmail: null });
+      broadcast("settings:changed", next);
+      broadcast("auth:state-changed", { signedIn: false });
+      analyticsCapture("auth_reauth_required");
+      if (Notification.isSupported()) {
+        new Notification({
+          title: "Ruby needs you to sign in again",
+          body: "Your Google session expired. Open Ruby and sign in to keep calls working.",
+        }).show();
+      }
+    } catch (e) {
+      console.error("[ipc] re-auth handler failed:", (e as Error).message);
+    }
+  });
+
   handle("main:open-tab", (payload) => {
     openMainWindow(payload.tab);
   });

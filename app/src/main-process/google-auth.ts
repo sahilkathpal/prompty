@@ -31,6 +31,19 @@ export interface GoogleSession {
   idToken?: string;
 }
 
+/**
+ * The refresh token was rejected by Google with `invalid_grant` — it was
+ * revoked (user removed the app in their Google account) or expired (6-month
+ * inactivity). This is the one legitimate re-sign-in case: the caller must clear
+ * the session and prompt a fresh sign-in, not retry.
+ */
+export class RefreshTokenRevokedError extends Error {
+  constructor() {
+    super("google refresh token revoked (invalid_grant)");
+    this.name = "RefreshTokenRevokedError";
+  }
+}
+
 // The OAuth client ID and secret are NOT bundled with the app. The relay
 // holds them and brokers the two operations that need the secret — the
 // authorization-code exchange and the refresh-token grant — so nothing
@@ -343,46 +356,75 @@ export async function signInWithGoogle(): Promise<{ userId: string; email: strin
 }
 
 /**
- * Returns a fresh access token. Refreshes via refresh_token if expired/near
- * expiry.
+ * Run the refresh grant and persist the rotated tokens (access, id, and the
+ * possibly-rotated refresh token). The single place a refresh happens — both the
+ * access-token and id-token accessors funnel here. A Google `invalid_grant`
+ * (revoked/expired refresh token) is surfaced as RefreshTokenRevokedError so the
+ * caller can distinguish "must re-sign-in" from a transient failure.
  */
-export async function getAccessToken(): Promise<string> {
-  const s = readSessionFile();
-  if (!s) throw new Error("not signed in — call signInWithGoogle() first");
-  // Refresh ~60 seconds before expiry.
-  if (s.accessToken && s.expiresAt - Date.now() > 60_000) {
-    return s.accessToken;
+async function refreshSession(s: GoogleSession): Promise<GoogleSession> {
+  let refreshed: TokenResponse;
+  try {
+    refreshed = await refreshAccessToken(s.refreshToken);
+  } catch (e) {
+    if (/invalid_grant/.test((e as Error).message)) throw new RefreshTokenRevokedError();
+    throw e;
   }
-  const refreshed = await refreshAccessToken(s.refreshToken);
   const next: GoogleSession = {
     ...s,
     accessToken: refreshed.access_token,
     expiresAt: Date.now() + refreshed.expires_in * 1000,
-    // Google may rotate the refresh_token
+    // Google may rotate the refresh_token; it returns a fresh id_token on the
+    // refresh grant because the original consent carried the openid scope.
     refreshToken: refreshed.refresh_token ?? s.refreshToken,
     idToken: refreshed.id_token ?? s.idToken,
   };
   writeSessionFile(next);
-  return next.accessToken;
+  return next;
 }
 
 /**
- * Force-refresh the access token unconditionally. Used by callers that
- * receive 401 from a downstream API.
+ * Return the stored session, refreshing it first if the access token is within
+ * ~60s of expiry (the id_token expires on the same ~1h clock, so this keeps both
+ * fresh). Throws if not signed in.
  */
+export async function ensureFreshSession(): Promise<GoogleSession> {
+  const s = readSessionFile();
+  if (!s) throw new Error("not signed in — call signInWithGoogle() first");
+  if (s.accessToken && s.expiresAt - Date.now() > 60_000) return s;
+  return refreshSession(s);
+}
+
+/** A fresh Google access token (refreshes when near expiry). */
+export async function getAccessToken(): Promise<string> {
+  return (await ensureFreshSession()).accessToken;
+}
+
+/**
+ * A fresh Google ID token (refreshes when near expiry). This is what the relay
+ * client posts to /auth/google — refreshing it here is the fix that lets a
+ * relaunch mint a session without a stale-idToken grace.
+ */
+export async function getFreshIdToken(): Promise<string> {
+  const s = await ensureFreshSession();
+  if (!s.idToken) throw new Error("session has no id_token");
+  return s.idToken;
+}
+
+/** Force-refresh unconditionally. Used by callers that receive a downstream 401. */
 export async function forceRefreshAccessToken(): Promise<string> {
   const s = readSessionFile();
   if (!s) throw new Error("not signed in");
-  const refreshed = await refreshAccessToken(s.refreshToken);
-  const next: GoogleSession = {
-    ...s,
-    accessToken: refreshed.access_token,
-    expiresAt: Date.now() + refreshed.expires_in * 1000,
-    refreshToken: refreshed.refresh_token ?? s.refreshToken,
-    idToken: refreshed.id_token ?? s.idToken,
-  };
-  writeSessionFile(next);
-  return next.accessToken;
+  return (await refreshSession(s)).accessToken;
+}
+
+/** Force-refresh and return a fresh ID token. Used on a relay 401 before retry. */
+export async function forceRefreshIdToken(): Promise<string> {
+  const s = readSessionFile();
+  if (!s) throw new Error("not signed in");
+  const next = await refreshSession(s);
+  if (!next.idToken) throw new Error("refresh returned no id_token");
+  return next.idToken;
 }
 
 // Exposed for tests to inject a session deterministically.

@@ -29,6 +29,7 @@
     "test:swift": "bash ../audio-sidecar/Tests/run-tests.sh",
     "smoke:transcribe-mock": "node --import tsx tests/smoke-transcribe-mock.ts",
     "smoke:google-token-refresh": "node --import tsx tests/smoke-google-token-refresh.ts",
+    "smoke:relay-auth": "node --import tsx tests/smoke-relay-auth.ts",
     "smoke:debug-logger": "node --import tsx tests/smoke-debug-logger.ts",
     "smoke:debug-capture": "node --import tsx tests/smoke-debug-capture.ts",
     "smoke:real:agent": "node --import tsx tests/smoke-agent.ts",
