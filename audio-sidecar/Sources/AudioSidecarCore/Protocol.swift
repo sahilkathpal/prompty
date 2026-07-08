@@ -21,6 +21,8 @@ import Foundation
 ///   {"type":"screen_share_started"}
 ///   {"type":"screen_share_stopped"}
 ///   {"type":"error","msg":"..."}
+///   {"type":"tap_silent","action":"rebuild"|"gave_up","attempt":N}
+///   {"type":"tap_recovered","rebuilds":N}
 ///
 /// stdout writes are guarded by a global mutex so PCM chunks and control
 /// frames never interleave at the byte level.
