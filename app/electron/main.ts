@@ -6,7 +6,7 @@ import {
   getOverlayWindow,
 } from "./overlay-window";
 import { configureMainWindow, openMainWindow } from "./main-window";
-import { capture as analyticsCapture, identifyUser, shutdownAnalytics } from "./analytics";
+import { capture as analyticsCapture, identifyUser, captureException, shutdownAnalytics } from "./analytics";
 import { configureOnboardingWindow, openOnboardingWindow } from "./onboarding-window";
 import { createTray, rebuildMenu } from "./tray";
 import { initUpdater, stopUpdater } from "./updater";
@@ -44,6 +44,25 @@ for (const stream of [process.stdout, process.stderr]) {
     });
   });
 }
+
+// Global JS-exception capture (§3.1). Without these, an uncaught throw or a
+// rejected promise in the main process would crash it (killing any in-progress
+// call) or vanish into console noise. Report each, then — consistent with the
+// EPIPE guard above — keep the app alive rather than let a stray throw end a
+// call. The try/catch guards the reporter (e.g. app not ready yet).
+process.on("uncaughtException", (err) => {
+  console.error("[main] uncaughtException:", err?.message);
+  try {
+    captureException(err, { component: "main", fingerprint: `main:uncaught:${err?.name ?? "Error"}` });
+  } catch {}
+});
+process.on("unhandledRejection", (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error("[main] unhandledRejection:", err.message);
+  try {
+    captureException(err, { component: "main", fingerprint: `main:unhandled:${err.name}` });
+  } catch {}
+});
 
 // In E2E mode, log every Notification ever constructed to a global array so
 // Playwright can read it via app.evaluate().
@@ -337,6 +356,13 @@ app.on("ready", () => {
       setAnalyticsOptOut: (v: boolean) => {
         const { updateSettings } = require("./settings-store");
         updateSettings({ analyticsOptOut: v });
+      },
+      // Throw asynchronously so it surfaces as a real process uncaughtException
+      // (exercising the global handler), not a caught evaluate() rejection.
+      forceUncaught: (msg: string) => {
+        setImmediate(() => {
+          throw new Error(msg);
+        });
       },
       forceDeepgramError: (reason?: string) => {
         const { e2eForceTransportError } = require("./ipc-handlers");

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import type { ElectronApplication } from "@playwright/test";
-import { launchApp, freshUserDataDir, seedSettings, waitForReady } from "./_helpers";
+import { launchApp, freshUserDataDir, seedSettings, waitForReady, openMainWindow, getMainPage } from "./_helpers";
 import fs from "node:fs/promises";
 import os from "node:os";
 
@@ -90,6 +90,39 @@ test("error-tracking: scrubber redacts + drops content; wrapper tags + rate-limi
     await app.evaluate(() => new Promise((r) => setTimeout(r, 200)));
     expect((await errors(app)).some((e) => e.$exception_fingerprint === "main:after-optout")).toBe(false);
     expect((await events(app)).some((e) => e.properties.marker === "after-optout")).toBe(false);
+  } finally {
+    await app.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("error-tracking: main uncaughtException + renderer throw land as tagged $exception", async () => {
+  test.setTimeout(60_000);
+
+  const dir = await freshUserDataDir("error-tracking-throws");
+  await seedSettings(dir);
+  const app = await launchApp(dir);
+  try {
+    await waitForReady(app);
+
+    // ── Main process: a real uncaughtException via the global handler ──
+    await app.evaluate((_el, msg) => (globalThis as unknown as { __prompty_e2e: { forceUncaught: (m: string) => void } }).__prompty_e2e.forceUncaught(msg), "main-boom-xyz");
+    await expect
+      .poll(async () => (await errors(app)).some((e) => e.component === "main" && String(e.message).includes("main-boom-xyz") && e.$exception_fingerprint === "main:uncaught:Error"), { timeout: 5_000 })
+      .toBe(true);
+
+    // ── Renderer: an async throw trips window.onerror → IPC → captureException ──
+    await openMainWindow(app);
+    const main = await getMainPage(app);
+    await main.evaluate(() => setTimeout(() => {
+      throw new Error("renderer-boom-xyz");
+    }, 0));
+    await expect
+      .poll(async () => (await errors(app)).find((e) => e.component === "renderer-ui" && String(e.message).includes("renderer-boom-xyz")), { timeout: 5_000 })
+      .not.toBeUndefined();
+    const rendErr = (await errors(app)).find((e) => e.component === "renderer-ui" && String(e.message).includes("renderer-boom-xyz"))!;
+    expect(rendErr.surface).toBe("main-window");
+    expect(rendErr.$exception_fingerprint).toBe("renderer-ui:Error");
   } finally {
     await app.close();
     await fs.rm(dir, { recursive: true, force: true });

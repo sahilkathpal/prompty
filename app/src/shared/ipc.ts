@@ -239,6 +239,21 @@ export interface InvokeChannels {
     request: { event: string; properties?: Record<string, unknown> };
     response: void;
   };
+  // A renderer-side JS exception (window.onerror / unhandledrejection / React
+  // ErrorBoundary). Serialized {name,message,stack}; the main process rebuilds
+  // the Error and reports it via captureException (component: renderer-ui). The
+  // content scrubber runs in main, so no renderer holds the project key. Metadata
+  // only. Fire-and-forget.
+  "analytics:captureException": {
+    request: {
+      message: string;
+      name?: string;
+      stack?: string;
+      surface: string;
+      properties?: Record<string, unknown>;
+    };
+    response: void;
+  };
   "onboarding:complete": {
     request: void;
     response: { ok: boolean };

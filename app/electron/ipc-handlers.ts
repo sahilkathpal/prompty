@@ -12,7 +12,13 @@ import type {
   EventPayload,
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
-import { capture as analyticsCapture, aliasAndIdentify, rotateAnonId } from "./analytics";
+import {
+  capture as analyticsCapture,
+  aliasAndIdentify,
+  rotateAnonId,
+  captureException,
+  addBreadcrumb,
+} from "./analytics";
 import { openExternalSafely } from "./safe-open";
 import { getRemoteConfig } from "../src/main-process/remote-config";
 import { openMainWindow, getMainWindow } from "./main-window";
@@ -319,6 +325,9 @@ async function doStartSession(
         if (logPath) broadcast("calls:updated", { name: path.basename(logPath) });
       },
       onStateChange: (s, errorStage) => {
+        // Content-free breadcrumb: the state transition (+ which leg failed),
+        // so any exception this call raises carries the run-up.
+        addBreadcrumb("session-state", errorStage ? `${s}:${errorStage}` : s);
         broadcastSessionState(s);
         if (s === "ended" || s === "error") {
           // Metadata only — duration, outcome, which playbook, and (when a leg
@@ -346,6 +355,17 @@ async function doStartSession(
       },
       onError: (e) => {
         console.error("[ipc] session error:", e.message);
+        // Route the real stack into error tracking (§3.3). The agent wraps its
+        // failures as `agent error: <subtype>`; put the subtype in the
+        // fingerprint so distinct causes don't over-merge into one issue (§5.3).
+        const m = e.message || "";
+        const subtype = m.startsWith("agent error: ") ? m.slice("agent error: ".length) : null;
+        captureException(e, {
+          component: "agent",
+          phase: "in-call",
+          skill: setup.skill || undefined,
+          fingerprint: subtype ? `agent:${subtype}` : undefined,
+        });
       },
     });
     activeSession = session;
@@ -803,6 +823,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return;
     }
     analyticsCapture(payload.event, payload.properties ?? {});
+  });
+
+  // Renderer JS exceptions (window.onerror / unhandledrejection / ErrorBoundary).
+  // Rebuild the Error from the serialized fields and report it; the scrubber runs
+  // in captureException/before_send so the stack/message ship safe.
+  handle("analytics:captureException", (payload) => {
+    if (!payload || !payload.message) return;
+    const err = new Error(payload.message);
+    if (payload.name) err.name = payload.name;
+    if (payload.stack) err.stack = payload.stack;
+    captureException(err, {
+      component: "renderer-ui",
+      extra: { surface: payload.surface, ...(payload.properties ?? {}) },
+    });
   });
 
   handle("onboarding:set-height", (payload) => {
