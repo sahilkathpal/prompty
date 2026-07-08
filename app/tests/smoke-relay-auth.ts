@@ -78,6 +78,11 @@ function bodyOf(init?: RequestInit): Record<string, unknown> {
 function authHeader(init?: RequestInit): string {
   return ((init?.headers as Record<string, string>) ?? {}).authorization ?? "";
 }
+// A syntactically-real JWT with the given exp (seconds) so jwtExpMs can read it.
+function fakeJwt(expSec: number): string {
+  const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${enc({ alg: "HS256", typ: "JWT" })}.${enc({ exp: Math.floor(expSec) })}.sig`;
+}
 
 // ---- Env + imports ---------------------------------------------------------
 
@@ -187,6 +192,55 @@ async function main() {
     assert(reauthReason === "invalid_grant", `re-auth handler reason was ${reauthReason}`);
     assert(googleAuth.getSession() === null, "google session file cleared on re-auth");
     relay.setReauthHandler(null);
+  });
+
+  await run("a persisted session JWT is reused across relaunch with zero Google/relay I/O", async () => {
+    relay.clearSessionCache();
+    googleAuth._writeSessionForTests(freshSession("id-fresh"));
+    // Mint once — the relay returns a real JWT (far-future exp) that gets persisted.
+    const jwt = fakeJwt(Date.now() / 1000 + 30 * 24 * 3600); // +30d
+    resetFetchLog();
+    responder = async (url) => {
+      if (url === `${RELAY}/auth/google`) return json({ sessionToken: jwt, userId: "google-sub" });
+      return new Response(`unexpected ${url}`, { status: 500 });
+    };
+    const first = await relay.getSessionToken();
+    assert(first === jwt, "minted the JWT");
+    assert(calls.length === 1, `expected 1 mint call, got ${calls.length}`);
+
+    // Simulate relaunch: drop memory, keep the on-disk session.
+    relay.__resetSessionMemoryForTests();
+    resetFetchLog();
+    responder = async () => {
+      throw new Error("should not touch the network on a warm relaunch");
+    };
+    const second = await relay.getSessionToken();
+    assert(second === jwt, `expected reused ${jwt}, got ${second}`);
+    assert(calls.length === 0, `expected 0 network calls on relaunch, got ${calls.length}`);
+  });
+
+  await run("a near-expiry persisted JWT is re-minted once", async () => {
+    relay.clearSessionCache();
+    googleAuth._writeSessionForTests(freshSession("id-fresh"));
+    // Mint a JWT expiring in 1h — inside the 24h re-mint margin — and persist it.
+    const stale = fakeJwt(Date.now() / 1000 + 3600);
+    responder = async (url) =>
+      url === `${RELAY}/auth/google`
+        ? json({ sessionToken: stale, userId: "google-sub" })
+        : new Response(`unexpected ${url}`, { status: 500 });
+    await relay.getSessionToken();
+
+    // Relaunch: disk holds the near-expiry JWT, so the next fetch must re-mint.
+    relay.__resetSessionMemoryForTests();
+    const fresh = fakeJwt(Date.now() / 1000 + 30 * 24 * 3600);
+    resetFetchLog();
+    responder = async (url) =>
+      url === `${RELAY}/auth/google`
+        ? json({ sessionToken: fresh, userId: "google-sub" })
+        : new Response(`unexpected ${url}`, { status: 500 });
+    const tok = await relay.getSessionToken();
+    assert(tok === fresh, `expected re-minted ${fresh}, got ${tok}`);
+    assert(calls.filter((c) => c.url === `${RELAY}/auth/google`).length === 1, "re-minted exactly once");
   });
 
   if (failed > 0) {

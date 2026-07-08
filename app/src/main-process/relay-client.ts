@@ -56,14 +56,26 @@ function handleReauthRequired(reason: string): void {
 }
 
 const DEEPGRAM_KEY_FILENAME = "deepgram-key.bin";
+const SESSION_FILENAME = "relay-session.bin";
 // Reuse a cached key only while it has comfortably more than this left. The
 // stream is only auth'd at the initial WebSocket connect, so a key with ≥10 min
 // remaining is safe to start a fresh socket on.
 const REUSE_MARGIN_MS = 10 * 60 * 1000;
+// Re-mint the session JWT when it has less than this left. The relay signs it
+// for 30 days; a day of margin means a relaunch almost always reuses the
+// persisted JWT (zero Google I/O) and only re-mints ~monthly or on a cold miss.
+const SESSION_REUSE_MARGIN_MS = 24 * 60 * 60 * 1000;
+// Fallback lifetime if the session JWT's exp claim can't be read (shouldn't
+// happen — the relay always signs an exp). Conservative so we re-mint sooner.
+const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-interface CachedSession {
+interface RelaySession {
   sessionToken: string;
   userId: string;
+}
+
+interface CachedSession extends RelaySession {
+  expiresAt: number; // ms epoch, from the JWT exp claim
 }
 
 interface DeepgramKeyCache {
@@ -76,6 +88,57 @@ let cachedDeepgramKey: DeepgramKeyCache | null = null;
 
 function deepgramKeyPath(): string {
   return path.join(app.getPath("userData"), DEEPGRAM_KEY_FILENAME);
+}
+
+function sessionPath(): string {
+  return path.join(app.getPath("userData"), SESSION_FILENAME);
+}
+
+/** ms-epoch expiry from a JWT's `exp` claim, or null if it can't be read. */
+function jwtExpMs(jwt: string): number | null {
+  try {
+    const parts = jwt.split(".");
+    if (parts.length < 2) return null;
+    const padded = parts[1] + "===".slice((parts[1].length + 3) % 4);
+    const payload = JSON.parse(
+      Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"),
+    ) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSessionCacheFile(): CachedSession | null {
+  const decoded = readSecretFile(sessionPath());
+  if (!decoded) return null;
+  try {
+    const parsed = JSON.parse(decoded) as CachedSession;
+    if (!parsed.sessionToken || !parsed.userId || typeof parsed.expiresAt !== "number") return null;
+    return parsed;
+  } catch (e) {
+    console.error("[relay] readSession parse failed:", (e as Error).message);
+    return null;
+  }
+}
+
+function writeSessionCacheFile(c: CachedSession): void {
+  // Encrypted, or skipped in a packaged build without encryption — losing it is
+  // safe (we re-mint via the Google refresh), it's only a launch-time optimization.
+  writeSecretFile(sessionPath(), JSON.stringify(c));
+}
+
+function clearSessionCacheFile(): void {
+  try {
+    fs.unlinkSync(sessionPath());
+  } catch {}
+}
+
+/** Cache a freshly-minted session in memory + on disk, keyed by its JWT expiry. */
+function cacheSession(s: RelaySession): string {
+  cachedSession = { ...s, expiresAt: jwtExpMs(s.sessionToken) ?? Date.now() + DEFAULT_SESSION_TTL_MS };
+  writeSessionCacheFile(cachedSession);
+  return cachedSession.sessionToken;
 }
 
 function readDeepgramKeyFile(): DeepgramKeyCache | null {
@@ -107,9 +170,16 @@ export function clearSessionCache(): void {
   cachedSession = null;
   cachedDeepgramKey = null;
   clearDeepgramKeyFile();
+  clearSessionCacheFile();
 }
 
-async function postAuthGoogle(idToken: string): Promise<CachedSession> {
+/** Test-only: drop the in-memory caches WITHOUT touching disk (simulate relaunch). */
+export function __resetSessionMemoryForTests(): void {
+  cachedSession = null;
+  cachedDeepgramKey = null;
+}
+
+async function postAuthGoogle(idToken: string): Promise<RelaySession> {
   const resp = await fetch(`${relayBaseUrl()}/auth/google`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -119,7 +189,7 @@ async function postAuthGoogle(idToken: string): Promise<CachedSession> {
     const text = await resp.text().catch(() => "");
     throw new RelayHttpError(resp.status, `relay /auth/google ${resp.status}: ${text.slice(0, 200)}`);
   }
-  const data = (await resp.json()) as CachedSession;
+  const data = (await resp.json()) as RelaySession;
   if (!data.sessionToken || !data.userId) {
     throw new Error("relay returned malformed session");
   }
@@ -143,8 +213,7 @@ async function mintSession(force: boolean): Promise<string | null> {
     return null;
   }
   try {
-    cachedSession = await postAuthGoogle(idToken);
-    return cachedSession.sessionToken;
+    return cacheSession(await postAuthGoogle(idToken));
   } catch (e) {
     // A stale idToken the relay rejects → force-refresh and retry once.
     if (e instanceof RelayHttpError && e.status === 401 && !force) {
@@ -156,15 +225,28 @@ async function mintSession(force: boolean): Promise<string | null> {
 }
 
 /**
- * Returns the cached relay session token, minting one from a FRESH Google ID
- * token if absent. Returns null if the user is not signed into Google.
+ * Returns a usable relay session token, reusing the persisted 30-day JWT
+ * (memory → disk) while it has comfortable life left, otherwise minting a fresh
+ * one from a FRESH Google ID token. A relaunch within the JWT's life does ZERO
+ * Google I/O. Returns null if the user is not signed into Google.
  */
 export async function getSessionToken(): Promise<string | null> {
-  if (cachedSession) return cachedSession.sessionToken;
+  const now = Date.now();
+  if (!cachedSession) {
+    const fromDisk = readSessionCacheFile();
+    if (fromDisk) cachedSession = fromDisk;
+  }
+  if (cachedSession && cachedSession.expiresAt - now > SESSION_REUSE_MARGIN_MS) {
+    return cachedSession.sessionToken;
+  }
   return mintSession(false);
 }
 
 export async function getUserId(): Promise<string | null> {
+  if (!cachedSession) {
+    const fromDisk = readSessionCacheFile();
+    if (fromDisk) cachedSession = fromDisk;
+  }
   if (cachedSession) return cachedSession.userId;
   const g = getSession();
   return g?.sub ?? null;
@@ -177,7 +259,7 @@ export async function getUserId(): Promise<string | null> {
 export async function signInWithGoogleAndRelay(): Promise<{ userId: string; email: string }> {
   const r = await signInWithGoogle();
   try {
-    cachedSession = await postAuthGoogle(r.idToken);
+    cacheSession(await postAuthGoogle(r.idToken));
   } catch (e) {
     console.error("[relay] /auth/google failed (continuing locally):", (e as Error).message);
   }
