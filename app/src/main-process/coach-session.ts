@@ -529,33 +529,39 @@ export async function startSession(
       emitStatus("no-audio");
       return;
     }
-    // Mic dead while the tap is still live: the "me" leg produced no frames for a
-    // while but "them" is flowing, so the overall no-audio check above never
-    // trips. Surface it (Bluetooth HFP or a wrong input device is the usual
-    // cause) so the user can fall back to the built-in mic.
-    const tapAlive = now - lastTapFrameAt < noAudioMs;
-    const micStale = now - lastMicFrameAt > micDeadMs;
-    if (
-      tapAlive &&
-      micStale &&
-      !micDead &&
-      !micSilence.isSilent() &&
-      currentStatus !== "no-audio"
-    ) {
-      micDead = true;
-      console.error(`[coach-session] mic dead — ${MIC_DEAD_REASON}`);
-      emitStatus("mic-silent", false, MIC_DEAD_REASON);
-    }
-    // The mirror case: the tap (them) leg produced no frames for a while while
-    // the mic is still live. The overall no-audio check can't see it (mic frames
-    // keep lastAudioAt fresh), so it's the silent-"them" blind spot. Record it
-    // for call_ended; no user-facing status change (measurement only).
-    const micAlive = now - lastMicFrameAt < noAudioMs;
-    const tapStale = now - lastTapFrameAt > micDeadMs;
-    if (micAlive && tapStale && !tapDead) {
-      tapDead = true;
-      themSilentSeen = true;
-      console.error("[coach-session] them/tap leg silent — the other party isn't being captured");
+    // Per-leg liveness only means something when real streams feed
+    // onMicFrame/onTapFrame. Without a sidecar (mock audio) the per-leg
+    // timestamps never advance, so a call kept audio-fresh by injected
+    // utterances would spuriously read both legs "stale" — guard on the sidecar.
+    if (sidecar) {
+      // Mic dead while the tap is still live: the "me" leg produced no frames for
+      // a while but "them" is flowing, so the overall no-audio check above never
+      // trips. Surface it (Bluetooth HFP or a wrong input device is the usual
+      // cause) so the user can fall back to the built-in mic.
+      const tapAlive = now - lastTapFrameAt < noAudioMs;
+      const micStale = now - lastMicFrameAt > micDeadMs;
+      if (
+        tapAlive &&
+        micStale &&
+        !micDead &&
+        !micSilence.isSilent() &&
+        currentStatus !== "no-audio"
+      ) {
+        micDead = true;
+        console.error(`[coach-session] mic dead — ${MIC_DEAD_REASON}`);
+        emitStatus("mic-silent", false, MIC_DEAD_REASON);
+      }
+      // The mirror case: the tap (them) leg produced no frames for a while while
+      // the mic is still live. The overall no-audio check can't see it (mic
+      // frames keep lastAudioAt fresh), so it's the silent-"them" blind spot.
+      // Record it for call_ended; no user-facing status change (measurement only).
+      const micAlive = now - lastMicFrameAt < noAudioMs;
+      const tapStale = now - lastTapFrameAt > micDeadMs;
+      if (micAlive && tapStale && !tapDead) {
+        tapDead = true;
+        themSilentSeen = true;
+        console.error("[coach-session] them/tap leg silent — the other party isn't being captured");
+      }
     }
   }, noAudioPeriod);
 
