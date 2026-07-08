@@ -242,10 +242,18 @@ app.on("ready", () => {
     ensureHotkeyRegistered,
   });
 
-  // Salvage any call whose process crashed before end() wrote its log.
-  void recoverOrphanedJournals().catch((e) => {
-    console.error("[main] journal recovery failed:", (e as Error).message);
-  });
+  // Salvage any call whose process crashed before end() wrote its log, and
+  // count each one — a mid-call crash/force-quit emits no call_ended, so these
+  // would otherwise vanish from the denominator (survivorship bias).
+  void recoverOrphanedJournals()
+    .then((recovered) => {
+      for (const r of recovered) {
+        analyticsCapture("call_recovered", { had_transcript: r.hadTranscript, duration_s: r.durationS });
+      }
+    })
+    .catch((e) => {
+      console.error("[main] journal recovery failed:", (e as Error).message);
+    });
 
   const settings = getSettings();
 

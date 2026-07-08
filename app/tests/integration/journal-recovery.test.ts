@@ -39,9 +39,13 @@ describe("journal recovery", () => {
 
     const recovered = await recoverOrphanedJournals();
     expect(recovered).toHaveLength(1);
-    expect(path.basename(recovered[0])).toContain("recovered");
+    expect(path.basename(recovered[0].path)).toContain("recovered");
+    // Health metadata for the call_recovered event.
+    expect(recovered[0].hadTranscript).toBe(true);
+    expect(typeof recovered[0].durationS).toBe("number");
+    expect(recovered[0].durationS).toBeGreaterThanOrEqual(0);
 
-    const log = JSON.parse(fs.readFileSync(recovered[0], "utf8"));
+    const log = JSON.parse(fs.readFileSync(recovered[0].path, "utf8"));
     expect(log.direction).toBe("Discovery with Acme");
     expect(log.transcript.map((u: TranscriptUtterance) => u.text)).toEqual(["we run eight brokers"]);
     expect(log.nudges.map((n: Nudge) => n.text)).toEqual(["Ask about on-call load"]);
@@ -58,7 +62,7 @@ describe("journal recovery", () => {
 
     const recovered = await recoverOrphanedJournals();
     expect(recovered).toHaveLength(1);
-    const log = JSON.parse(fs.readFileSync(recovered[0], "utf8"));
+    const log = JSON.parse(fs.readFileSync(recovered[0].path, "utf8"));
     expect(log.transcript.map((u: TranscriptUtterance) => u.text)).toEqual(["clean line"]);
   });
 

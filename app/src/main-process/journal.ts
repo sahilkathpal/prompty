@@ -131,18 +131,28 @@ function parseJournal(filePath: string): ParsedJournal {
   return parsed;
 }
 
+/** One recovered call: where it was written, plus content-free health metadata
+ * so the caller can emit a `call_recovered` analytics event (§7.2). */
+export interface RecoveredCall {
+  path: string;
+  hadTranscript: boolean;
+  durationS: number;
+}
+
 /**
  * Scan for journals left behind by a crash and turn each into a call log.
  * Run once on app startup (no session is active then, so any journal is an
- * orphan). Returns the paths of recovered logs that were written.
+ * orphan). Returns a record per recovered log written. A crash/force-quit
+ * mid-call emits no call_ended, so these calls would otherwise vanish from the
+ * denominator (survivorship bias); the caller emits call_recovered from these.
  */
-export async function recoverOrphanedJournals(): Promise<string[]> {
-  const written: string[] = [];
+export async function recoverOrphanedJournals(): Promise<RecoveredCall[]> {
+  const recovered: RecoveredCall[] = [];
   let files: string[];
   try {
     files = fs.readdirSync(journalDir());
   } catch {
-    return written; // No journal dir yet — nothing to recover.
+    return recovered; // No journal dir yet — nothing to recover.
   }
   for (const f of files) {
     if (!f.endsWith(".jsonl")) continue;
@@ -167,7 +177,11 @@ export async function recoverOrphanedJournals(): Promise<string[]> {
           },
           { suffix: "recovered" },
         );
-        written.push(out);
+        recovered.push({
+          path: out,
+          hadTranscript: transcript.length > 0,
+          durationS: Math.max(0, Math.round((endedAt - header.startedAt) / 1000)),
+        });
         console.log("[journal] recovered crashed call to", out);
       }
       fs.unlinkSync(fp);
@@ -175,5 +189,5 @@ export async function recoverOrphanedJournals(): Promise<string[]> {
       console.error("[journal] recover failed for", fp, (e as Error).message);
     }
   }
-  return written;
+  return recovered;
 }
