@@ -927,6 +927,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     analyticsCapture(payload.event, payload.properties ?? {});
   });
 
+  // A renderer saw an audio device/route change. Only a during-call flip is
+  // signal (the John trigger — correlate with silent calls); outside a call it's
+  // noise, so drop it.
+  handle("analytics:audio-route-changed", () => {
+    if (activeSession) analyticsCapture("audio_route_changed", { during_call: true });
+  });
+
   // Renderer JS exceptions (window.onerror / unhandledrejection / ErrorBoundary).
   // Rebuild the Error from the serialized fields and report it; the scrubber runs
   // in captureException/before_send so the stack/message ship safe.

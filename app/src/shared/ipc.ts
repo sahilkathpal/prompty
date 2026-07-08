@@ -254,6 +254,13 @@ export interface InvokeChannels {
     };
     response: void;
   };
+  // A renderer observed an audio device/route change (navigator.mediaDevices
+  // devicechange) — the smoking-gun signal for a mid-call device flip (§7.3).
+  // Main tags during_call and drops changes outside a call. Fire-and-forget.
+  "analytics:audio-route-changed": {
+    request: void;
+    response: void;
+  };
   "onboarding:complete": {
     request: void;
     response: { ok: boolean };
