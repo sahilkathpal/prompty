@@ -418,9 +418,9 @@ app.on("ready", () => {
         const { e2eSimulateThemSilent } = require("./ipc-handlers");
         return e2eSimulateThemSilent();
       },
-      simulateDeepgramReconnect: () => {
-        const { e2eSimulateDeepgramReconnect } = require("./ipc-handlers");
-        return e2eSimulateDeepgramReconnect();
+      simulateDeepgramStatus: (s: "reconnecting" | "open" | "error") => {
+        const { e2eSimulateDeepgramStatus } = require("./ipc-handlers");
+        return e2eSimulateDeepgramStatus(s);
       },
       // Hard-crash a live renderer process to exercise the render-process-gone
       // capture path (the plan's induced-renderer-crash check).

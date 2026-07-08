@@ -1122,9 +1122,9 @@ export function e2eSimulateThemSilent(): boolean {
   return true;
 }
 
-export function e2eSimulateDeepgramReconnect(): boolean {
+export function e2eSimulateDeepgramStatus(s: "reconnecting" | "open" | "error"): boolean {
   if (!activeSession) return false;
-  activeSession.simulateDeepgramReconnect();
+  activeSession.simulateDeepgramStatus(s);
   return true;
 }
 

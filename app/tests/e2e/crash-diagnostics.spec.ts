@@ -25,7 +25,10 @@ test("deepgram_disconnected/recovered fire on a socket drop + recover", async ()
     await e2e(app, "startSession");
     await expect.poll(async () => (await events(app)).some((e) => e.event === "call_started"), { timeout: 5_000 }).toBe(true);
 
-    await app.evaluate(() => (globalThis as unknown as { __prompty_e2e: { simulateDeepgramReconnect: () => void } }).__prompty_e2e.simulateDeepgramReconnect());
+    // Drive the REAL latch: a socket drop ("reconnecting") then a successful
+    // reopen ("open") → disconnected, then recovered.
+    await app.evaluate(() => (globalThis as unknown as { __prompty_e2e: { simulateDeepgramStatus: (s: string) => void } }).__prompty_e2e.simulateDeepgramStatus("reconnecting"));
+    await app.evaluate(() => (globalThis as unknown as { __prompty_e2e: { simulateDeepgramStatus: (s: string) => void } }).__prompty_e2e.simulateDeepgramStatus("open"));
 
     await expect.poll(async () => (await events(app)).some((e) => e.event === "deepgram_disconnected"), { timeout: 5_000 }).toBe(true);
     await expect.poll(async () => (await events(app)).some((e) => e.event === "deepgram_recovered"), { timeout: 5_000 }).toBe(true);

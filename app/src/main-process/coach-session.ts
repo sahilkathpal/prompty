@@ -21,7 +21,7 @@ import { openJournal, type JournalHandle } from "./journal";
 import { openDebugLog, type DebugLog } from "./debug-logger";
 import { buildSystemPrompt } from "./prompts/system";
 import { spawnSidecar, type SidecarHandle } from "./sidecar";
-import { startTranscription, type TranscriptionHandle } from "./deepgram";
+import { startTranscription, type TranscriptionHandle, type DeepgramConnStatus } from "./deepgram";
 import { getDeepgramToken } from "./relay-client";
 import { createMicSilenceDetector } from "./mic-silence";
 import type {
@@ -121,8 +121,9 @@ export interface SessionHandle {
    * physical; these verify the getter→call_ended wiring offline. */
   simulateThemSilent(): void;
   simulateSidecarRestart(): void;
-  /** Test seam: fire a Deepgram disconnect then recover through the real callback. */
-  simulateDeepgramReconnect(): void;
+  /** Test seam: drive a Deepgram connection status through the REAL handler
+   * (exercises the disconnect/recover latch), e.g. "reconnecting" then "open". */
+  simulateDeepgramStatus(s: DeepgramConnStatus): void;
   getNudges(): Nudge[];
   getTranscript(): TranscriptUtterance[];
   /** Whole-call "ever" flag: the tap (them) leg went silent while the mic stayed live. */
@@ -260,7 +261,10 @@ export async function startSession(
   let lastTapFrameAt = Date.now();
   let micDead = false;
   // Whether Deepgram is currently mid-reconnect, so "open" after a drop reads as
-  // a recovery (not the initial connect).
+  // a recovery (not the initial connect). NOTE: this is a single latch across
+  // BOTH sockets (mic + tap). If both legs drop, the first to reopen clears it
+  // and emits "recovered" while the other may still be down — acceptable for a
+  // coarse transport-health signal (recovered can slightly lead full recovery).
   let dgDisconnected = false;
   // Symmetric to micDead: the tap (them) leg went silent while the mic stayed
   // live — the exact blind spot where a call reads healthy but we captured none
@@ -346,6 +350,30 @@ export async function startSession(
     errorStage = reason;
     console.error(`[coach-session] transport error: ${reason}`);
     emitStatus("error", undefined, reason);
+  };
+  // Deepgram connection transitions (fed to startTranscription's onStatus, and
+  // driven directly by the simulateDeepgramStatus test seam). "reconnecting" is
+  // transient (a socket dropped and we're re-opening); "error" is terminal (only
+  // after reconnect attempts are exhausted). The dgDisconnected latch turns a
+  // drop → one "disconnected" and the following "open" → "recovered", while the
+  // initial connect's "open" is NOT a recovery.
+  const handleDeepgramStatus = (s: DeepgramConnStatus) => {
+    if (s === "reconnecting") {
+      if (!dgDisconnected) {
+        dgDisconnected = true;
+        opts.onDeepgramConnection?.("disconnected");
+      }
+      if (currentStatus !== "error" && !micSilence.isSilent()) {
+        emitStatus("reconnecting", false, "Reconnecting to transcription…");
+      }
+    } else if (s === "open") {
+      if (dgDisconnected) {
+        dgDisconnected = false;
+        opts.onDeepgramConnection?.("recovered");
+      }
+    } else if (s === "error") {
+      onTransportError("deepgram error");
+    }
   };
   emitStatus("starting");
 
@@ -464,29 +492,7 @@ export async function startSession(
         onError: (e) => {
           console.error("[coach-session] dg error:", e.message);
         },
-        onStatus: (s) => {
-          // "reconnecting" is transient — Deepgram dropped a socket and we're
-          // re-opening it. Show the softer "reconnecting" dot rather than a hard
-          // error; incoming audio frames flip it back to "listening" on success.
-          // "error" is only emitted after reconnect attempts are exhausted.
-          if (s === "reconnecting") {
-            if (!dgDisconnected) {
-              dgDisconnected = true;
-              opts.onDeepgramConnection?.("disconnected");
-            }
-            if (currentStatus !== "error" && !micSilence.isSilent()) {
-              emitStatus("reconnecting", false, "Reconnecting to transcription…");
-            }
-          } else if (s === "open") {
-            // A socket (re)opened. If we were mid-reconnect, that's a recovery.
-            if (dgDisconnected) {
-              dgDisconnected = false;
-              opts.onDeepgramConnection?.("recovered");
-            }
-          } else if (s === "error") {
-            onTransportError("deepgram error");
-          }
-        },
+        onStatus: handleDeepgramStatus,
       });
     } catch (e) {
       console.error(
@@ -757,9 +763,8 @@ export async function startSession(
     simulateSidecarRestart() {
       sidecarRestarts++;
     },
-    simulateDeepgramReconnect() {
-      opts.onDeepgramConnection?.("disconnected");
-      opts.onDeepgramConnection?.("recovered");
+    simulateDeepgramStatus(s) {
+      handleDeepgramStatus(s);
     },
     getNudges() {
       return [...nudges];

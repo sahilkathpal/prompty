@@ -102,6 +102,36 @@ describe("coach-session lifecycle", () => {
     await h.end("user");
   });
 
+  it("deepgram connection latch: initial open isn't a recovery; drop→reopen is disconnected→recovered, once", async () => {
+    const conn: string[] = [];
+    const h = await startSession(setup, {
+      mockAudio: true,
+      mockDeepgram: true,
+      agentFactory: createMockAgent,
+      onDeepgramConnection: (s) => conn.push(s),
+    });
+
+    // The initial connect ("open") is NOT a recovery.
+    h.simulateDeepgramStatus("open");
+    expect(conn).toEqual([]);
+
+    // A drop fires exactly one "disconnected"; a repeated "reconnecting" (the
+    // second socket, or a retry) does not double-fire.
+    h.simulateDeepgramStatus("reconnecting");
+    h.simulateDeepgramStatus("reconnecting");
+    expect(conn).toEqual(["disconnected"]);
+
+    // The reopen after a drop is a "recovered"...
+    h.simulateDeepgramStatus("open");
+    expect(conn).toEqual(["disconnected", "recovered"]);
+
+    // ...but a further "open" with no intervening drop emits nothing.
+    h.simulateDeepgramStatus("open");
+    expect(conn).toEqual(["disconnected", "recovered"]);
+
+    await h.end("user");
+  });
+
   it("the hotkey path requests a fresh nudge from the agent", async () => {
     const nudges: string[] = [];
     const h = await startSession(setup, {
