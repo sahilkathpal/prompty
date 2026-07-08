@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2024-12-18"
 compatibility_flags = ["nodejs_compat"]
 
+# Cloudflare-native primary log sink (RUBY_OBSERVABILITY_PLAN §3.4): free,
+# retained, JSON-indexed. Makes the global onError console.error queryable and
+# captures uncaught Worker exceptions with full invocation context — the right
+# primary for the relay (PostHog's captureException needs Node fs APIs the
+# Workers runtime lacks). Takes effect on the next `wrangler deploy`.
+[observability]
+enabled = true
+
 # KV bindings. Replace `id` and `preview_id` with values from
 #   wrangler kv namespace create GOOGLE_JWKS_CACHE
 #   wrangler kv namespace create RATE_LIMITS
