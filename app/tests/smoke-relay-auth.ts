@@ -194,6 +194,29 @@ async function main() {
     relay.setReauthHandler(null);
   });
 
+  await run("getSessionToken force-refreshes + retries once on an /auth/google 401", async () => {
+    relay.clearSessionCache();
+    googleAuth._writeSessionForTests(freshSession("id-fresh"));
+    resetFetchLog();
+    let authCalls = 0;
+    responder = async (url, init) => {
+      if (url === GOOGLE_TOKEN) {
+        return json({ access_token: "a2", id_token: "id-refreshed", expires_in: 3600, token_type: "Bearer" });
+      }
+      if (url === `${RELAY}/auth/google`) {
+        authCalls++;
+        if (bodyOf(init).idToken === "id-fresh") return new Response("stale idToken", { status: 401 });
+        assert(bodyOf(init).idToken === "id-refreshed", "retry posted the refreshed idToken");
+        return json({ sessionToken: "jwt-ok", userId: "google-sub" });
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    };
+    const tok = await relay.getSessionToken();
+    assert(tok === "jwt-ok", `expected jwt-ok, got ${tok}`);
+    assert(authCalls === 2, `expected 2 /auth/google calls, got ${authCalls}`);
+    assert(calls.some((c) => c.url === GOOGLE_TOKEN), "force-refreshed the idToken on the 401");
+  });
+
   await run("a persisted session JWT is reused across relaunch with zero Google/relay I/O", async () => {
     relay.clearSessionCache();
     googleAuth._writeSessionForTests(freshSession("id-fresh"));
