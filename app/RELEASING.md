@@ -37,21 +37,24 @@ git tag -a vX.Y.Z -m "Ruby X.Y.Z — <summary>"
   process tap needs 14.4, and the Swift audio sidecar is built by
   `scripts/prebuild-sidecar.mjs`.
 - **Apple Developer ID Application** certificate in the login keychain (paid Apple
-  Developer account).
-- **Signing + notarization env** (electron-builder + `scripts/notarize.mjs` afterSign
-  hook read these):
+  Developer account). Confirm with `security find-identity -v -p codesigning`.
+- **Signing + notarization env** — put these in **`app/.env.local`** (gitignored);
+  `npm run dist` auto-loads it (before the build, so the sidecar sign step sees it too).
+  Note the **two identity vars**: it's the *same* cert in *two formats*, because the
+  sidecar's `codesign` and electron-builder disagree on the prefix.
 
-  | Var | Purpose |
-  |---|---|
-  | `APPLE_DEVELOPER_ID` | Signing identity name, e.g. `Developer ID Application: … (TEAMID)` |
-  | `CSC_LINK` / `CSC_KEY_PASSWORD` | Cert material, if not already in the keychain |
-  | `APPLE_ID` | Apple ID email (notarization) |
-  | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password from appleid.apple.com |
-  | `APPLE_TEAM_ID` | 10-char team ID |
+  | Var | Used by | Value / format |
+  |---|---|---|
+  | `CSC_NAME` | electron-builder (app signing) | Identity name **without** the type prefix, e.g. `Anil Dukkipatty (9NM63KP2JC)`. electron-builder **rejects** the `Developer ID Application:` prefix. Honored only because `mac.identity` is unset in `electron-builder.yml` — do **not** re-add a `mac.identity` / `${env.*}` key, the pinned electron-builder won't expand it and falls back to ad-hoc. |
+  | `APPLE_DEVELOPER_ID` | `scripts/prebuild-sidecar.mjs` (`codesign --sign`) | **Full** name **with** prefix: `Developer ID Application: Anil Dukkipatty (9NM63KP2JC)`. |
+  | `APPLE_ID` | notarize (afterSign hook) | Apple ID email |
+  | `APPLE_APP_SPECIFIC_PASSWORD` | notarize | app-specific password from appleid.apple.com |
+  | `APPLE_TEAM_ID` | notarize | 10-char team id (`9NM63KP2JC`) |
 
-  If the three `APPLE_*` notarization vars are unset, `scripts/notarize.mjs` **skips
-  notarization** (a self-signed dev build) — fine for local testing, **not** for a
-  release.
+  Failure modes: if `CSC_NAME`/`APPLE_DEVELOPER_ID` are unset the app signs **ad-hoc**
+  and notarization then fails at `checkSignatures`; if the `APPLE_*` trio is unset,
+  `scripts/notarize.mjs` **skips** notarization. Both are release-blocking — verify
+  §2 before publishing.
 - **Publish tooling:** `doctl` authed, and `aws` configured for the DO Space
   (`--profile do-spaces`, S3-compatible). Space `revise-testing`, region `fra1`. Have
   the CDN endpoint id (`doctl compute cdn list` → `<CDN_ID>`).
@@ -62,8 +65,13 @@ git tag -a vX.Y.Z -m "Ruby X.Y.Z — <summary>"
 
 ```bash
 cd app
-npm run dist          # build (sidecar + renderer + main) → electron-builder → notarize (afterSign)
+npm run dist          # loads .env.local → build (sidecar + renderer + main) → sign → notarize (afterSign)
 ```
+
+On the **first** run, macOS prompts to use the signing key — click **Always Allow** (a
+non-interactive shell would stall here). If it re-prompts or hangs, the login keychain
+may be locked: `security unlock-keychain login.keychain`. Notarization then adds a few
+minutes for the Apple round-trip.
 
 Output in `app/release/` for both arches:
 

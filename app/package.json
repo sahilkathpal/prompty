@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "start": "npm run build && electron .",
     "pack": "electron-builder --mac --config electron-builder.yml",
-    "dist": "npm run build && electron-builder --mac --config electron-builder.yml",
+    "dist": "{ set -a; [ -f .env.local ] && . ./.env.local; set +a; npm run build && electron-builder --mac --config electron-builder.yml; }",
     "test:unit": "vitest run tests/unit",
     "test:int": "vitest run tests/integration",
     "test:watch": "vitest",

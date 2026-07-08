@@ -36,10 +36,12 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Signing identity supplied via env at `npm run dist` time (see RELEASING.md).
-  # electron-builder reads CSC_LINK + CSC_KEY_PASSWORD automatically for the
-  # cert material; APPLE_DEVELOPER_ID lets the dev pin the identity by name.
-  identity: ${env.APPLE_DEVELOPER_ID}
+  # Signing identity: electron-builder selects the login-keychain cert whose name
+  # matches the CSC_NAME env var (set in app/.env.local, loaded by `npm run dist`).
+  # Do NOT reintroduce `identity: ${env.*}` — the pinned electron-builder does not
+  # expand that macro, so it silently falls back to ad-hoc signing (which then
+  # fails notarization). CSC_NAME is read directly and is honored only while
+  # `mac.identity` is unset, so this key is intentionally absent.
   # We notarize ourselves in scripts/notarize.mjs (afterSign hook), so disable
   # electron-builder's built-in notarytool integration.
   notarize: false
