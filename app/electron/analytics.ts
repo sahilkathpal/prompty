@@ -113,19 +113,63 @@ export function capture(event: string, properties: Record<string, unknown> = {})
 }
 
 /**
- * Tie the anonymous device id to a signed-in user, then identify. Called on
- * Google sign-in so pre-sign-in activity stitches to the same person.
+ * Tie the anonymous pre-sign-in device id to the signed-in user, then identify.
+ * Call ONLY at the sign-in moment (auth:google-sign-in): alias() enqueues a real
+ * $create_alias every time it runs, and re-aliasing an already-identified anon id
+ * into a *different* user is PostHog's documented person-merge hazard. Returning
+ * users re-mark themselves identified via identifyUser() (no alias) on launch.
  */
-export function identifyUser(userId: string, properties: Record<string, unknown> = {}): void {
+export function aliasAndIdentify(userId: string, properties: Record<string, unknown> = {}): void {
   if (optedOut()) return;
+  const anon = anonId();
+  if (E2E) {
+    // Record the identity ops so specs can assert the sequence without network.
+    recorded.push({ event: "$create_alias", properties: { distinct_id: userId, alias: anon } });
+    recorded.push({ event: "$identify", properties: { distinct_id: userId, ...properties } });
+    return;
+  }
   const c = getClient();
   if (!c) return;
   try {
-    c.alias({ distinctId: userId, alias: anonId() });
+    c.alias({ distinctId: userId, alias: anon });
+    c.identify({ distinctId: userId, properties });
+  } catch (e) {
+    console.error("[analytics] alias+identify failed:", (e as Error).message);
+  }
+}
+
+/**
+ * Mark an already-known signed-in user as identified WITHOUT aliasing. Called on
+ * every launch for a returning user so is_identified stays true — but never
+ * aliases (that path is sign-in only, see aliasAndIdentify): a per-launch alias
+ * both wastes volume and, for a second account on one device, risks a merge.
+ */
+export function identifyUser(userId: string, properties: Record<string, unknown> = {}): void {
+  if (optedOut()) return;
+  if (E2E) {
+    recorded.push({ event: "$identify", properties: { distinct_id: userId, ...properties } });
+    return;
+  }
+  const c = getClient();
+  if (!c) return;
+  try {
     c.identify({ distinctId: userId, properties });
   } catch (e) {
     console.error("[analytics] identify failed:", (e as Error).message);
   }
+}
+
+/**
+ * Rotate the anonymous device id. Called on sign-out so that a DIFFERENT account
+ * signing in next on this device aliases a FRESH anon person — instead of
+ * re-aliasing the previous user's already-identified id into the new user
+ * (PostHog's person-merge hazard). Not gated on opt-out: it only mutates a local
+ * setting, sends nothing, and keeps the identity invariant correct regardless.
+ */
+export function rotateAnonId(): void {
+  const id = `anon_${randomUUID()}`;
+  updateSettings({ analyticsAnonId: id });
+  if (E2E) recorded.push({ event: "$rotate_anon_id", properties: { anon_id: id } });
 }
 
 /** Flush queued events and close the client. Awaited on quit so nothing drops. */

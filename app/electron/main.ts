@@ -300,6 +300,12 @@ app.on("ready", () => {
         const { getSettings } = require("./settings-store");
         return getSettings();
       },
+      // Identity-linking step of a fresh Google sign-in, minus the real OAuth
+      // (unavailable headless). Lets specs assert the alias+identify sequence.
+      signInIdentity: (userId: string) => {
+        const { aliasAndIdentify } = require("./analytics");
+        return aliasAndIdentify(userId, { signed_in: true });
+      },
       trayEndSession: async () => {
         // Same code path the tray "End session" item invokes.
         const { endActiveSession } = require("./ipc-handlers");

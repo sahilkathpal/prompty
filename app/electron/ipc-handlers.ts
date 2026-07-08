@@ -12,7 +12,7 @@ import type {
   EventPayload,
 } from "../src/shared/ipc";
 import { getSettings, updateSettings } from "./settings-store";
-import { capture as analyticsCapture, identifyUser } from "./analytics";
+import { capture as analyticsCapture, aliasAndIdentify, rotateAnonId } from "./analytics";
 import { openExternalSafely } from "./safe-open";
 import { getRemoteConfig } from "../src/main-process/remote-config";
 import { openMainWindow, getMainWindow } from "./main-window";
@@ -612,7 +612,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       });
       broadcast("settings:changed", next);
       // Stitch pre-sign-in activity to this user, then mark them identified.
-      identifyUser(session.userId, { signed_in: true, email: session.email });
+      // alias fires only here (the sign-in moment) — never on relaunch.
+      aliasAndIdentify(session.userId, { signed_in: true, email: session.email });
       analyticsCapture("signed_in");
       broadcast("auth:state-changed", {
         signedIn: true,
@@ -635,6 +636,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     try {
       googleSignOut();
       clearSessionCache();
+      // Rotate the anon id so a different account signing in next on this device
+      // aliases a fresh anon person, not this user's already-identified id.
+      rotateAnonId();
       const next = updateSettings({
         signedIn: false,
         signedInUserId: null,
