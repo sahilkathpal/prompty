@@ -18,9 +18,8 @@
 import { app } from "electron";
 import { randomUUID } from "node:crypto";
 import { PostHog } from "posthog-node";
-import type { EventMessage } from "posthog-node";
 import { getSettings, updateSettings } from "./settings-store";
-import { scrubProps, redactString } from "./scrub";
+import { scrubProps, scrubEvent, redactString } from "./scrub";
 
 // PostHog project "ruby". This is a WRITE-ONLY project key, designed to ship
 // inside client apps — not a secret. An env var overrides it for other envs.
@@ -67,7 +66,7 @@ function getClient(): PostHog | null {
       host: HOST,
       flushAt: 1,
       flushInterval: 10_000,
-      before_send: beforeSend,
+      before_send: (event) => scrubEvent(event),
     });
     return client;
   } catch (e) {
@@ -133,20 +132,6 @@ export function capture(event: string, properties: Record<string, unknown> = {})
   } catch (e) {
     console.error(`[analytics] capture(${event}) failed:`, (e as Error).message);
   }
-}
-
-/**
- * The PostHog `before_send` backstop. Runs on every outbound event; scrubs the
- * property bag so no content ships even if a call site skipped the first-pass.
- * Returns the (scrubbed) event; never drops in the generic case — the scrubber
- * removes offending keys rather than the whole event.
- */
-function beforeSend(event: EventMessage | null): EventMessage | null {
-  if (!event) return event;
-  if (event.properties) {
-    event.properties = scrubProps(event.properties) as EventMessage["properties"];
-  }
-  return event;
 }
 
 // ── Error tracking (RUBY_OBSERVABILITY_PLAN §3, §5) ─────────────────────────

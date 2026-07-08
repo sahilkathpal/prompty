@@ -88,3 +88,22 @@ function scrubObject(obj: Record<string, unknown>, inCode: boolean): Record<stri
 export function scrubProps(props: Record<string, unknown>): Record<string, unknown> {
   return scrubObject(props, false);
 }
+
+/** The minimal shape `scrubEvent` needs — any PostHog outbound event carries this. */
+export interface ScrubbableEvent {
+  properties?: Record<string, unknown>;
+}
+
+/**
+ * Scrub a whole outbound PostHog event's property bag — the `before_send`
+ * backstop (§4). Covers our named events, wrapper exceptions, and any
+ * autocaptured `$exception` (whose `$exception_list` stack frames + message are
+ * scrubbed as code). Mutates `event.properties` in place and returns the same
+ * event so it registers directly as `before_send`; `null` passes through.
+ */
+export function scrubEvent<E extends ScrubbableEvent | null>(event: E): E {
+  if (event && event.properties) {
+    event.properties = scrubProps(event.properties);
+  }
+  return event;
+}
