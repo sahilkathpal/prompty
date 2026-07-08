@@ -113,8 +113,17 @@ export interface SessionHandle {
   setDebug(enabled: boolean): void;
   /** Force an "error" status — used by E2E to verify the status wiring. */
   simulateTransportError(reason?: string): void;
+  /** Test seams: mark the them-leg silent / bump the sidecar-restart count.
+   * The real detection (tap-frame staleness, sidecar "restart" events) is
+   * physical; these verify the getter→call_ended wiring offline. */
+  simulateThemSilent(): void;
+  simulateSidecarRestart(): void;
   getNudges(): Nudge[];
   getTranscript(): TranscriptUtterance[];
+  /** Whole-call "ever" flag: the tap (them) leg went silent while the mic stayed live. */
+  getThemSilentSeen(): boolean;
+  /** Number of sidecar auto-restarts observed during this call. */
+  getSidecarRestarts(): number;
   getSetup(): CallSetup;
   getState(): SessionState;
   /** Resolved log path once end() completes. */
@@ -245,6 +254,15 @@ export async function startSession(
   let lastMicFrameAt = Date.now();
   let lastTapFrameAt = Date.now();
   let micDead = false;
+  // Symmetric to micDead: the tap (them) leg went silent while the mic stayed
+  // live — the exact blind spot where a call reads healthy but we captured none
+  // of the other party. `themSilentSeen` is a whole-call "ever" aggregate for
+  // call_ended (§7.1); `tapDead` keeps the per-tick detection from re-firing.
+  let tapDead = false;
+  let themSilentSeen = false;
+  // Count of sidecar auto-restarts during this call (from its "restart" control
+  // event). The give-up-after-N bug used to vanish; make it a number.
+  let sidecarRestarts = 0;
   let ended = false;
 
   // ---- Status (overlay health dot) ----
@@ -312,6 +330,7 @@ export async function startSession(
   };
   const onTapFrame = () => {
     lastTapFrameAt = Date.now();
+    if (tapDead) tapDead = false;
     markAudio();
   };
   const onTransportError = (reason: string) => {
@@ -418,6 +437,7 @@ export async function startSession(
               typeof ev.inputTransport === "string" ? ev.inputTransport : null,
           });
         }
+        if (ev?.type === "restart") sidecarRestarts++;
         if (ev?.type === "error") onTransportError("sidecar");
       });
     } catch (e) {
@@ -525,6 +545,17 @@ export async function startSession(
       micDead = true;
       console.error(`[coach-session] mic dead — ${MIC_DEAD_REASON}`);
       emitStatus("mic-silent", false, MIC_DEAD_REASON);
+    }
+    // The mirror case: the tap (them) leg produced no frames for a while while
+    // the mic is still live. The overall no-audio check can't see it (mic frames
+    // keep lastAudioAt fresh), so it's the silent-"them" blind spot. Record it
+    // for call_ended; no user-facing status change (measurement only).
+    const micAlive = now - lastMicFrameAt < noAudioMs;
+    const tapStale = now - lastTapFrameAt > micDeadMs;
+    if (micAlive && tapStale && !tapDead) {
+      tapDead = true;
+      themSilentSeen = true;
+      console.error("[coach-session] them/tap leg silent — the other party isn't being captured");
     }
   }, noAudioPeriod);
 
@@ -696,11 +727,23 @@ export async function startSession(
     simulateTransportError(reason) {
       onTransportError(reason ?? "simulated");
     },
+    simulateThemSilent() {
+      themSilentSeen = true;
+    },
+    simulateSidecarRestart() {
+      sidecarRestarts++;
+    },
     getNudges() {
       return [...nudges];
     },
     getTranscript() {
       return [...transcript];
+    },
+    getThemSilentSeen() {
+      return themSilentSeen;
+    },
+    getSidecarRestarts() {
+      return sidecarRestarts;
     },
     getSetup() {
       return setup;

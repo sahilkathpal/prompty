@@ -344,6 +344,11 @@ async function doStartSession(
             reached_listening: statusLog.some((e) => e.state === "listening"),
             mic_silent_seen: statusLog.some((e) => e.state === "mic-silent"),
             no_audio_seen: statusLog.some((e) => e.state === "no-audio"),
+            // v2 outcome signal (§7.1): "did it actually work", not just "did it end".
+            transcript_utterances: activeSession?.getTranscript().length ?? null,
+            them_silent_seen: activeSession?.getThemSilentSeen() ?? false,
+            nudges_fired_count: activeSession?.getNudges().length ?? null,
+            sidecar_restarts: activeSession?.getSidecarRestarts() ?? null,
           });
           sessionStartedAt = 0;
           activeSession = null;

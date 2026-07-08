@@ -75,6 +75,33 @@ describe("coach-session lifecycle", () => {
     expect(log.transcript).toHaveLength(1);
   });
 
+  it("exposes call_ended v2 health signals: utterance + nudge counts, them-silent, sidecar restarts", async () => {
+    const h = await startSession(setup, {
+      mockAudio: true,
+      mockDeepgram: true,
+      agentFactory: createMockAgent,
+    });
+
+    // transcript_utterances + nudges_fired_count come straight off the handle.
+    h.injectUtterance(utt("we run eight brokers"));
+    h.injectUtterance(utt("pricing is the sticking point"));
+    await h.waitIdle();
+    expect(h.getTranscript()).toHaveLength(2);
+    expect(h.getNudges().length).toBeGreaterThanOrEqual(1);
+
+    // them_silent_seen + sidecar_restarts default clean, then flip via the seams
+    // (real detection — tap-frame staleness / sidecar "restart" events — is physical).
+    expect(h.getThemSilentSeen()).toBe(false);
+    expect(h.getSidecarRestarts()).toBe(0);
+    h.simulateThemSilent();
+    h.simulateSidecarRestart();
+    h.simulateSidecarRestart();
+    expect(h.getThemSilentSeen()).toBe(true);
+    expect(h.getSidecarRestarts()).toBe(2);
+
+    await h.end("user");
+  });
+
   it("the hotkey path requests a fresh nudge from the agent", async () => {
     const nudges: string[] = [];
     const h = await startSession(setup, {

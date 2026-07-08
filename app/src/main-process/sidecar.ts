@@ -172,6 +172,10 @@ export function spawnSidecar(opts: SidecarOptions = {}): SidecarHandle {
       }
       const backoffMs = 500 * attempts;
       console.log(`[sidecar] restarting in ${backoffMs}ms`);
+      // Surface the restart so the session can count it — a silent restart used
+      // to vanish into console.log; sidecar_restarts on call_ended makes it a
+      // number (RUBY_OBSERVABILITY_PLAN §7.1).
+      controlEvents.emit("control", { type: "restart", attempts } satisfies SidecarControlEvent);
       restartTimer = setTimeout(start, backoffMs);
     });
 
