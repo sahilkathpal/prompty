@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut, nativeImage, Notification, session } from "electron";
+import { app, crashReporter, dialog, globalShortcut, nativeImage, Notification, session } from "electron";
 import path from "node:path";
 import {
   createOverlayWindow,
@@ -61,6 +61,44 @@ process.on("unhandledRejection", (reason) => {
   console.error("[main] unhandledRejection:", err.message);
   try {
     captureException(err, { component: "main", fingerprint: `main:unhandled:${err.name}` });
+  } catch {}
+});
+
+// Native/process crashes are the one class PostHog's JS exception capture can't
+// see (§3.3): a renderer *process* dying (GPU/OOM), an Electron child process
+// (GPU/utility) crashing, or a hard native fault. crashReporter.start writes a
+// local minidump for each (uploadToServer:false — no backend yet, but gives
+// crash frequency/reason now and an on-ramp later). The render/child-process
+// handlers turn each into a content-free PostHog exception so we see them in the
+// same issue list as JS errors. Must start before app is ready to catch early crashes.
+crashReporter.start({ uploadToServer: false });
+
+app.on("render-process-gone", (_event, webContents, details) => {
+  // A clean exit isn't a crash; only report abnormal terminations.
+  if (details.reason === "clean-exit") return;
+  console.error("[main] render-process-gone:", details.reason, details.exitCode);
+  const e = new Error(`renderer process gone: ${details.reason}`);
+  e.name = "RenderProcessGone";
+  try {
+    captureException(e, {
+      component: "renderer-ui",
+      fingerprint: `renderer-ui:process-gone:${details.reason}`,
+      extra: { reason: details.reason, exit_code: details.exitCode },
+    });
+  } catch {}
+});
+
+app.on("child-process-gone", (_event, details) => {
+  if (details.reason === "clean-exit") return;
+  console.error("[main] child-process-gone:", details.type, details.reason, details.exitCode);
+  const e = new Error(`child process gone: ${details.type} ${details.reason}`);
+  e.name = "ChildProcessGone";
+  try {
+    captureException(e, {
+      component: "main",
+      fingerprint: `main:child-process-gone:${details.type}:${details.reason}`,
+      extra: { process_type: details.type, reason: details.reason, exit_code: details.exitCode },
+    });
   } catch {}
 });
 
@@ -379,6 +417,19 @@ app.on("ready", () => {
       simulateThemSilent: () => {
         const { e2eSimulateThemSilent } = require("./ipc-handlers");
         return e2eSimulateThemSilent();
+      },
+      simulateDeepgramReconnect: () => {
+        const { e2eSimulateDeepgramReconnect } = require("./ipc-handlers");
+        return e2eSimulateDeepgramReconnect();
+      },
+      // Hard-crash a live renderer process to exercise the render-process-gone
+      // capture path (the plan's induced-renderer-crash check).
+      forceRenderCrash: () => {
+        const { BrowserWindow } = require("electron");
+        const win = BrowserWindow.getAllWindows().find(
+          (w: Electron.BrowserWindow) => !w.isDestroyed() && !w.webContents.isDestroyed(),
+        );
+        win?.webContents.forcefullyCrashRenderer();
       },
       emitNudge: (n: unknown) => {
         const { e2eEmitNudge } = require("./ipc-handlers");

@@ -138,7 +138,7 @@ let sessionStartedAt = 0;
 // A call this long "should" have produced transcript; below it, "no transcript"
 // is just a quick start/stop, not a failure. Overridable for tests. This is the
 // initial silent-call threshold (open decision #4) — tune from field data.
-const MEANINGFUL_CALL_S = process.env.PROMPTY_MEANINGFUL_CALL_S
+const MEANINGFUL_CALL_S = Number.isFinite(Number(process.env.PROMPTY_MEANINGFUL_CALL_S))
   ? Number(process.env.PROMPTY_MEANINGFUL_CALL_S)
   : 60;
 
@@ -424,6 +424,13 @@ async function doStartSession(
           } catch {}
           broadcastSessionState("idle");
         }
+      },
+      onDeepgramConnection: (s) => {
+        // Transcription transport health (§7.3) — a dropped/recovered Deepgram
+        // socket. Content-free.
+        analyticsCapture(s === "disconnected" ? "deepgram_disconnected" : "deepgram_recovered", {
+          during_call: true,
+        });
       },
       onError: (e) => {
         console.error("[ipc] session error:", e.message);
@@ -1105,6 +1112,12 @@ export function e2eForceTransportError(reason?: string): boolean {
 export function e2eSimulateThemSilent(): boolean {
   if (!activeSession) return false;
   activeSession.simulateThemSilent();
+  return true;
+}
+
+export function e2eSimulateDeepgramReconnect(): boolean {
+  if (!activeSession) return false;
+  activeSession.simulateDeepgramReconnect();
   return true;
 }
 
