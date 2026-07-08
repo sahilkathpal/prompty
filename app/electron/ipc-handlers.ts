@@ -134,6 +134,68 @@ let activeSession: SessionHandle | null = null;
 let activeSessionSetup: CallSetup | null = null;
 // Wall-clock start of the active call, for the call_ended analytics duration.
 let sessionStartedAt = 0;
+
+// A call this long "should" have produced transcript; below it, "no transcript"
+// is just a quick start/stop, not a failure. Overridable for tests. This is the
+// initial silent-call threshold (open decision #4) — tune from field data.
+const MEANINGFUL_CALL_S = process.env.PROMPTY_MEANINGFUL_CALL_S
+  ? Number(process.env.PROMPTY_MEANINGFUL_CALL_S)
+  : 60;
+
+interface CallHealth {
+  reason: string;
+  duration_s: number | null;
+  skill: string | null;
+  error_category: string | null;
+  audio_input_transport: string | null;
+  reached_listening: boolean;
+  mic_silent_seen: boolean;
+  no_audio_seen: boolean;
+  transcript_utterances: number | null;
+  them_silent_seen: boolean;
+  nudges_fired_count: number | null;
+  sidecar_restarts: number | null;
+}
+
+/**
+ * The silent-failure → synthetic-issue bridge (§5.4, the crux). Exception
+ * tracking can NEVER catch the John class — nothing throws, capture just goes
+ * quiet — so manufacture an issue from the same end-of-call aggregate that builds
+ * call_ended. A meaningful call that transcribed nothing (or never reached
+ * listening) is a silent-call failure; one that captured us but never the far
+ * side is a them-leg blackout. Stable fingerprints so each forms ONE durable,
+ * alertable issue instead of a "successful" call that hides the failure.
+ */
+function reportCallOutcome(h: CallHealth): void {
+  const duration = typeof h.duration_s === "number" ? h.duration_s : 0;
+  if (duration < MEANINGFUL_CALL_S) return; // too short to judge outcome
+  const utterances = typeof h.transcript_utterances === "number" ? h.transcript_utterances : 0;
+  const { skill, ...extra } = h; // skill rides as a ctx tag, not duplicated in extra
+
+  if (utterances === 0 || h.reached_listening === false) {
+    const e = new Error("call of meaningful duration produced no transcript");
+    e.name = "SilentCallError";
+    captureException(e, {
+      component: "capture",
+      phase: "in-call",
+      fingerprint: "capture:silent-call",
+      skill: skill ?? undefined,
+      extra,
+    });
+    return; // silent-call subsumes the them-leg case — one issue per call
+  }
+  if (h.them_silent_seen === true) {
+    const e = new Error("far-side (them) audio never captured on a meaningful call");
+    e.name = "ThemBlackoutError";
+    captureException(e, {
+      component: "capture",
+      phase: "in-call",
+      fingerprint: "capture:them-blackout",
+      skill: skill ?? undefined,
+      extra,
+    });
+  }
+}
 // The current prep chat session (RUBY B2 phase 2b). At most one at a time.
 let activePrep: PrepAgent | null = null;
 // Components (goal/checklist) armed by the current/last prep, awaiting the next
@@ -333,7 +395,9 @@ async function doStartSession(
         if (s === "ended" || s === "error") {
           // Metadata only — duration, outcome, which playbook, and (when a leg
           // failed mid-call) which one; never content.
-          analyticsCapture("call_ended", {
+          // One source of truth: the call_ended health props AND the synthetic
+          // silent-call issue (§5.4) are computed from the same aggregate here.
+          const health = {
             reason: s,
             duration_s: sessionStartedAt ? Math.round((Date.now() - sessionStartedAt) / 1000) : null,
             skill: setup.skill || null,
@@ -349,7 +413,9 @@ async function doStartSession(
             them_silent_seen: activeSession?.getThemSilentSeen() ?? false,
             nudges_fired_count: activeSession?.getNudges().length ?? null,
             sidecar_restarts: activeSession?.getSidecarRestarts() ?? null,
-          });
+          };
+          analyticsCapture("call_ended", health);
+          reportCallOutcome(health);
           sessionStartedAt = 0;
           activeSession = null;
           activeSessionSetup = null;
@@ -1033,6 +1099,12 @@ export function e2eEmitNudge(n: unknown): boolean {
 export function e2eForceTransportError(reason?: string): boolean {
   if (!activeSession) return false;
   activeSession.simulateTransportError(reason);
+  return true;
+}
+
+export function e2eSimulateThemSilent(): boolean {
+  if (!activeSession) return false;
+  activeSession.simulateThemSilent();
   return true;
 }
 

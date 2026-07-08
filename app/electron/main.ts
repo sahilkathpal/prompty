@@ -376,6 +376,10 @@ app.on("ready", () => {
         const { e2eForceTransportError } = require("./ipc-handlers");
         return e2eForceTransportError(reason);
       },
+      simulateThemSilent: () => {
+        const { e2eSimulateThemSilent } = require("./ipc-handlers");
+        return e2eSimulateThemSilent();
+      },
       emitNudge: (n: unknown) => {
         const { e2eEmitNudge } = require("./ipc-handlers");
         return e2eEmitNudge(n);
