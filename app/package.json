@@ -26,6 +26,7 @@
     "e2e:headed": "playwright test --grep-invert @real --headed",
     "e2e:ui": "playwright test --ui",
     "e2e:real": "playwright test --grep @real",
+    "kill:stray": "node --import tsx tests/e2e/reap-stray.ts",
     "test:swift": "bash ../audio-sidecar/Tests/run-tests.sh",
     "smoke:transcribe-mock": "node --import tsx tests/smoke-transcribe-mock.ts",
     "smoke:google-token-refresh": "node --import tsx tests/smoke-google-token-refresh.ts",

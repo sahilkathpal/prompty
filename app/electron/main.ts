@@ -29,6 +29,23 @@ loadEnv();
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const E2E_MODE = process.env.PROMPTY_E2E === "1";
 
+// Parent-death watchdog (E2E only). An Electron app launched as a child of the
+// Playwright runner does NOT die when that parent dies: macOS has no
+// PR_SET_PDEATHSIG, so an interrupted run (a killed worker, a closed terminal,
+// an aborted `verify`) skips the spec's `finally { app.close() }` and orphans
+// the app — the OS re-parents it to launchd (ppid 1) and it lingers forever,
+// leaving a stray Dock icon that `killall Dock` can't clear (the process is
+// real). Watch for the re-parent and exit the moment it happens. Gated to E2E
+// so the packaged tray app — whose real parent is already launchd — never
+// self-quits; there `process.ppid` starts at 1 and the guard below no-ops.
+if (E2E_MODE && process.ppid > 1) {
+  const parentPid = process.ppid;
+  const watchdog = setInterval(() => {
+    if (process.ppid !== parentPid) process.exit(0);
+  }, 1000);
+  watchdog.unref(); // never keep the app alive just for the watchdog
+}
+
 // When Ruby is launched from Finder (or the dev wrapper exits), the stdout/
 // stderr pipe can close while the app keeps running. The next console.log then
 // throws EPIPE — and because it surfaces as an uncaught exception, it crashes
