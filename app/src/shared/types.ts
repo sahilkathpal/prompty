@@ -20,6 +20,8 @@ export type SessionStatus =
   | "listening"
   | "no-audio"
   | "mic-silent"
+  | "them-silent"
+  | "them-lost"
   | "reconnecting"
   | "error";
 

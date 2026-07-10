@@ -74,6 +74,18 @@ export interface SessionOpts {
   /** Deepgram transport health: a socket dropped (disconnected) or a reconnect
    * succeeded (recovered). Metadata only; the IPC layer turns it into analytics. */
   onDeepgramConnection?: (s: "disconnected" | "recovered") => void;
+  /** Tap-frame watchdog (CoreAudioTap) health: the "them" leg went silent and the
+   * sidecar rebuilt the graph ("recovered" after N rebuilds) or exhausted its
+   * bounded retries ("gave_up" — a real them-blackout). Metadata only; the IPC
+   * layer turns "recovered" into an analytics event and "gave_up" into a synthetic
+   * capture:tap-gave-up issue. This is the field-visibility half of the v0.1.2
+   * watchdog fix — without it the sidecar's tap_silent/tap_recovered messages are
+   * dropped and we can't tell whether the fix is holding in the field. */
+  onTapWatchdog?: (ev: {
+    kind: "recovered" | "gave_up";
+    rebuilds?: number;
+    attempt?: number;
+  }) => void;
   /**
    * Fired after the background summary pass has patched the saved log (or right
    * after the fast end when there's nothing to summarize). `logPath` is null if
@@ -121,6 +133,10 @@ export interface SessionHandle {
    * physical; these verify the getter→call_ended wiring offline. */
   simulateThemSilent(): void;
   simulateSidecarRestart(): void;
+  /** Test seam: drive a tap-watchdog outcome ("recovered" with N rebuilds, or
+   * "gave_up") through the same path the sidecar control event takes — verifies
+   * the getter→call_ended wiring and the onTapWatchdog callback offline. */
+  simulateTapWatchdog(ev: { kind: "recovered" | "gave_up"; rebuilds?: number; attempt?: number }): void;
   /** Test seam: drive a Deepgram connection status through the REAL handler
    * (exercises the disconnect/recover latch), e.g. "reconnecting" then "open". */
   simulateDeepgramStatus(s: DeepgramConnStatus): void;
@@ -130,6 +146,10 @@ export interface SessionHandle {
   getThemSilentSeen(): boolean;
   /** Number of sidecar auto-restarts observed during this call. */
   getSidecarRestarts(): number;
+  /** Total tap-frame-watchdog rebuilds needed to recover the "them" leg this call. */
+  getTapRebuilds(): number;
+  /** The tap watchdog exhausted its retries this call (a real them-blackout). */
+  getTapGaveUp(): boolean;
   getSetup(): CallSetup;
   getState(): SessionState;
   /** Resolved log path once end() completes. */
@@ -275,6 +295,13 @@ export async function startSession(
   // Count of sidecar auto-restarts during this call (from its "restart" control
   // event). The give-up-after-N bug used to vanish; make it a number.
   let sidecarRestarts = 0;
+  // Tap-frame watchdog activity during this call (from the sidecar's tap_recovered
+  // / tap_silent{gave_up} control events). `tapRebuilds` sums how many rebuilds the
+  // watchdog needed to recover the "them" leg — a nonzero count on many calls means
+  // the tap keeps thrashing (e.g. the SR-change rebuild storm) even if it recovers.
+  // `tapGaveUp` is the watchdog exhausting its retries: a real them-blackout.
+  let tapRebuilds = 0;
+  let tapGaveUp = false;
   let ended = false;
 
   // ---- Status (overlay health dot) ----
@@ -319,10 +346,12 @@ export async function startSession(
   // Called on every audio frame / utterance: flips to "listening" and pulses.
   const markAudio = () => {
     lastAudioAt = Date.now();
-    // Keep a mic problem sticky — don't let a steady TAP stream flip the dot back
-    // to "listening" while the mic is silent (all-zero frames) or dead (no
-    // frames at all). Both mean the user's own voice isn't being captured.
-    if (micSilence.isSilent() || micDead) return;
+    // Keep a capture problem sticky — don't let one live leg flip the dot back to
+    // "listening" while the other is down. Mic silent/dead = the user's own voice
+    // isn't captured; tapDead = the far side isn't. The frame handler that cleared
+    // the relevant flag (onMicFrame/onTapFrame) runs markAudio() right after, so
+    // recovery flips back to "listening" on the very next good frame.
+    if (micSilence.isSilent() || micDead || tapDead) return;
     const now = Date.now();
     if (currentStatus !== "listening" || now - lastPulseEmit >= 300) {
       lastPulseEmit = now;
@@ -331,6 +360,15 @@ export async function startSession(
   };
   const MIC_DEAD_REASON =
     "Your microphone isn't being captured (no audio from the mic). Try switching your input to your built-in microphone.";
+  // The far-side (them) equivalent — surfaced to the user so a silent-"them" call
+  // is visible instead of a quiet color shift. Two states, because the honest
+  // message differs: while the tap watchdog is retrying (the common case, usually
+  // self-heals) it's a calm "reconnecting" — no user action, because none helps;
+  // only when the watchdog GIVES UP is it a real failure worth a reliable remedy
+  // (restart), not a device-fiddling workaround that can re-trigger the rebuild.
+  const THEM_RECONNECTING_REASON = "Reconnecting the other side's audio…";
+  const THEM_LOST_REASON =
+    "Couldn't capture the other side's audio — end and restart the call.";
   // Per-leg frame handlers: update liveness, run mic-silence inspection, pulse.
   const onMicFrame = (chunk: Buffer) => {
     lastMicFrameAt = Date.now();
@@ -475,6 +513,26 @@ export async function startSession(
         }
         if (ev?.type === "restart") sidecarRestarts++;
         if (ev?.type === "error") onTransportError("sidecar");
+        // Tap-frame watchdog (§Phase 6 gap). The sidecar emits these; before this
+        // they were logged and dropped. "recovered" carries the rebuild count for
+        // the episode; a "tap_silent" with action:"gave_up" is a real them-blackout.
+        if (ev?.type === "tap_recovered") {
+          const n = typeof ev.rebuilds === "number" ? ev.rebuilds : 1;
+          tapRebuilds += n;
+          opts.onTapWatchdog?.({ kind: "recovered", rebuilds: n });
+        }
+        if (ev?.type === "tap_silent" && ev.action === "gave_up") {
+          tapGaveUp = true;
+          themSilentSeen = true;
+          tapDead = true; // keep the status sticky until real tap frames resume
+          opts.onTapWatchdog?.({
+            kind: "gave_up",
+            attempt: typeof ev.attempt === "number" ? ev.attempt : undefined,
+          });
+          // Escalate from the calm "reconnecting" to an honest failure the user
+          // can act on. Clears when tap frames resume (onTapFrame → markAudio).
+          emitStatus("them-lost", false, THEM_LOST_REASON);
+        }
       });
     } catch (e) {
       console.error("[coach-session] sidecar spawn failed:", (e as Error).message);
@@ -578,13 +636,20 @@ export async function startSession(
       // The mirror case: the tap (them) leg produced no frames for a while while
       // the mic is still live. The overall no-audio check can't see it (mic
       // frames keep lastAudioAt fresh), so it's the silent-"them" blind spot.
-      // Record it for call_ended; no user-facing status change (measurement only).
+      // Record it for call_ended AND surface it — symmetric to mic-dead, so the
+      // user knows the far side isn't being captured (the John lesson, user-side)
+      // instead of only a quiet color shift. Clears on the next tap frame
+      // (onTapFrame → markAudio → "listening"). The 6s micDeadMs threshold means a
+      // blip the watchdog self-heals in ~1s never surfaces — only sustained loss.
       const micAlive = now - lastMicFrameAt < noAudioMs;
       const tapStale = now - lastTapFrameAt > micDeadMs;
       if (micAlive && tapStale && !tapDead) {
         tapDead = true;
         themSilentSeen = true;
         console.error("[coach-session] them/tap leg silent — the other party isn't being captured");
+        // The tap is stale but the sidecar watchdog is still retrying — say so
+        // calmly. If it later gives up, the control handler escalates to "them-lost".
+        emitStatus("them-silent", false, THEM_RECONNECTING_REASON);
       }
     }
   }, noAudioPeriod);
@@ -763,6 +828,16 @@ export async function startSession(
     simulateSidecarRestart() {
       sidecarRestarts++;
     },
+    simulateTapWatchdog(ev) {
+      if (ev.kind === "recovered") {
+        const n = typeof ev.rebuilds === "number" ? ev.rebuilds : 1;
+        tapRebuilds += n;
+        opts.onTapWatchdog?.({ kind: "recovered", rebuilds: n });
+      } else {
+        tapGaveUp = true;
+        opts.onTapWatchdog?.({ kind: "gave_up", attempt: ev.attempt });
+      }
+    },
     simulateDeepgramStatus(s) {
       handleDeepgramStatus(s);
     },
@@ -777,6 +852,12 @@ export async function startSession(
     },
     getSidecarRestarts() {
       return sidecarRestarts;
+    },
+    getTapRebuilds() {
+      return tapRebuilds;
+    },
+    getTapGaveUp() {
+      return tapGaveUp;
     },
     getSetup() {
       return setup;

@@ -27,6 +27,8 @@ const STATUS_META: Record<
   listening: { label: "Listening", tone: "green" },
   "no-audio": { label: "No audio", tone: "amber" },
   "mic-silent": { label: "No mic audio", tone: "red" },
+  "them-silent": { label: "Reconnecting them", tone: "amber" },
+  "them-lost": { label: "Not capturing them", tone: "red" },
   reconnecting: { label: "Reconnecting", tone: "red" },
   error: { label: "Error", tone: "red" },
 };
@@ -411,9 +413,9 @@ export default function App(): JSX.Element {
       ? bloom.urgency === "high"
         ? "attention"
         : "worth-asking"
-      : status === "error" || status === "no-audio" || status === "mic-silent"
+      : status === "error" || status === "no-audio" || status === "mic-silent" || status === "them-lost"
         ? "attention"
-        : status === "reconnecting" || status === "starting"
+        : status === "reconnecting" || status === "starting" || status === "them-silent"
           ? "thinking"
           : status === "listening" || liveish
             ? "listening"
@@ -453,6 +455,26 @@ export default function App(): JSX.Element {
             <div className="gem-ruby-bubble-text">{rubyMessage}</div>
           </div>
         )}
+
+        {/* Capture-status notice: surface the reason as visible text — not just a
+            glow shift + a hover tooltip nobody sees mid-call. Covers a mic that's
+            dead, "them" reconnecting (calm, amber), or "them" lost (red, act on it).
+            Clears the instant the status recovers. role=alert only when it's a real
+            failure, so the calm reconnecting notice doesn't nag assistive tech. */}
+        {statusReason &&
+          (status === "mic-silent" || status === "them-silent" || status === "them-lost") &&
+          !expanded &&
+          !pinned && (
+            <div
+              className="gem-ruby-bubble gem-status-warning"
+              role={status === "them-silent" ? "status" : "alert"}
+              data-status={status}
+              data-tone={meta?.tone}
+            >
+              <div className="gem-status-warning-label">{meta?.label ?? "Audio"}</div>
+              <div className="gem-ruby-bubble-text">{statusReason}</div>
+            </div>
+          )}
 
         {/* First-call "ready" primer: re-homes the cut hotkey demo into the one
             moment it's true. Non-blocking, retires after the first call ends (the

@@ -38,6 +38,9 @@ test("call_ended v2: transcript_utterances + health props reflect the call", asy
     expect(typeof ce.properties.nudges_fired_count).toBe("number");
     expect(ce.properties.them_silent_seen).toBe(false);
     expect(ce.properties.sidecar_restarts).toBe(0);
+    // Tap-watchdog fields default clean on a mock call (no real tap).
+    expect(ce.properties.tap_rebuilds).toBe(0);
+    expect(ce.properties.tap_gave_up).toBe(false);
   } finally {
     await app.close();
     await fs.rm(dir, { recursive: true, force: true });

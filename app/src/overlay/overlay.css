@@ -93,6 +93,35 @@ html, body, #root {
   color: #ffe9ee;
 }
 
+/* Capture-failure warning: reuses the ruby bubble, but a bold uppercase label
+   marks it as a problem to act on rather than a coaching note. */
+.gem-status-warning-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ff9db1;
+  margin-bottom: 4px;
+}
+
+/* Amber "reconnecting them" is a calm, self-healing state — soften the ruby bubble
+   to amber so it doesn't read as a hard failure like the red mic-dead / them-lost. */
+.gem-status-warning[data-tone="amber"] {
+  background: linear-gradient(160deg, rgba(46, 34, 12, 0.96), rgba(30, 22, 10, 0.96));
+  border-color: rgba(255, 190, 70, 0.5);
+}
+.gem-status-warning[data-tone="amber"]::before {
+  background: rgba(46, 34, 12, 0.96);
+  border-top-color: rgba(255, 190, 70, 0.5);
+  border-right-color: rgba(255, 190, 70, 0.5);
+}
+.gem-status-warning[data-tone="amber"] .gem-status-warning-label {
+  color: #ffd591;
+}
+.gem-status-warning[data-tone="amber"] .gem-ruby-bubble-text {
+  color: #fff3e0;
+}
+
 /* ---- The bloomed note: one ephemeral card beneath the gem ---- */
 .gem-bloom {
   position: relative;

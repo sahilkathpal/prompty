@@ -99,6 +99,34 @@ describe("coach-session lifecycle", () => {
     expect(h.getThemSilentSeen()).toBe(true);
     expect(h.getSidecarRestarts()).toBe(2);
 
+    // tap-watchdog: rebuilds accumulate across recovery episodes; gave_up latches.
+    expect(h.getTapRebuilds()).toBe(0);
+    expect(h.getTapGaveUp()).toBe(false);
+    h.simulateTapWatchdog({ kind: "recovered", rebuilds: 1 });
+    h.simulateTapWatchdog({ kind: "recovered", rebuilds: 2 });
+    expect(h.getTapRebuilds()).toBe(3);
+    h.simulateTapWatchdog({ kind: "gave_up", attempt: 5 });
+    expect(h.getTapGaveUp()).toBe(true);
+
+    await h.end("user");
+  });
+
+  it("tap watchdog: recovered fires onTapWatchdog(recovered) with rebuild count; gave_up fires once", async () => {
+    const events: { kind: string; rebuilds?: number; attempt?: number }[] = [];
+    const h = await startSession(setup, {
+      mockAudio: true,
+      mockDeepgram: true,
+      agentFactory: createMockAgent,
+      onTapWatchdog: (ev) => events.push(ev),
+    });
+
+    h.simulateTapWatchdog({ kind: "recovered", rebuilds: 2 });
+    h.simulateTapWatchdog({ kind: "gave_up", attempt: 5 });
+    expect(events).toEqual([
+      { kind: "recovered", rebuilds: 2 },
+      { kind: "gave_up", attempt: 5 },
+    ]);
+
     await h.end("user");
   });
 

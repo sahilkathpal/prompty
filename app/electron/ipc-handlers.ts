@@ -155,6 +155,8 @@ interface CallHealth {
   them_silent_seen: boolean;
   nudges_fired_count: number | null;
   sidecar_restarts: number | null;
+  tap_rebuilds: number | null;
+  tap_gave_up: boolean;
 }
 
 /**
@@ -413,6 +415,11 @@ async function doStartSession(
             them_silent_seen: activeSession?.getThemSilentSeen() ?? false,
             nudges_fired_count: activeSession?.getNudges().length ?? null,
             sidecar_restarts: activeSession?.getSidecarRestarts() ?? null,
+            // Tap-watchdog activity (§Phase 6 gap): rebuilds needed to keep "them"
+            // alive, and whether it ultimately gave up. A high tap_rebuilds across
+            // calls surfaces the SR-change rebuild storm.
+            tap_rebuilds: activeSession?.getTapRebuilds() ?? null,
+            tap_gave_up: activeSession?.getTapGaveUp() ?? false,
           };
           analyticsCapture("call_ended", health);
           reportCallOutcome(health);
@@ -431,6 +438,30 @@ async function doStartSession(
         analyticsCapture(s === "disconnected" ? "deepgram_disconnected" : "deepgram_recovered", {
           during_call: true,
         });
+      },
+      onTapWatchdog: (ev) => {
+        // Tap-frame watchdog (the field-visibility half of the v0.1.2 fix). A
+        // "recovered" is the watchdog doing its job — count it so a rising rebuild
+        // rate (the SR-change storm) is visible. A "gave_up" is a real them-blackout
+        // the watchdog couldn't fix → a synthetic capture:tap-gave-up issue, the
+        // tap-side sibling of capture:silent-call. Content-free.
+        if (ev.kind === "recovered") {
+          analyticsCapture("tap_recovered", {
+            during_call: true,
+            rebuilds: typeof ev.rebuilds === "number" ? ev.rebuilds : null,
+          });
+        } else {
+          const e = new Error("CoreAudio tap gave up rebuilding — the other side isn't being captured");
+          e.name = "TapGaveUpError";
+          captureException(e, {
+            component: "capture",
+            phase: "in-call",
+            fingerprint: "capture:tap-gave-up",
+            skill: setup.skill || undefined,
+            extra: { attempt: typeof ev.attempt === "number" ? ev.attempt : null },
+          });
+          analyticsCapture("tap_gave_up", { during_call: true });
+        }
       },
       onError: (e) => {
         console.error("[ipc] session error:", e.message);
