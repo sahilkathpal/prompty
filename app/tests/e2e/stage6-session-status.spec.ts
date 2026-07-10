@@ -202,7 +202,11 @@ test("Stage 3: forced transport error emits 'error' and does not end the session
     const log = await waitForState(app, "error");
     const err = log.find((e) => e.state === "error");
     expect(err).toBeTruthy();
-    expect(err?.reason).toContain("e2e-forced");
+    // The user-facing reason is a generic message; the internal error label
+    // ("e2e-forced") stays in telemetry/logs and must NOT leak into the status
+    // shown to the user.
+    expect(err?.reason).toBeTruthy();
+    expect(err?.reason).not.toContain("e2e-forced");
     // Error status must NOT end the session — overlay stays up.
     expect(await overlayVisible(app)).toBe(true);
   } finally {

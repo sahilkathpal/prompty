@@ -345,7 +345,7 @@ export async function startSession(
   // the start of a session is an unambiguous signal that the sidecar isn't
   // getting real audio (permission not effective, wrong/muted input device).
   const MIC_SILENCE_REASON =
-    "No audio is reaching the mic. Grant Microphone permission (System Settings → Privacy & Security) and restart. In dev, the packaged app captures audio more reliably than `npm run dev`.";
+    "No audio is reaching the mic. Make sure Ruby is allowed under System Settings → Privacy & Security → Microphone, then restart the call.";
   const micSilence = createMicSilenceDetector();
   const inspectMicChunk = (chunk: Buffer) => {
     if (micSilence.inspect(chunk)) {
@@ -380,6 +380,11 @@ export async function startSession(
   // is a real failure worth the one reliable remedy (restart), not a workaround.
   const THEM_LOST_REASON =
     "Couldn't capture the other side's audio — end and restart the call.";
+  // Terminal transport failure (the sidecar died, or Deepgram gave up after its
+  // retries). The precise cause stays in errorStage → telemetry/logs; the user
+  // only needs the one reliable remedy, in plain language (no internal names).
+  const TRANSPORT_ERROR_REASON =
+    "Something went wrong with the call — end and restart it.";
   // Per-leg frame handlers: update liveness, run mic-silence inspection, pulse.
   const onMicFrame = (chunk: Buffer) => {
     lastMicFrameAt = Date.now();
@@ -396,9 +401,12 @@ export async function startSession(
   };
   const onTransportError = (reason: string) => {
     if (ended) return;
+    // `reason` is the internal label (e.g. "sidecar", "deepgram error"): kept in
+    // errorStage for telemetry + logs. The overlay gets a plain, generic message —
+    // never the internal name.
     errorStage = reason;
     console.error(`[coach-session] transport error: ${reason}`);
-    emitStatus("error", undefined, reason);
+    emitStatus("error", undefined, TRANSPORT_ERROR_REASON);
   };
   // Deepgram connection transitions (fed to startTranscription's onStatus, and
   // driven directly by the simulateDeepgramStatus test seam). "reconnecting" is
@@ -748,7 +756,7 @@ export async function startSession(
           try {
             const n = new Notification({
               title: "Call saved",
-              body: `Click to open ${path.basename(logPath)}`,
+              body: "Click to open your call notes.",
             });
             n.on("click", () => {
               try {

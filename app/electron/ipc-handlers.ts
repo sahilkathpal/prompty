@@ -651,6 +651,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   });
 
+  // Prep errors reach the prep chat verbatim, so a raw thrown message can leak
+  // internals (CLAUDE_CLI_PATH, file paths, octal modes, SDK stack detail). Show a
+  // plain line to the user; keep the real message in the logs.
+  const reportPrepError = (e: unknown) => {
+    console.error("[ipc] prep error:", (e as Error)?.message ?? e);
+    broadcast("prep:error", {
+      message: "Couldn't reach the prep assistant. Make sure Claude Code is set up, then try again.",
+    });
+  };
+
   handle("prep:start", async (payload) => {
     if (activePrep) {
       await activePrep.close().catch(() => {});
@@ -672,7 +682,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
             setActivePrepComponents(components);
             broadcast("prep:components", { components });
           },
-          onError: (e) => broadcast("prep:error", { message: e.message }),
+          onError: (e) => reportPrepError(e),
         },
         carried,
       );
@@ -682,7 +692,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       broadcast("prep:thinking", { thinking: true });
       void activePrep
         .open()
-        .catch((e) => broadcast("prep:error", { message: (e as Error).message }))
+        .catch((e) => reportPrepError(e))
         .finally(() => broadcast("prep:thinking", { thinking: false }));
       return { ok: true };
     } catch (e) {
@@ -699,7 +709,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       await activePrep.send(payload.message);
       return { ok: true };
     } catch (e) {
-      broadcast("prep:error", { message: (e as Error).message });
+      reportPrepError(e);
       return { ok: false };
     } finally {
       broadcast("prep:thinking", { thinking: false });
