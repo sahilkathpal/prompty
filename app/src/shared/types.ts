@@ -18,9 +18,15 @@ export interface Nudge {
 export type SessionStatus =
   | "starting"
   | "listening"
-  | "no-audio"
+  // A leg (mic, "them", or both) transiently stopped delivering frames — a device
+  // flip / capture-graph rebuild. Unified so a rebuild that churns both legs shows
+  // one calm "reconnecting" state instead of flickering between per-leg statuses.
+  | "reconnecting-audio"
+  // The mic is delivering all-zero PCM — permission not effective or a muted/wrong
+  // input. Distinct from reconnecting-audio: it won't self-heal, it needs action.
   | "mic-silent"
-  | "them-silent"
+  // The tap watchdog exhausted its retries — "them" is really gone until a device
+  // settles. (Mic has no give-up signal yet; that's a follow-up.)
   | "them-lost"
   | "reconnecting"
   | "error";

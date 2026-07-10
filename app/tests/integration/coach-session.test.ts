@@ -178,7 +178,7 @@ describe("coach-session lifecycle", () => {
     await h.end("user");
   });
 
-  it("flips the status dot to 'no-audio' after a silent gap", async () => {
+  it("flips the status dot to 'reconnecting-audio' after a silent gap", async () => {
     process.env.PROMPTY_NO_AUDIO_MS = "300";
     const statuses: SessionStatus[] = [];
     const h = await startSession(setup, {
@@ -188,7 +188,7 @@ describe("coach-session lifecycle", () => {
       onStatus: (e) => statuses.push(e.state),
     });
     await new Promise((r) => setTimeout(r, 900));
-    expect(statuses).toContain("no-audio");
+    expect(statuses).toContain("reconnecting-audio");
     await h.end("user");
   });
 

@@ -4,7 +4,7 @@ import os from "node:os";
 import fs from "node:fs/promises";
 
 // S3 verification: the coach session emits session:status events driven by real
-// signals — "starting" → "listening" (on audio) → "no-audio" (silence gap) →
+// signals — "starting" → "listening" (on audio) → "reconnecting-audio" (silence gap) →
 // "error" (transport failure) — and none of them end the session.
 
 const APP_ROOT = path.resolve(__dirname, "../..");
@@ -162,7 +162,7 @@ test("Stage 3: emits 'starting' then 'listening' on audio", async () => {
   }
 });
 
-test("Stage 3: flips to 'no-audio' after the silence threshold", async () => {
+test("Stage 3: flips to 'reconnecting-audio' after the silence threshold", async () => {
   const dir = await freshUserDataDir();
   const callLogDir = await freshCallLogDir();
   await seedSettings(dir);
@@ -172,10 +172,10 @@ test("Stage 3: flips to 'no-audio' after the silence threshold", async () => {
   try {
     await waitForReady(app);
     await startSession(app);
-    // No utterances injected → after the threshold, status flips to no-audio.
-    const log = await waitForState(app, "no-audio", 6000);
-    expect(log.some((e) => e.state === "no-audio")).toBe(true);
-    // Session must still be live (no-audio never ends a session).
+    // No frames → after the threshold, status flips to the unified reconnecting state.
+    const log = await waitForState(app, "reconnecting-audio", 6000);
+    expect(log.some((e) => e.state === "reconnecting-audio")).toBe(true);
+    // Session must still be live (a reconnect never ends a session).
     expect(await overlayVisible(app)).toBe(true);
   } finally {
     await app.close();

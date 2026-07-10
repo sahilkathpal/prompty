@@ -52,7 +52,7 @@ function makeDeepgramKeyProvider(usingMockDeepgram: boolean): () => Promise<stri
   return getDeepgramToken;
 }
 
-/** Default ms of audio silence before the status flips to "no-audio". */
+/** Default ms of audio silence before the status flips to "reconnecting-audio". */
 const DEFAULT_NO_AUDIO_MS = 10_000;
 /** Default ms of no mic frames (while the tap is live) before flagging the mic dead. */
 const DEFAULT_MIC_DEAD_MS = 6_000;
@@ -144,6 +144,10 @@ export interface SessionHandle {
   getTranscript(): TranscriptUtterance[];
   /** Whole-call "ever" flag: the tap (them) leg went silent while the mic stayed live. */
   getThemSilentSeen(): boolean;
+  /** Whole-call "ever" flag: the mic leg went all-zero (permission/muted) or dead. */
+  getMicSilentSeen(): boolean;
+  /** Whole-call "ever" flag: both legs stopped delivering frames at once. */
+  getNoAudioSeen(): boolean;
   /** Number of sidecar auto-restarts observed during this call. */
   getSidecarRestarts(): number;
   /** Total tap-frame-watchdog rebuilds needed to recover the "them" leg this call. */
@@ -292,6 +296,13 @@ export async function startSession(
   // call_ended (§7.1); `tapDead` keeps the per-tick detection from re-firing.
   let tapDead = false;
   let themSilentSeen = false;
+  // Whole-call "ever" telemetry flags for call_ended. The USER-FACING status is
+  // unified ("reconnecting-audio"), but call_ended keeps per-cause granularity, so
+  // these track the cause independently of what the overlay shows. micSilentSeen =
+  // the mic leg went all-zero (permission/muted) or dead (no frames); noAudioSeen =
+  // both legs stopped delivering frames at once.
+  let micSilentSeen = false;
+  let noAudioSeen = false;
   // Count of sidecar auto-restarts during this call (from its "restart" control
   // event). The give-up-after-N bug used to vanish; make it a number.
   let sidecarRestarts = 0;
@@ -338,6 +349,7 @@ export async function startSession(
   const micSilence = createMicSilenceDetector();
   const inspectMicChunk = (chunk: Buffer) => {
     if (micSilence.inspect(chunk)) {
+      micSilentSeen = true;
       console.error(`[coach-session] mic silent — ${MIC_SILENCE_REASON}`);
       emitStatus("mic-silent", false, MIC_SILENCE_REASON);
     }
@@ -358,15 +370,14 @@ export async function startSession(
       emitStatus("listening", true);
     }
   };
-  const MIC_DEAD_REASON =
-    "Your microphone isn't being captured (no audio from the mic). Try switching your input to your built-in microphone.";
-  // The far-side (them) equivalent — surfaced to the user so a silent-"them" call
-  // is visible instead of a quiet color shift. Two states, because the honest
-  // message differs: while the tap watchdog is retrying (the common case, usually
-  // self-heals) it's a calm "reconnecting" — no user action, because none helps;
-  // only when the watchdog GIVES UP is it a real failure worth a reliable remedy
-  // (restart), not a device-fiddling workaround that can re-trigger the rebuild.
-  const THEM_RECONNECTING_REASON = "Reconnecting the other side's audio…";
+  // Unified transient-loss message. A device flip rebuilds BOTH the mic and tap
+  // graphs together, so any one leg (or both) going stale is really "audio is
+  // reconnecting" — one calm state, no user action (none helps; it self-heals when
+  // frames resume). Not a device-fiddling instruction: switching devices mid-rebuild
+  // can re-trigger the churn. Clears on the next good frame (onMicFrame/onTapFrame).
+  const RECONNECTING_AUDIO_REASON = "Reconnecting audio…";
+  // Escalation for the one leg that CAN report giving up: the tap watchdog. Then it
+  // is a real failure worth the one reliable remedy (restart), not a workaround.
   const THEM_LOST_REASON =
     "Couldn't capture the other side's audio — end and restart the call.";
   // Per-leg frame handlers: update liveness, run mic-silence inspection, pulse.
@@ -601,14 +612,18 @@ export async function startSession(
     sidecar.micStream.on("data", onMicFrame);
     sidecar.tapStream.on("data", onTapFrame);
   }
-  // Flip to "no-audio" after a gap with no frames/utterances. Period is a
+  // Flip to "reconnecting-audio" after a gap with no frames/utterances. Period is a
   // fraction of the threshold so the transition is timely (and fast in tests).
   const noAudioPeriod = Math.max(200, Math.min(2000, Math.floor(noAudioMs / 2)));
   noAudioTimer = setInterval(() => {
     if (ended || currentStatus === "error") return;
     const now = Date.now();
-    if (now - lastAudioAt > noAudioMs && currentStatus !== "no-audio") {
-      emitStatus("no-audio");
+    if (now - lastAudioAt > noAudioMs) {
+      // No frames from EITHER leg — both capture graphs are down/rebuilding.
+      noAudioSeen = true;
+      if (currentStatus !== "reconnecting-audio") {
+        emitStatus("reconnecting-audio", false, RECONNECTING_AUDIO_REASON);
+      }
       return;
     }
     // Per-leg liveness only means something when real streams feed
@@ -617,9 +632,9 @@ export async function startSession(
     // utterances would spuriously read both legs "stale" — guard on the sidecar.
     if (sidecar) {
       // Mic dead while the tap is still live: the "me" leg produced no frames for
-      // a while but "them" is flowing, so the overall no-audio check above never
-      // trips. Surface it (Bluetooth HFP or a wrong input device is the usual
-      // cause) so the user can fall back to the built-in mic.
+      // a while but "them" is flowing (so the both-legs check above never trips).
+      // This is a transient rebuild, not the all-zero permission case — surface it
+      // as the unified "reconnecting audio" (it self-heals when frames resume).
       const tapAlive = now - lastTapFrameAt < noAudioMs;
       const micStale = now - lastMicFrameAt > micDeadMs;
       if (
@@ -627,29 +642,25 @@ export async function startSession(
         micStale &&
         !micDead &&
         !micSilence.isSilent() &&
-        currentStatus !== "no-audio"
+        currentStatus !== "reconnecting-audio"
       ) {
         micDead = true;
-        console.error(`[coach-session] mic dead — ${MIC_DEAD_REASON}`);
-        emitStatus("mic-silent", false, MIC_DEAD_REASON);
+        micSilentSeen = true;
+        console.error("[coach-session] mic leg stale — reconnecting");
+        emitStatus("reconnecting-audio", false, RECONNECTING_AUDIO_REASON);
       }
-      // The mirror case: the tap (them) leg produced no frames for a while while
-      // the mic is still live. The overall no-audio check can't see it (mic
-      // frames keep lastAudioAt fresh), so it's the silent-"them" blind spot.
-      // Record it for call_ended AND surface it — symmetric to mic-dead, so the
-      // user knows the far side isn't being captured (the John lesson, user-side)
-      // instead of only a quiet color shift. Clears on the next tap frame
-      // (onTapFrame → markAudio → "listening"). The 6s micDeadMs threshold means a
-      // blip the watchdog self-heals in ~1s never surfaces — only sustained loss.
+      // The mirror case: the tap (them) leg produced no frames while the mic is
+      // still live — recorded for call_ended (them_silent_seen) AND surfaced as the
+      // same unified reconnecting state. The 6s micDeadMs threshold means a blip the
+      // watchdog self-heals in ~1s never surfaces — only sustained loss. If the
+      // watchdog later GIVES UP, the control handler escalates this to "them-lost".
       const micAlive = now - lastMicFrameAt < noAudioMs;
       const tapStale = now - lastTapFrameAt > micDeadMs;
       if (micAlive && tapStale && !tapDead) {
         tapDead = true;
         themSilentSeen = true;
-        console.error("[coach-session] them/tap leg silent — the other party isn't being captured");
-        // The tap is stale but the sidecar watchdog is still retrying — say so
-        // calmly. If it later gives up, the control handler escalates to "them-lost".
-        emitStatus("them-silent", false, THEM_RECONNECTING_REASON);
+        console.error("[coach-session] them/tap leg silent — reconnecting");
+        emitStatus("reconnecting-audio", false, RECONNECTING_AUDIO_REASON);
       }
     }
   }, noAudioPeriod);
@@ -849,6 +860,12 @@ export async function startSession(
     },
     getThemSilentSeen() {
       return themSilentSeen;
+    },
+    getMicSilentSeen() {
+      return micSilentSeen;
+    },
+    getNoAudioSeen() {
+      return noAudioSeen;
     },
     getSidecarRestarts() {
       return sidecarRestarts;

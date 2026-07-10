@@ -25,9 +25,8 @@ const STATUS_META: Record<
 > = {
   starting: { label: "Starting…", tone: "amber" },
   listening: { label: "Listening", tone: "green" },
-  "no-audio": { label: "No audio", tone: "amber" },
+  "reconnecting-audio": { label: "Reconnecting audio", tone: "amber" },
   "mic-silent": { label: "No mic audio", tone: "red" },
-  "them-silent": { label: "Reconnecting them", tone: "amber" },
   "them-lost": { label: "Not capturing them", tone: "red" },
   reconnecting: { label: "Reconnecting", tone: "red" },
   error: { label: "Error", tone: "red" },
@@ -413,9 +412,9 @@ export default function App(): JSX.Element {
       ? bloom.urgency === "high"
         ? "attention"
         : "worth-asking"
-      : status === "error" || status === "no-audio" || status === "mic-silent" || status === "them-lost"
+      : status === "error" || status === "mic-silent" || status === "them-lost"
         ? "attention"
-        : status === "reconnecting" || status === "starting" || status === "them-silent"
+        : status === "reconnecting" || status === "starting" || status === "reconnecting-audio"
           ? "thinking"
           : status === "listening" || liveish
             ? "listening"
@@ -457,17 +456,18 @@ export default function App(): JSX.Element {
         )}
 
         {/* Capture-status notice: surface the reason as visible text — not just a
-            glow shift + a hover tooltip nobody sees mid-call. Covers a mic that's
-            dead, "them" reconnecting (calm, amber), or "them" lost (red, act on it).
-            Clears the instant the status recovers. role=alert only when it's a real
-            failure, so the calm reconnecting notice doesn't nag assistive tech. */}
+            glow shift + a hover tooltip nobody sees mid-call. One calm amber
+            "Reconnecting audio…" while any leg rebuilds (self-heals), escalating to
+            a red mic-silent / them-lost only when it's a real failure to act on.
+            Clears the instant the status recovers. role=alert only for the real
+            failures, so the calm reconnecting notice doesn't nag assistive tech. */}
         {statusReason &&
-          (status === "mic-silent" || status === "them-silent" || status === "them-lost") &&
+          (status === "reconnecting-audio" || status === "mic-silent" || status === "them-lost") &&
           !expanded &&
           !pinned && (
             <div
               className="gem-ruby-bubble gem-status-warning"
-              role={status === "them-silent" ? "status" : "alert"}
+              role={status === "reconnecting-audio" ? "status" : "alert"}
               data-status={status}
               data-tone={meta?.tone}
             >

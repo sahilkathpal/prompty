@@ -408,8 +408,10 @@ async function doStartSession(
             // silent call looked "ended" cleanly with no signal about why.
             audio_input_transport: inputTransport,
             reached_listening: statusLog.some((e) => e.state === "listening"),
-            mic_silent_seen: statusLog.some((e) => e.state === "mic-silent"),
-            no_audio_seen: statusLog.some((e) => e.state === "no-audio"),
+            // Per-cause telemetry flags (the user-facing status is now unified as
+            // "reconnecting-audio", so derive these from the session, not the status log).
+            mic_silent_seen: activeSession?.getMicSilentSeen() ?? false,
+            no_audio_seen: activeSession?.getNoAudioSeen() ?? false,
             // v2 outcome signal (§7.1): "did it actually work", not just "did it end".
             transcript_utterances: activeSession?.getTranscript().length ?? null,
             them_silent_seen: activeSession?.getThemSilentSeen() ?? false,
