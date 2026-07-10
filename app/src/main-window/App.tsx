@@ -269,6 +269,15 @@ export default function App(): JSX.Element {
       setAuthBusy(false);
     }
   }, []);
+  // Re-open the browser to the same in-flight sign-in (tab was closed/lost).
+  const reopenSignIn = useCallback(() => {
+    window.prompty.invoke("auth:reopen-signin", undefined as never).catch(() => {});
+  }, []);
+  // Back out of the in-flight sign-in and return to the idle button immediately.
+  const cancelSignIn = useCallback(() => {
+    window.prompty.invoke("auth:cancel-signin", undefined as never).catch(() => {});
+    setAuthBusy(false);
+  }, []);
   const signOut = useCallback(async () => {
     setAuthBusy(true);
     try {
@@ -716,6 +725,8 @@ export default function App(): JSX.Element {
         account={account}
         authBusy={authBusy}
         signIn={signIn}
+        onReopenSignIn={reopenSignIn}
+        onCancelSignIn={cancelSignIn}
         signOut={signOut}
         refreshMic={refreshMic}
         refreshClaude={refreshClaude}
@@ -738,6 +749,8 @@ export default function App(): JSX.Element {
       account={account}
       authBusy={authBusy}
       onSignIn={signIn}
+      onReopenSignIn={reopenSignIn}
+      onCancelSignIn={cancelSignIn}
       onGrantMic={() => { window.prompty.invoke("onboarding:request-mic", undefined as never).catch(() => {}); refreshMic(); }}
       onOpenMicSettings={() => { window.prompty.invoke("onboarding:open-external", { url: MIC_SETTINGS_URL }); }}
       onOpenSettings={() => setScreen({ id: "settings" })}
@@ -822,6 +835,8 @@ function HomeScreen(props: {
   account: { signedIn: boolean; email?: string } | null;
   authBusy: boolean;
   onSignIn: () => void;
+  onReopenSignIn: () => void;
+  onCancelSignIn: () => void;
   onGrantMic: () => void;
   onOpenMicSettings: () => void;
   onOpenSettings: () => void;
@@ -837,7 +852,7 @@ function HomeScreen(props: {
   firstRun: boolean;
   onDismissFirstRun: () => void;
 }): JSX.Element {
-  const { calls, isLive, liveTimer, liveTitle, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings, firstRun, onDismissFirstRun } = props;
+  const { calls, isLive, liveTimer, liveTitle, error, onDismissError, onRetryError, micStatus, claude, account, authBusy, onSignIn, onReopenSignIn, onCancelSignIn, onGrantMic, onOpenMicSettings, onOpenSettings, direction, setDirection, components, onSend, onDiscard, onViewCall, onViewLive, onMemory, onSettings, firstRun, onDismissFirstRun } = props;
   // Anchor the live row to the prepped call's brief (first line, trimmed) so it
   // reads as this specific call, not a generic "Current call" (H3).
   const liveRowTitle = liveTitle?.split("\n")[0].trim().slice(0, 50) || "Current call";
@@ -872,9 +887,9 @@ function HomeScreen(props: {
   // returning/signed-out user is told up front, not when they hit the wall. A
   // signal that's still loading (null) is treated as fine to avoid a flash.
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
-  const setupItems: { key: string; text: string; actionLabel: string; onAction: () => void; busy?: boolean }[] = [];
+  const setupItems: { key: string; text: string; actionLabel: string; onAction: () => void; busy?: boolean; onReopen?: () => void; onCancel?: () => void }[] = [];
   if (account != null && !account.signedIn) {
-    setupItems.push({ key: "auth", text: "Sign in to turn on transcription.", actionLabel: "Sign in with Google", onAction: onSignIn, busy: authBusy });
+    setupItems.push({ key: "auth", text: "Sign in to turn on transcription.", actionLabel: "Sign in with Google", onAction: onSignIn, busy: authBusy, onReopen: onReopenSignIn, onCancel: onCancelSignIn });
   }
   if (micStatus != null && micStatus !== "granted") {
     setupItems.push(micBlocked
@@ -1049,15 +1064,26 @@ function HomeScreen(props: {
             <ul className="home-setup-list">
               {setupItems.map((it) => (
                 <li key={it.key} className="home-setup-item" data-testid={`home-setup-${it.key}`}>
-                  <span className="home-setup-text">{it.text}</span>
-                  <button
-                    className="home-setup-action"
-                    data-testid={`home-setup-${it.key}-action`}
-                    disabled={it.busy}
-                    onClick={it.onAction}
-                  >
-                    {it.actionLabel}
-                  </button>
+                  <span className="home-setup-text">
+                    {it.busy && it.onReopen ? "Finish signing in in the browser tab we opened." : it.text}
+                  </span>
+                  {it.busy && it.onReopen ? (
+                    // Sign-in in progress: steer back to the open tab, with explicit
+                    // reopen (if it was lost) + cancel — never a dead disabled button.
+                    <span className="home-setup-waiting">
+                      <button className="home-setup-action home-setup-action-plain" onClick={it.onReopen}>Reopen</button>
+                      <button className="home-setup-action home-setup-action-plain" onClick={it.onCancel}>Cancel</button>
+                    </span>
+                  ) : (
+                    <button
+                      className="home-setup-action"
+                      data-testid={`home-setup-${it.key}-action`}
+                      disabled={it.busy}
+                      onClick={it.onAction}
+                    >
+                      {it.actionLabel}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -2227,12 +2253,14 @@ function SettingsScreen(props: {
   account: { signedIn: boolean; email?: string } | null;
   authBusy: boolean;
   signIn: () => void;
+  onReopenSignIn: () => void;
+  onCancelSignIn: () => void;
   signOut: () => void;
   refreshMic: () => void;
   refreshClaude: () => void;
   onBack: () => void;
 }): JSX.Element {
-  const { micStatus, claude, hotkey, account, authBusy, signIn, signOut, refreshMic, refreshClaude, onBack } = props;
+  const { micStatus, claude, hotkey, account, authBusy, signIn, onReopenSignIn, onCancelSignIn, signOut, refreshMic, refreshClaude, onBack } = props;
   useScreenDwell("settings");
   const micOk = micStatus === "granted";
   const micBlocked = micStatus === "denied" || micStatus === "restricted";
@@ -2341,7 +2369,15 @@ function SettingsScreen(props: {
                       <button className="set-btn set-btn-danger" disabled={authBusy} onClick={() => { setConfirmingSignOut(false); signOut(); }}>Sign out</button>
                     </div>
                   : <button className="set-btn" disabled={authBusy} onClick={() => setConfirmingSignOut(true)}>Sign out</button>)
-              : <button className="set-btn set-btn-accent" disabled={authBusy} onClick={signIn}>Sign in with Google</button>
+              : (authBusy
+                  // Sign-in in progress: steer back to the open browser tab, with
+                  // explicit reopen + cancel instead of a dead disabled button.
+                  ? <div className="set-confirm">
+                      <span className="set-confirm-text">Finish signing in in the browser tab we opened.</span>
+                      <button className="set-btn" onClick={onReopenSignIn}>Reopen</button>
+                      <button className="set-btn" onClick={onCancelSignIn}>Cancel</button>
+                    </div>
+                  : <button className="set-btn set-btn-accent" onClick={signIn}>Sign in with Google</button>)
             )}
           </SettingRow>
         </div>

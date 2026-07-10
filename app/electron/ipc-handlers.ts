@@ -50,6 +50,8 @@ import {
 import {
   getSession as getGoogleSession,
   signOut as googleSignOut,
+  reopenSignIn,
+  cancelSignIn,
 } from "../src/main-process/google-auth";
 import { listBundledSkills } from "../src/main-process/prompts/loader";
 import type { PrepComponent } from "../src/main-process/types";
@@ -785,6 +787,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       console.error("[ipc] auth:google-sign-in failed:", msg);
       return { ok: false, error: msg };
     }
+  });
+
+  // Re-open the browser to the in-flight sign-in URL (the user closed/lost the
+  // tab we opened). Reuses the same flow — no parallel loopback, no state churn.
+  handle("auth:reopen-signin", async () => ({ ok: reopenSignIn() }));
+
+  // Cancel the in-flight sign-in so the disabled button clears immediately instead
+  // of waiting out the 5-min abandon timeout.
+  handle("auth:cancel-signin", async () => {
+    cancelSignIn();
+    return { ok: true };
   });
 
   handle("auth:sign-out", async () => {

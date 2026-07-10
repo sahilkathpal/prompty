@@ -186,6 +186,17 @@ export interface InvokeChannels {
     request: void;
     response: { signedIn: boolean; userId?: string; email?: string };
   };
+  // Re-open the system browser to the in-flight sign-in URL (user closed/lost the
+  // tab). ok=false means no sign-in is currently in progress.
+  "auth:reopen-signin": {
+    request: void;
+    response: { ok: boolean };
+  };
+  // Cancel the in-flight sign-in (user backed out of the browser flow).
+  "auth:cancel-signin": {
+    request: void;
+    response: { ok: boolean };
+  };
   "quit": {
     request: void;
     response: void;

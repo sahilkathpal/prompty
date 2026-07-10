@@ -585,6 +585,25 @@ html, body, #root {
   cursor: not-allowed;
 }
 
+/* ── Sign-in waiting state (browser flow in progress) ── */
+
+.ob5-signin-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.ob5-signin-waiting-text {
+  margin: 0;
+}
+
+.ob5-signin-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 /* ── Dev-only restart button ── */
 
 .ob-dev-restart {

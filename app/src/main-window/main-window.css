@@ -354,6 +354,15 @@ html, body, #root {
 .home-setup-action:disabled { opacity: 0.5; cursor: default; }
 .home-setup-action:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
 
+/* Sign-in waiting affordance: plain (non-filled) reopen/cancel buttons. */
+.home-setup-waiting { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.home-setup-action-plain {
+  color: #6b6560;
+  background: transparent;
+  border-color: #d9d3ca;
+}
+.home-setup-action-plain:hover:not(:disabled) { background: #efeae2; color: #1a1814; }
+
 /* ── Empty state ─────────────────────────────────────────────────────────────── */
 
 .home-empty {

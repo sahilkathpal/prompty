@@ -439,11 +439,16 @@ export default function App(): JSX.Element {
       if (!status.signedIn) {
         const res = await window.prompty.invoke("auth:google-sign-in", undefined as never);
         if (!res.ok) {
-          // O10: a failed sign-in shows a visible inline error in the card, not
-          // a message routed through an unbuilt surface.
-          setSigninError(
-            `Sign-in didn't go through${res.error ? ` — ${res.error}` : ""}. Please try again.`,
-          );
+          // A user-initiated cancel isn't an error — just return the card to the
+          // idle "Sign in" state without a scary banner.
+          const cancelled = /cancel/i.test(res.error ?? "");
+          if (!cancelled) {
+            // O10: a failed sign-in shows a visible inline error in the card, not
+            // a message routed through an unbuilt surface.
+            setSigninError(
+              `Sign-in didn't go through${res.error ? ` — ${res.error}` : ""}. Please try again.`,
+            );
+          }
           setSigningIn(false);
           return;
         }
@@ -455,6 +460,20 @@ export default function App(): JSX.Element {
       setSigninError(`Sign-in hit a snag${e instanceof Error ? ` — ${e.message}` : ""}. Please try again.`);
       setSigningIn(false);
     }
+  }
+
+  // Re-open the browser to the same in-flight sign-in (the tab was closed/lost).
+  // Reuses the existing flow, so any tab still open also stays valid.
+  function handleReopenSignIn() {
+    window.prompty.invoke("auth:reopen-signin", undefined as never).catch(() => {});
+  }
+
+  // Back out of the in-flight sign-in and return to the idle button immediately,
+  // without waiting out the 5-min abandon timeout.
+  function handleCancelSignIn() {
+    window.prompty.invoke("auth:cancel-signin", undefined as never).catch(() => {});
+    setSigninError(null);
+    setSigningIn(false);
   }
 
   // Finish onboarding from the "You're set" screen → main process closes this
@@ -558,6 +577,8 @@ export default function App(): JSX.Element {
                 signingIn={signingIn}
                 error={signinError}
                 onSignIn={handleSignIn}
+                onReopen={handleReopenSignIn}
+                onCancel={handleCancelSignIn}
               />
             )}
             {step === "done" && (
@@ -904,10 +925,14 @@ function StepSignin({
   signingIn,
   error,
   onSignIn,
+  onReopen,
+  onCancel,
 }: {
   signingIn: boolean;
   error: string | null;
   onSignIn: () => Promise<void>;
+  onReopen: () => void;
+  onCancel: () => void;
 }) {
   return (
     <div className="ob-step-content">
@@ -920,10 +945,30 @@ function StepSignin({
         about five seconds.
       </p>
 
-      <button className="ob5-google-btn" onClick={onSignIn} disabled={signingIn}>
-        <GoogleIcon />
-        <span>{signingIn ? "Signing in…" : "Sign in with Google"}</span>
-      </button>
+      {!signingIn ? (
+        <button className="ob5-google-btn" onClick={onSignIn}>
+          <GoogleIcon />
+          <span>Sign in with Google</span>
+        </button>
+      ) : (
+        // Best-practice waiting state: the ball is in the user's court in the
+        // browser tab we opened. Steer them back to it (no duplicate tab), and
+        // offer explicit reopen (if they lost it) + cancel affordances instead of
+        // a dead disabled button.
+        <div className="ob5-signin-waiting" data-testid="ob-signin-waiting">
+          <p className="ob-body ob5-signin-waiting-text">
+            Finish signing in in the browser tab we just opened.
+          </p>
+          <div className="ob5-signin-actions">
+            <button className="ob-btn-plain" onClick={onReopen}>
+              Didn't open? Reopen it
+            </button>
+            <button className="ob-btn-plain" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="ob-signin-error" role="alert" data-testid="ob-signin-error">{error}</p>

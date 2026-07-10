@@ -286,73 +286,133 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> 
   return relayTokenRequest("/auth/google/refresh", { refreshToken });
 }
 
-export async function signInWithGoogle(): Promise<{ userId: string; email: string; idToken: string }> {
-  const cid = await clientId();
-  const { verifier, challenge } = makePkce();
-  const state = base64url(crypto.randomBytes(16));
+// Best practice (RFC 8252 §8.2 / Google "OAuth for Native Apps"): keep exactly
+// ONE in-flight authorization at a time. The user may trigger "Sign in" again —
+// or use the reopen/cancel affordances — while the system browser is still open.
+// We reuse the SAME flow (same loopback port and `state`) so any browser tab they
+// already have open stays valid, instead of spawning a parallel loopback with a
+// rotated state (which would strand the open tab). reopenSignIn() re-opens the
+// same authorize URL; cancelSignIn() tears the flow down.
+type PendingSignIn = {
+  authUrl: string;
+  cancel: () => void;
+  promise: Promise<{ userId: string; email: string; idToken: string }>;
+};
+let pendingSignIn: PendingSignIn | null = null;
 
-  const loopback = await startLoopbackServer(state);
-  const redirectUri = `http://localhost:${loopback.port}/callback`;
+/**
+ * Re-open the system browser to the in-flight authorize URL. For the case where
+ * the user closed/lost the tab we opened. Returns false if no sign-in is running.
+ */
+export function reopenSignIn(): boolean {
+  if (!pendingSignIn || !pendingSignIn.authUrl) return false;
+  void shell.openExternal(pendingSignIn.authUrl);
+  return true;
+}
 
-  const authUrl = new URL(AUTH_URL);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", cid);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("scope", SCOPES);
-  authUrl.searchParams.set("code_challenge", challenge);
-  authUrl.searchParams.set("code_challenge_method", "S256");
-  authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("access_type", "offline");
-  authUrl.searchParams.set("prompt", "consent");
+/** Cancel the in-flight sign-in (user backed out). No-op if none is running. */
+export function cancelSignIn(): void {
+  pendingSignIn?.cancel();
+}
 
-  // Open in the system browser. Google rejects OAuth in embedded webviews
-  // (Electron BrowserWindow), so the loopback redirect is what brings the code
-  // back to us — see RFC 8252 (OAuth 2.0 for Native Apps).
-  await shell.openExternal(authUrl.toString());
+export function signInWithGoogle(): Promise<{ userId: string; email: string; idToken: string }> {
+  // Already authorizing → don't start a parallel flow. Re-open the same URL and
+  // join the existing attempt so a still-open tab keeps working.
+  if (pendingSignIn) {
+    void shell.openExternal(pendingSignIn.authUrl);
+    return pendingSignIn.promise;
+  }
 
-  // The system browser has no "window closed" signal we can observe, so if the
-  // user abandons sign-in the loopback callback never fires. Time the wait out
-  // so the await doesn't hang forever and the caller's in-flight sign-in (and
-  // its disabled button) eventually clears.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error("Sign-in timed out. Please try again.")),
-      5 * 60 * 1000,
-    );
+  // Cancellation channel: cancelSignIn() rejects this so the race below unblocks
+  // with a distinct "cancelled" error the renderer can treat quietly.
+  let rejectCancelled!: (e: Error) => void;
+  const cancelled = new Promise<never>((_, rej) => {
+    rejectCancelled = rej;
   });
-  // Swallow the rejection when the timeout isn't the race winner (success or a
-  // loopback error settled first) so it never surfaces as an unhandled rejection.
-  timedOut.catch(() => {});
+  cancelled.catch(() => {});
 
-  let result: LoopbackResult;
-  try {
-    result = await Promise.race([loopback.result, timedOut]);
-  } finally {
-    if (timer) clearTimeout(timer);
-    loopback.close();
-  }
-
-  const tokens = await exchangeCode(result.code, verifier, redirectUri);
-  if (!tokens.id_token || !tokens.refresh_token) {
-    throw new Error("Google did not return id_token + refresh_token");
-  }
-  const idClaims = decodeJwtPayload<{ sub?: string; email?: string; email_verified?: boolean }>(
-    tokens.id_token,
-  );
-  if (!idClaims.sub || !idClaims.email) {
-    throw new Error("id_token missing sub/email");
-  }
-  const session: GoogleSession = {
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresAt: Date.now() + tokens.expires_in * 1000,
-    sub: idClaims.sub,
-    email: idClaims.email,
-    idToken: tokens.id_token,
+  const entry: PendingSignIn = {
+    authUrl: "",
+    cancel: () => rejectCancelled(new Error("Sign-in cancelled.")),
+    // Filled in synchronously below.
+    promise: undefined as unknown as PendingSignIn["promise"],
   };
-  writeSessionFile(session);
-  return { userId: session.sub, email: session.email, idToken: tokens.id_token };
+  pendingSignIn = entry;
+
+  const run = async (): Promise<{ userId: string; email: string; idToken: string }> => {
+    const cid = await clientId();
+    const { verifier, challenge } = makePkce();
+    const state = base64url(crypto.randomBytes(16));
+
+    const loopback = await startLoopbackServer(state);
+    const redirectUri = `http://localhost:${loopback.port}/callback`;
+
+    const authUrl = new URL(AUTH_URL);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("client_id", cid);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("scope", SCOPES);
+    authUrl.searchParams.set("code_challenge", challenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("access_type", "offline");
+    authUrl.searchParams.set("prompt", "consent");
+    entry.authUrl = authUrl.toString();
+
+    // Open in the system browser. Google rejects OAuth in embedded webviews
+    // (Electron BrowserWindow), so the loopback redirect is what brings the code
+    // back to us — see RFC 8252 (OAuth 2.0 for Native Apps).
+    await shell.openExternal(entry.authUrl);
+
+    // The system browser has no "window closed" signal we can observe. Bound the
+    // wait three ways: the loopback callback (success), a 5-min abandon timeout,
+    // or an explicit user cancel.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Sign-in timed out. Please try again.")),
+        5 * 60 * 1000,
+      );
+    });
+    // Swallow the rejection when the timeout isn't the race winner (success or a
+    // loopback error settled first) so it never surfaces as an unhandled rejection.
+    timedOut.catch(() => {});
+
+    let result: LoopbackResult;
+    try {
+      result = await Promise.race([loopback.result, timedOut, cancelled]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      loopback.close();
+    }
+
+    const tokens = await exchangeCode(result.code, verifier, redirectUri);
+    if (!tokens.id_token || !tokens.refresh_token) {
+      throw new Error("Google did not return id_token + refresh_token");
+    }
+    const idClaims = decodeJwtPayload<{ sub?: string; email?: string; email_verified?: boolean }>(
+      tokens.id_token,
+    );
+    if (!idClaims.sub || !idClaims.email) {
+      throw new Error("id_token missing sub/email");
+    }
+    const session: GoogleSession = {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+      sub: idClaims.sub,
+      email: idClaims.email,
+      idToken: tokens.id_token,
+    };
+    writeSessionFile(session);
+    return { userId: session.sub, email: session.email, idToken: tokens.id_token };
+  };
+
+  const promise = run().finally(() => {
+    if (pendingSignIn === entry) pendingSignIn = null;
+  });
+  entry.promise = promise;
+  return promise;
 }
 
 /**
