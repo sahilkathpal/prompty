@@ -94,6 +94,10 @@ final class CoreAudioTap {
     private let watchdogInterval: TimeInterval = 1.0
     private let maxWatchdogRebuilds = 4
 
+    // The output device the aggregate is currently clocked by (its name), logged
+    // at build time so field diagnostics show which device the tap latched onto.
+    private var outputDeviceName: String = "?"
+
     /// 16 kHz mono, Int16, interleaved, little-endian — the wire format every
     /// downstream consumer (tag 0x03) expects. Identical to MicCapture.
     private let targetFormat: AVAudioFormat = AVAudioFormat(
@@ -155,12 +159,23 @@ final class CoreAudioTap {
         // 3. Aggregate device that contains the tap, clocked by the default
         //    output device. Private + auto-start so it lives only for our use and
         //    begins pulling tap audio immediately.
-        guard let output = defaultOutputDevice() else {
+        // Clock the aggregate by the BUILT-IN output device, NOT the current
+        // default. A global process tap captures the system-wide mix regardless of
+        // which device that audio is finally routed to — but building the aggregate
+        // AROUND the live output device (as a sub-device) means we take that device
+        // over: on a Bluetooth call that both (a) cuts the user's own playback and
+        // (b) leaves the tap capturing an empty stream. The built-in output is
+        // always present, never flips A2DP↔HFP, and isn't the device the user is
+        // listening on, so clocking to it leaves their Bluetooth route untouched
+        // while the tap still captures the global mix. Fall back to the default
+        // output only on a Mac with no built-in output (headless).
+        guard let output = builtInOutputDevice() ?? defaultOutputDevice() else {
             cleanupTap()
             throw NSError(domain: "CoreAudioTap", code: -2,
-                          userInfo: [NSLocalizedDescriptionKey: "No default output device for aggregate clock"])
+                          userInfo: [NSLocalizedDescriptionKey: "No output device for aggregate clock"])
         }
         outputDeviceID = output.id
+        outputDeviceName = deviceName(output.id)
         let outputUID = output.uid
 
         let aggregateUID = UUID().uuidString
@@ -260,7 +275,7 @@ final class CoreAudioTap {
                           userInfo: [NSLocalizedDescriptionKey: "AudioDeviceStart failed (status=\(startStatus))"])
         }
 
-        Log.info("CoreAudio tap started (input sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount))")
+        Log.info("CoreAudio tap started (input sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount) output='\(outputDeviceName)')")
     }
 
     // MARK: - Rebuild on device / format change
@@ -524,6 +539,68 @@ final class CoreAudioTap {
         return objectID
     }
 
+    /// The built-in output device (transport = BuiltIn, with output channels) —
+    /// the stable clock we prefer so the aggregate never attaches to the user's
+    /// actual (possibly Bluetooth) output. nil on a Mac with no built-in output.
+    private func builtInOutputDevice() -> (id: AudioObjectID, uid: String)? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &dataSize) == noErr,
+              dataSize > 0 else { return nil }
+        let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+        var devices = [AudioObjectID](repeating: AudioObjectID(kAudioObjectUnknown), count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &dataSize, &devices) == noErr else { return nil }
+        for dev in devices where transportType(of: dev) == kAudioDeviceTransportTypeBuiltIn {
+            if deviceHasOutputChannels(dev), let uid = deviceUID(dev) { return (dev, uid) }
+        }
+        return nil
+    }
+
+    private func transportType(of dev: AudioObjectID) -> UInt32 {
+        guard dev != AudioObjectID(kAudioObjectUnknown) else { return 0 }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var t: UInt32 = 0
+        var sz = UInt32(MemoryLayout<UInt32>.size)
+        _ = AudioObjectGetPropertyData(dev, &addr, 0, nil, &sz, &t)
+        return t
+    }
+
+    private func deviceHasOutputChannels(_ dev: AudioObjectID) -> Bool {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(dev, &addr, 0, nil, &dataSize) == noErr, dataSize > 0 else { return false }
+        let ptr = UnsafeMutableRawPointer.allocate(byteCount: Int(dataSize),
+                                                   alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { ptr.deallocate() }
+        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &dataSize, ptr) == noErr else { return false }
+        let abl = UnsafeMutableAudioBufferListPointer(ptr.assumingMemoryBound(to: AudioBufferList.self))
+        for buf in abl where buf.mNumberChannels > 0 { return true }
+        return false
+    }
+
+    private func deviceUID(_ dev: AudioObjectID) -> String? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var uid: CFString = "" as CFString
+        var sz = UInt32(MemoryLayout<CFString>.size)
+        let status = withUnsafeMutablePointer(to: &uid) {
+            AudioObjectGetPropertyData(dev, &addr, 0, nil, &sz, $0)
+        }
+        guard status == noErr else { return nil }
+        return uid as String
+    }
+
     /// The current default *system* output device — its object id (used to clock
     /// the aggregate and to watch its sample rate) and UID (used as the
     /// aggregate's main sub-device).
@@ -553,6 +630,23 @@ final class CoreAudioTap {
         }
         guard status == noErr else { return nil }
         return (deviceID, uid as String)
+    }
+
+    /// DIAGNOSTIC: human-readable name of a device (for logging which output the
+    /// tap is clocked to across a mid-call device switch).
+    private func deviceName(_ dev: AudioObjectID) -> String {
+        guard dev != AudioObjectID(kAudioObjectUnknown) else { return "?" }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var name: CFString = "" as CFString
+        var size = UInt32(MemoryLayout<CFString>.size)
+        let status = withUnsafeMutablePointer(to: &name) {
+            AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, $0)
+        }
+        guard status == noErr else { return "?" }
+        return name as String
     }
 
     /// The tap's output stream format (typically Float32 at the output device's
