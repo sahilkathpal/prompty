@@ -31,7 +31,13 @@ test("audio_route_changed: fires on a device change during a call, ignored outsi
     await expect.poll(async () => (await events(app)).some((e) => e.event === "call_started"), { timeout: 5_000 }).toBe(true);
     await fireDeviceChange();
     await expect.poll(() => routeCount(app), { timeout: 5_000 }).toBe(1);
-    expect((await events(app)).find((e) => e.event === "audio_route_changed")!.properties.during_call).toBe(true);
+    const routeEv = (await events(app)).find((e) => e.event === "audio_route_changed")!;
+    expect(routeEv.properties.during_call).toBe(true);
+    // Enrichment: the from→to device fields are plumbed. Values are null in the
+    // headless runner (enumerateDevices exposes no labels without a real device),
+    // but the keys must be present so the transition is captured in the field.
+    expect(routeEv.properties).toHaveProperty("to_output");
+    expect(routeEv.properties).toHaveProperty("from_input");
 
     await e2e(app, "endSession");
     // Wait out the renderer coalesce window (1500ms) so the next change isn't

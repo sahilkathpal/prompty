@@ -986,8 +986,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   // A renderer saw an audio device/route change. Only a during-call flip is
   // signal (the John trigger — correlate with silent calls); outside a call it's
   // noise, so drop it.
-  handle("analytics:audio-route-changed", () => {
-    if (activeSession) analyticsCapture("audio_route_changed", { during_call: true });
+  handle("analytics:audio-route-changed", (payload) => {
+    if (!activeSession) return;
+    analyticsCapture("audio_route_changed", {
+      during_call: true,
+      // The actual transition (e.g. "MacBook Air Speakers" → "Sahil's QC") — what
+      // explains a silent call, not just that a flip happened. Null before mic
+      // permission makes labels readable.
+      from_input: payload?.fromInput ?? null,
+      to_input: payload?.toInput ?? null,
+      from_output: payload?.fromOutput ?? null,
+      to_output: payload?.toOutput ?? null,
+    });
   });
 
   // Renderer JS exceptions (window.onerror / unhandledrejection / ErrorBoundary).

@@ -269,7 +269,12 @@ export interface InvokeChannels {
   // devicechange) — the smoking-gun signal for a mid-call device flip (§7.3).
   // Main tags during_call and drops changes outside a call. Fire-and-forget.
   "analytics:audio-route-changed": {
-    request: void;
+    request: {
+      fromInput?: string | null;
+      toInput?: string | null;
+      fromOutput?: string | null;
+      toOutput?: string | null;
+    };
     response: void;
   };
   "onboarding:complete": {
