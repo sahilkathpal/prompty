@@ -57,6 +57,21 @@ final class CoreAudioTap {
     private var defaultDeviceListener: AudioObjectPropertyListenerBlock?
     private var pendingRebuild: DispatchWorkItem?
     private var rebuilding = false
+    // Self-induced-rebuild guard. Creating/destroying the aggregate coerces the
+    // output device's nominal sample rate, which re-fires deviceRateListener; on
+    // Bluetooth (where the A2DP↔HFP flip already flaps the SR) that self-sustains a
+    // rebuild storm — rebuilds several times a second for the whole call, spewing
+    // redundant rebuilds and spurious tap_silent telemetry. We ignore listener-driven
+    // rebuilds for a short settle window after each rebuild, so only a GENUINE
+    // external device change re-triggers. The frame-flow watchdog (which calls
+    // rebuildGraph directly, not through here) still catches a real change missed
+    // during the window. Built-in/wired output never flaps its SR, so this is inert
+    // there — matching the field data (built-in: 0 rebuilds; Bluetooth: the storm).
+    // NB: this damps our own churn only. It does not stop the playback muting a BT
+    // headset shows when the mic opens — that's the inherent A2DP→HFP flip (same in
+    // Granola et al.), unavoidable while capturing the BT mic.
+    private var listenerSuppressedUntil = DispatchTime.now()
+    private let rebuildSettleWindow: TimeInterval = 2.0
 
     // Frame-flow watchdog. A live aggregate is clocked, so its IOProc fires
     // continuously and delivers buffers — zeros while the far end is silent —
@@ -255,6 +270,12 @@ final class CoreAudioTap {
     @available(macOS 14.4, *)
     private func scheduleRebuild(reason: String) {
         guard !stopped else { return }
+        if DispatchTime.now() < listenerSuppressedUntil {
+            // Our own recent rebuild coerced the output SR — this notification is an
+            // echo of our churn, not a real device change. Ignore it (the storm fix).
+            Log.info("CoreAudio tap ignoring self-induced change (\(reason))")
+            return
+        }
         pendingRebuild?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.rebuildGraph(reason: reason) }
         pendingRebuild = work
@@ -267,6 +288,10 @@ final class CoreAudioTap {
     private func rebuildGraph(reason: String) {
         guard !stopped, !rebuilding else { return }
         rebuilding = true
+        // Suppress listener-driven rebuilds while our own teardown+build coerces the
+        // output SR — and for a window after, since the coercion echo can arrive
+        // asynchronously once buildGraph re-attaches the listeners.
+        listenerSuppressedUntil = DispatchTime.now() + rebuildSettleWindow
         Log.info("CoreAudio tap rebuilding (\(reason))")
         teardownGraph()
         do {
@@ -275,6 +300,7 @@ final class CoreAudioTap {
             Log.error("CoreAudio tap rebuild failed: \(error.localizedDescription)")
         }
         rebuilding = false
+        listenerSuppressedUntil = DispatchTime.now() + rebuildSettleWindow
     }
 
     // MARK: - Frame-flow watchdog
