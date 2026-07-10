@@ -62,8 +62,8 @@ const SESSION_FILENAME = "relay-session.bin";
 // remaining is safe to start a fresh socket on.
 const REUSE_MARGIN_MS = 10 * 60 * 1000;
 // Re-mint the session JWT when it has less than this left. The relay signs it
-// for 30 days; a day of margin means a relaunch almost always reuses the
-// persisted JWT (zero Google I/O) and only re-mints ~monthly or on a cold miss.
+// for 7 days; a day of margin means a relaunch almost always reuses the
+// persisted JWT (zero Google I/O) and only re-mints ~weekly or on a cold miss.
 const SESSION_REUSE_MARGIN_MS = 24 * 60 * 60 * 1000;
 // Fallback lifetime if the session JWT's exp claim can't be read (shouldn't
 // happen — the relay always signs an exp). Conservative so we re-mint sooner.

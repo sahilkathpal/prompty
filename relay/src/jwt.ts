@@ -1,7 +1,13 @@
 import { SignJWT, jwtVerify } from "jose";
 import type { PromptySessionClaims } from "./types";
 
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+// 7 days. This TTL is also the ceiling on how long a user's *own* Google-side
+// revocation can lag: /deepgram/token trusts this JWT and never re-checks Google,
+// so a self-revoke only bites when the app next re-mints (which force-refreshes the
+// Google id token). The app persists + reuses this JWT across relaunch, so a longer
+// TTL widens that lag; 7 days balances zero-I/O relaunch against revocation latency.
+// (An admin revoke via the KV denylist still bites within ≤1h on the hot path.)
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 // Audience pins what this token is FOR. verifySessionToken requires it, so a
 // token minted for any other purpose (or with the secret reused elsewhere) can't
 // be replayed against the relay's protected endpoints (audit finding: missing aud).
