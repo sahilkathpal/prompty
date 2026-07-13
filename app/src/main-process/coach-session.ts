@@ -24,6 +24,7 @@ import { spawnSidecar, type SidecarHandle } from "./sidecar";
 import { startTranscription, type TranscriptionHandle, type DeepgramConnStatus } from "./deepgram";
 import { getDeepgramToken } from "./relay-client";
 import { createMicSilenceDetector } from "./mic-silence";
+import { createThemSilenceDetector } from "./them-silence";
 import type {
   CallSetup,
   Nudge,
@@ -355,6 +356,13 @@ export async function startSession(
     }
   };
 
+  // Tap (them / system-audio) silence detector. Catches the case the mic
+  // detector and the frame-arrival triggers can't: a tap that stays healthy and
+  // keeps delivering frames but carries only bit-exact zero the whole call
+  // (system-audio capture denied — missing process-tap TCC grant). Finalised
+  // into themSilentSeen at call end (handle.end). See them-silence.ts.
+  const themSilence = createThemSilenceDetector();
+
   // Called on every audio frame / utterance: flips to "listening" and pulses.
   const markAudio = () => {
     lastAudioAt = Date.now();
@@ -394,9 +402,10 @@ export async function startSession(
     inspectMicChunk(chunk);
     markAudio();
   };
-  const onTapFrame = () => {
+  const onTapFrame = (chunk: Buffer) => {
     lastTapFrameAt = Date.now();
     if (tapDead) tapDead = false;
+    themSilence.inspect(chunk);
     markAudio();
   };
   const onTransportError = (reason: string) => {
@@ -680,6 +689,12 @@ export async function startSession(
       if (ended) return;
       ended = true;
       if (noAudioTimer) clearInterval(noAudioTimer);
+      // Finalise the far-side silence signal: if the tap produced a meaningful
+      // run of frames but never a single non-zero sample, "them" was digital
+      // silence end-to-end — capture was effectively dead even though the graph
+      // looked healthy (frames kept arriving). Distinct from, and complementary
+      // to, the frame-starvation / watchdog triggers that set this flag mid-call.
+      if (themSilence.wasSilentAllCall()) themSilentSeen = true;
       setState("ending");
 
       // ---- Phase A: fast teardown + persist ----
