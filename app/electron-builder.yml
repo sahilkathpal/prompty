@@ -49,6 +49,11 @@ mac:
   minimumSystemVersion: "14.4"
   extendInfo:
     NSMicrophoneUsageDescription: "Ruby needs microphone access to transcribe your side of the call."
+    # System-audio capture (the Core Audio process tap = the "them" side). Its own
+    # TCC category, separate from the microphone — WITHOUT this key macOS never
+    # surfaces the "record this computer's audio" prompt, so the tap is silently
+    # denied and captures a zero stream (empty "them"). See RUBY_OBSERVABILITY notes.
+    NSAudioCaptureUsageDescription: "Ruby needs to record system audio to transcribe the other side of your call."
 dmg:
   writeUpdateInfo: true
   sign: false
