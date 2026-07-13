@@ -55,8 +55,32 @@ def knockout_white(img: Image.Image) -> Image.Image:
 
 
 def trim(img: Image.Image) -> Image.Image:
-    bbox = img.getbbox()
-    return img.crop(bbox) if bbox else img
+    """Crop to the RED gem body, not the raw alpha bbox.
+
+    The source art carries an opaque specular reflection off the gem's right
+    facet that survives the white knockout; the plain alpha bbox swallows it, and
+    its asymmetry shoves the centered gem ~8% left — visibly off-centre on the
+    tile. Bounding the red body centers on the actual ruby instead. Interior
+    non-red pixels (eyes, facet highlights) sit inside this box so nothing the eye
+    reads as "the gem" is clipped; a few px of pad keeps anti-aliased edges. Falls
+    back to the alpha bbox if no red is found (e.g. a recoloured source).
+    """
+    px = img.load()
+    minx = miny = 10 ** 9
+    maxx = maxy = -1
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a > 40 and r > 90 and r > g + 25 and r > b + 25:
+                minx, maxx = min(minx, x), max(maxx, x)
+                miny, maxy = min(miny, y), max(maxy, y)
+    if maxx < 0:
+        bbox = img.getbbox()
+        return img.crop(bbox) if bbox else img
+    pad = 6
+    box = (max(0, minx - pad), max(0, miny - pad),
+           min(img.width, maxx + 1 + pad), min(img.height, maxy + 1 + pad))
+    return img.crop(box)
 
 
 def squircle(side: int, radius: int, fill) -> Image.Image:
