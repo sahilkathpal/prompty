@@ -521,8 +521,15 @@ export async function startSession(
     try {
       await getDeepgramKey();
     } catch (e) {
+      const raw = (e as Error).message;
+      // A dead/expired Google session surfaces here as a raw relay/OAuth string
+      // ("not signed in…", "invalid_grant", "…refresh token revoked"). Show the
+      // user a plain, actionable re-auth message instead of the internal error.
+      const isAuth = /not signed in|invalid_grant|revoked|sign in with google/i.test(raw);
       throw new Error(
-        `Couldn't get a transcription key: ${(e as Error).message}`,
+        isAuth
+          ? "You've been signed out — open Ruby and sign in again to start calls."
+          : `Couldn't get a transcription key: ${raw}`,
       );
     }
   }

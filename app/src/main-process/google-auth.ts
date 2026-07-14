@@ -423,6 +423,10 @@ export function signInWithGoogle(): Promise<{ userId: string; email: string; idT
  * caller can distinguish "must re-sign-in" from a transient failure.
  */
 async function refreshSession(s: GoogleSession): Promise<GoogleSession> {
+  // E2E hook: force every refresh to behave as a revoked token (invalid_grant),
+  // so the revoke → teardown → signed-out-UI path can be driven deterministically
+  // without a real Google round-trip. Mirrors PROMPTY_E2E_FORCE_PREFLIGHT.
+  if (process.env.PROMPTY_E2E_FORCE_REVOKE === "1") throw new RefreshTokenRevokedError();
   let refreshed: TokenResponse;
   try {
     refreshed = await refreshAccessToken(s.refreshToken);

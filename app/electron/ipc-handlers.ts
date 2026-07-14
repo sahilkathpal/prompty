@@ -46,6 +46,7 @@ import {
   signInWithGoogleAndRelay,
   clearSessionCache,
   setReauthHandler,
+  revalidateAuth,
 } from "../src/main-process/relay-client";
 import {
   getSession as getGoogleSession,
@@ -278,6 +279,12 @@ const PREFLIGHT_MESSAGES = {
   auth: "Sign in with Google to enable transcription.",
   claude: "Finish setup — connect Claude Code to start calls.",
 } as const;
+
+// Proactive auth revalidation cadence (see the revalidateWhenIdle wiring). Launch
+// delay lets the window settle first; the interval bounds how long a revoked
+// user can keep seeing a stale "Signed in" row while the app stays open.
+const AUTH_REVALIDATE_LAUNCH_DELAY_MS = 10_000;
+const AUTH_REVALIDATE_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2h
 
 /**
  * Verify the hard requirements before opening an in-call overlay: mic
@@ -549,6 +556,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       console.error("[ipc] re-auth handler failed:", (e as Error).message);
     }
   });
+
+  // Proactively detect a revoked/expired Google refresh token so Settings and
+  // preflight stop trusting a stale google-session.bin. Without this, a revoke is
+  // only caught the next time a call starts or the relay JWT ages out — leaving
+  // the Settings "Signed in" row wrong for days. revalidateAuth() is a no-op when
+  // signed out and self-throttles; we skip it entirely during an active call to
+  // avoid any mid-call auth churn (a staged token rotation is pointless then).
+  const revalidateWhenIdle = () => {
+    if (getActiveSession()) return;
+    void revalidateAuth();
+  };
+  setTimeout(revalidateWhenIdle, AUTH_REVALIDATE_LAUNCH_DELAY_MS);
+  setInterval(revalidateWhenIdle, AUTH_REVALIDATE_INTERVAL_MS).unref?.();
 
   handle("main:open-tab", (payload) => {
     openMainWindow(payload.tab);
@@ -834,6 +854,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle("auth:status", async () => {
     const g = getGoogleSession();
     if (g) {
+      // Report the file-based answer immediately (keeps Settings snappy), but
+      // kick a throttled background revalidation: if the refresh token is dead,
+      // handleReauthRequired fires and broadcasts auth:state-changed{signedIn:false}
+      // a moment later, flipping the UI. Not awaited on purpose — a slow/failed
+      // Google round-trip must never hang or wrongly sign out the status call.
+      if (!getActiveSession()) void revalidateAuth();
       return { signedIn: true, userId: g.sub, email: g.email };
     }
     const tok = await getSessionToken();

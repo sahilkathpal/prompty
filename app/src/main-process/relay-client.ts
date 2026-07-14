@@ -179,6 +179,11 @@ export function __resetSessionMemoryForTests(): void {
   cachedDeepgramKey = null;
 }
 
+/** Test-only: clear the revalidation throttle so a fresh revalidateAuth() runs. */
+export function __resetRevalidateThrottleForTests(): void {
+  lastRevalidateAt = 0;
+}
+
 async function postAuthGoogle(idToken: string): Promise<RelaySession> {
   const resp = await fetch(`${relayBaseUrl()}/auth/google`, {
     method: "POST",
@@ -240,6 +245,40 @@ export async function getSessionToken(): Promise<string | null> {
     return cachedSession.sessionToken;
   }
   return mintSession(false);
+}
+
+// Throttle proactive revalidation so bursty triggers (window focus, repeated
+// Settings opens) can't hammer Google's token endpoint.
+let lastRevalidateAt = 0;
+const REVALIDATE_THROTTLE_MS = 60 * 1000;
+
+/**
+ * Proactively confirm the Google refresh token is still valid, so a revoke is
+ * detected — and the local session cleared + the UI flipped to signed-out —
+ * WITHOUT waiting for the next call or for the 7-day relay JWT to age out.
+ *
+ * This closes the "phantom signed-in" gap: auth:status / authSatisfied report
+ * signed-in purely from the presence of google-session.bin, and the only code
+ * that clears it (handleReauthRequired) previously ran solely as a side effect of
+ * a lazy mintSession. Opening Settings or focusing the window never triggered
+ * that, so a revoked user kept seeing a green "Signed in" row for days.
+ *
+ * Forces the refresh grant against Google; an invalid_grant routes through the
+ * normal re-auth teardown. No-op when not signed in. Transient network errors are
+ * ignored — we never sign a user out on a blip. Throttled so focus/status churn
+ * can't spam the endpoint.
+ */
+export async function revalidateAuth(): Promise<void> {
+  if (!getSession()) return; // not signed in — nothing to validate
+  const now = Date.now();
+  if (now - lastRevalidateAt < REVALIDATE_THROTTLE_MS) return;
+  lastRevalidateAt = now;
+  try {
+    await forceRefreshIdToken();
+  } catch (e) {
+    if (e instanceof RefreshTokenRevokedError) handleReauthRequired("revalidate");
+    else console.warn("[relay] auth revalidation skipped (transient):", (e as Error).message);
+  }
 }
 
 export async function getUserId(): Promise<string | null> {

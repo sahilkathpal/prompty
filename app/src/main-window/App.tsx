@@ -211,6 +211,11 @@ export default function App(): JSX.Element {
   // Account lives at the App level (not just in Settings) so Home can surface a
   // "sign in" prompt and react live to sign-out via the auth:state-changed event.
   const [account, setAccount] = useState<{ signedIn: boolean; email?: string } | null>(null);
+  // Bumped on every authoritative auth:state-changed push. refreshAccount() snapshots
+  // this before its async auth:status pull and drops a late result if a push landed
+  // meanwhile — so a stale file-based "signed in" can't clobber a signed-out push
+  // that raced ahead of it (the proactive-revalidation ordering race).
+  const authEpoch = useRef(0);
   const [authBusy, setAuthBusy] = useState(false);
   const [memories, setMemories] = useState<Mem[]>([]);
   const [newMemory, setNewMemory] = useState("");
@@ -256,8 +261,13 @@ export default function App(): JSX.Element {
     window.prompty.invoke("onboarding:check-claude", undefined as never).then((r) => setClaude(r)).catch(() => {});
   }, []);
   const refreshAccount = useCallback(() => {
+    const epoch = authEpoch.current;
     window.prompty.invoke("auth:status", undefined as never)
-      .then((s) => setAccount({ signedIn: s.signedIn, email: s.email }))
+      .then((s) => {
+        // A signed-out (or any) push that arrived while this pull was in flight
+        // wins — don't let the optimistic file-based status overwrite it.
+        if (authEpoch.current === epoch) setAccount({ signedIn: s.signedIn, email: s.email });
+      })
       .catch(() => {});
   }, []);
   const signIn = useCallback(async () => {
@@ -600,9 +610,10 @@ export default function App(): JSX.Element {
     });
     // Sign-in/out can happen from Settings or be revoked elsewhere — keep Home's
     // readiness banner in sync without needing a relaunch.
-    const offAuth = window.prompty.on("auth:state-changed", (s) =>
-      setAccount({ signedIn: s.signedIn, email: s.email }),
-    );
+    const offAuth = window.prompty.on("auth:state-changed", (s) => {
+      authEpoch.current++;
+      setAccount({ signedIn: s.signedIn, email: s.email });
+    });
     const offCallsUpdated = window.prompty.on("calls:updated", () => refreshCalls());
     // Prep chat streaming: deltas append to a live bubble, the authoritative full
     // message finalizes it.

@@ -266,6 +266,82 @@ async function main() {
     assert(calls.filter((c) => c.url === `${RELAY}/auth/google`).length === 1, "re-minted exactly once");
   });
 
+  // ---- revalidateAuth (proactive revoke detection — the phantom-signed-in fix) ----
+
+  await run("revalidateAuth force-refreshes a valid session without signing out", async () => {
+    relay.clearSessionCache();
+    relay.__resetRevalidateThrottleForTests();
+    googleAuth._writeSessionForTests(freshSession("id-fresh"));
+    let reauthFired = false;
+    relay.setReauthHandler(() => {
+      reauthFired = true;
+    });
+    resetFetchLog();
+    responder = async (url) => {
+      if (url === GOOGLE_TOKEN) {
+        return json({ access_token: "a2", id_token: "id-refreshed", expires_in: 3600, token_type: "Bearer" });
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    };
+    await relay.revalidateAuth();
+    assert(calls.some((c) => c.url === GOOGLE_TOKEN), "revalidate forced a Google refresh");
+    assert(!reauthFired, "a valid session must not trigger re-auth");
+    assert(googleAuth.getSession() !== null, "a valid session is preserved");
+    relay.setReauthHandler(null);
+  });
+
+  await run("revalidateAuth on a revoked token clears the session with NO call", async () => {
+    relay.clearSessionCache();
+    relay.__resetRevalidateThrottleForTests();
+    googleAuth._writeSessionForTests(freshSession("id-fresh")); // fresh access token — only force-refresh catches the revoke
+    let reason: string | null = null;
+    relay.setReauthHandler((r) => {
+      reason = r;
+    });
+    resetFetchLog();
+    responder = async (url) => {
+      if (url === GOOGLE_TOKEN) {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    };
+    await relay.revalidateAuth();
+    assert(reason === "revalidate", `expected re-auth reason "revalidate", got ${reason}`);
+    assert(googleAuth.getSession() === null, "revoked session cleared by revalidate (no call needed)");
+    relay.setReauthHandler(null);
+  });
+
+  await run("revalidateAuth is a no-op (no network) when signed out", async () => {
+    relay.clearSessionCache();
+    relay.__resetRevalidateThrottleForTests();
+    googleAuth.signOut(); // no session file on disk
+    resetFetchLog();
+    responder = async (url) => new Response(`unexpected ${url}`, { status: 500 });
+    await relay.revalidateAuth();
+    assert(calls.length === 0, `expected zero network calls when signed out, got ${calls.length}`);
+  });
+
+  await run("revalidateAuth self-throttles back-to-back calls", async () => {
+    relay.clearSessionCache();
+    relay.__resetRevalidateThrottleForTests();
+    googleAuth._writeSessionForTests(freshSession("id-fresh"));
+    relay.setReauthHandler(null);
+    let refreshes = 0;
+    responder = async (url) => {
+      if (url === GOOGLE_TOKEN) {
+        refreshes++;
+        return json({ access_token: "a2", id_token: "id-refreshed", expires_in: 3600, token_type: "Bearer" });
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    };
+    await relay.revalidateAuth();
+    await relay.revalidateAuth(); // within the throttle window → skipped
+    assert(refreshes === 1, `expected exactly 1 refresh under throttle, got ${refreshes}`);
+  });
+
   if (failed > 0) {
     console.error(`\n${failed} case(s) failed`);
     process.exit(1);
