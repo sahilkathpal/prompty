@@ -1,7 +1,7 @@
 {
   "name": "prompty",
   "productName": "Ruby",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Ruby — real-time call coach for macOS",
   "main": "dist/electron/electron/main.js",
