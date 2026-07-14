@@ -102,11 +102,26 @@ function accountRow(page: Page) {
     .locator(".set-val");
 }
 
+type RecordedEvent = { event: string; properties?: Record<string, unknown> };
+
+async function analyticsEventsFull(app: ElectronApplication): Promise<RecordedEvent[]> {
+  return (await app.evaluate(async () =>
+    (globalThis as unknown as { __prompty_e2e: { getAnalyticsEvents: () => RecordedEvent[] } }).__prompty_e2e.getAnalyticsEvents(),
+  )) as RecordedEvent[];
+}
+
 async function analyticsEvents(app: ElectronApplication): Promise<string[]> {
-  const evs = (await app.evaluate(async () =>
-    (globalThis as unknown as { __prompty_e2e: { getAnalyticsEvents: () => { event: string }[] } }).__prompty_e2e.getAnalyticsEvents(),
-  )) as { event: string }[];
-  return evs.map((e) => e.event);
+  return (await analyticsEventsFull(app)).map((e) => e.event);
+}
+
+// Poll until an event name is recorded (fire-and-forget captures land async).
+async function waitForEvent(app: ElectronApplication, name: string, timeoutMs = 8000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await analyticsEvents(app)).includes(name)) return true;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return false;
 }
 
 async function startSession(app: ElectronApplication): Promise<{ ok: boolean; error?: string }> {
@@ -133,6 +148,20 @@ test("control: signed-in Account row stays signed-in when not revoked", async ()
     await new Promise((r) => setTimeout(r, 2500));
     await expect(accountRow(page)).toContainText("seed@example.com");
     expect(existsSync(sessionFile(userDataDir))).toBe(true);
+    // The relay is unreachable, so the proactive revalidation's forced refresh
+    // fails transiently (non-invalid_grant). That must be visible as telemetry —
+    // and must NOT sign the user out (asserted above).
+    expect(await waitForEvent(app, "token_refresh_failed")).toBe(true);
+    expect(await analyticsEvents(app)).not.toContain("auth_reauth_required");
+    // The event must reach the real capture() path: app_version stamped by
+    // baseProps, and `reason` a COARSE label (short error name), never a raw
+    // message / URL / token / email.
+    const trf = (await analyticsEventsFull(app)).find((e) => e.event === "token_refresh_failed");
+    expect(trf?.properties?.app_version, "app_version must be stamped").toBeTruthy();
+    const trfReason = String(trf?.properties?.reason ?? "");
+    expect(trfReason.length).toBeGreaterThan(0);
+    expect(trfReason.length).toBeLessThanOrEqual(40); // coarse label, not a message
+    expect(trfReason).not.toMatch(/https?:|@|\s|token|refresh/i);
   } finally {
     await app.close();
   }
@@ -160,9 +189,17 @@ test("primary: forced revoke flips the real Account row to signed-out with no ca
     // The local Google session was cleared from disk by the proactive revalidate.
     expect(existsSync(sessionFile(userDataDir))).toBe(false);
     // The re-auth teardown ran; no call was started.
-    const events = await analyticsEvents(app);
-    expect(events).toContain("auth_reauth_required");
-    expect(events).not.toContain("call_started");
+    const full = await analyticsEventsFull(app);
+    const reauth = full.find((e) => e.event === "auth_reauth_required");
+    expect(reauth, "auth_reauth_required must fire").toBeTruthy();
+    // Caught proactively (no call), so the reason is the revalidation path.
+    expect(reauth?.properties?.reason).toBe("revalidate");
+    // Reached the real capture() path (app_version stamped by baseProps).
+    expect(reauth?.properties?.app_version, "app_version must be stamped").toBeTruthy();
+    expect(full.map((e) => e.event)).not.toContain("call_started");
+    // A real revoke routes to re-auth ONLY — it must NOT also fire the transient
+    // token_refresh_failed signal (over-capture / double-count guard).
+    expect(full.map((e) => e.event)).not.toContain("token_refresh_failed");
   } finally {
     await app.close();
   }

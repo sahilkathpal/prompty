@@ -44,6 +44,17 @@ export class RefreshTokenRevokedError extends Error {
   }
 }
 
+// Injected telemetry hook: fired when a refresh grant fails for a transient
+// (non-invalid_grant) reason. Kept as an injected callback so this module stays
+// decoupled from the electron analytics layer — the electron layer registers it
+// (mirrors relay-client's setReauthHandler). `reason` is a coarse label (error
+// name), never a raw message, so no content leaks into analytics.
+type RefreshFailedHandler = (reason: string) => void;
+let refreshFailedHandler: RefreshFailedHandler | null = null;
+export function setRefreshFailedHandler(fn: RefreshFailedHandler | null): void {
+  refreshFailedHandler = fn;
+}
+
 // The OAuth client ID and secret are NOT bundled with the app. The relay
 // holds them and brokers the two operations that need the secret — the
 // authorization-code exchange and the refresh-token grant — so nothing
@@ -432,6 +443,10 @@ async function refreshSession(s: GoogleSession): Promise<GoogleSession> {
     refreshed = await refreshAccessToken(s.refreshToken);
   } catch (e) {
     if (/invalid_grant/.test((e as Error).message)) throw new RefreshTokenRevokedError();
+    // A transient (non-revoke) refresh failure — network, relay, Google 5xx. The
+    // caller decides recovery; we surface it to telemetry so a broken refresh
+    // path is visible without waiting for users to report dead calls.
+    refreshFailedHandler?.((e as Error).name || "error");
     throw e;
   }
   const next: GoogleSession = {

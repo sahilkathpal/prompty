@@ -53,6 +53,7 @@ import {
   signOut as googleSignOut,
   reopenSignIn,
   cancelSignIn,
+  setRefreshFailedHandler,
 } from "../src/main-process/google-auth";
 import { listBundledSkills } from "../src/main-process/prompts/loader";
 import type { PrepComponent } from "../src/main-process/types";
@@ -539,13 +540,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   // the app layer finishes the sign-out: flip signed-in state, rotate the
   // analytics anon id (so a later account can't cross-merge), tell every window,
   // and nudge the user to sign in again. Same effect as an explicit sign-out.
-  setReauthHandler(() => {
+  setReauthHandler((reason) => {
     try {
       rotateAnonId();
       const next = updateSettings({ signedIn: false, signedInUserId: null, signedInEmail: null });
       broadcast("settings:changed", next);
       broadcast("auth:state-changed", { signedIn: false });
-      analyticsCapture("auth_reauth_required");
+      // `reason` distinguishes how the revoke was caught: "revalidate" (proactive,
+      // no call) vs "invalid_grant" (at call/mint time) — so a re-auth wave and
+      // its trigger are visible in PostHog.
+      analyticsCapture("auth_reauth_required", { reason });
       if (Notification.isSupported()) {
         new Notification({
           title: "Ruby needs you to sign in again",
@@ -556,6 +560,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       console.error("[ipc] re-auth handler failed:", (e as Error).message);
     }
   });
+
+  // Surface transient (non-revoke) refresh failures — network, relay, Google 5xx —
+  // so a broken refresh path shows up in analytics instead of only manifesting as
+  // users with silently dead calls. A real invalid_grant goes through the re-auth
+  // path above, not here.
+  setRefreshFailedHandler((reason) => analyticsCapture("token_refresh_failed", { reason }));
 
   // Proactively detect a revoked/expired Google refresh token so Settings and
   // preflight stop trusting a stale google-session.bin. Without this, a revoke is
