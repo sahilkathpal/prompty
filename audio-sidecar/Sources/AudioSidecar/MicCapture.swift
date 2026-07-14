@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreAudio
 import AudioSidecarCore
 import ObjCException
 
@@ -21,6 +22,12 @@ final class MicCapture {
     private static let reconfigDebounce: TimeInterval = 0.3
     private static let reconfigMaxAttempts = 6
     private static let slowRetryInterval: TimeInterval = 2.0
+
+    // The default-input device + nominal sample rate the running engine was last
+    // built for. Used to tell a real device/format change from a spurious
+    // configuration-change so we don't rebuild the engine in a storm (see the
+    // no-op guard in reconfigure()).
+    private var lastBuiltInputSignature: (deviceID: AudioObjectID, sampleRate: Double)?
 
     private let targetFormat: AVAudioFormat = {
         // 16 kHz mono, Int16, interleaved, little-endian (native on macOS).
@@ -117,7 +124,35 @@ final class MicCapture {
             throw error
         }
 
+        // Record what we just bound to, so a later configuration-change can be
+        // compared against it (real change → rebuild; same device+rate → skip).
+        lastBuiltInputSignature = Self.currentInputSignature()
+
         Log.info("MicCapture \(label) (input sr=\(inputFormat.sampleRate) ch=\(inputFormat.channelCount))")
+    }
+
+    /// The current default INPUT device id + its nominal sample rate, read straight
+    /// from CoreAudio. Deliberately NOT from engine.inputNode: after a device switch
+    /// the inputNode can stay pinned to the previous device/format, which would make
+    /// a real change look unchanged. Returns nil if the query fails (caller then
+    /// rebuilds rather than risk skipping a needed reconfigure).
+    private static func currentInputSignature() -> (deviceID: AudioObjectID, sampleRate: Double)? {
+        var devAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var devID = AudioObjectID(kAudioObjectUnknown)
+        var sz = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &devAddr, 0, nil, &sz, &devID) == noErr,
+              devID != AudioObjectID(kAudioObjectUnknown) else { return nil }
+        var srAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var sr: Double = 0
+        var srSz = UInt32(MemoryLayout<Double>.size)
+        guard AudioObjectGetPropertyData(devID, &srAddr, 0, nil, &srSz, &sr) == noErr, sr > 0 else { return nil }
+        return (devID, sr)
     }
 
     /// Replace the AVAudioEngine with a fresh instance and (re)install the
@@ -159,6 +194,25 @@ final class MicCapture {
 
     private func reconfigure(attempt: Int, gen: Int) {
         guard !stopped, gen == reconfigGen else { return }  // superseded or stopped
+
+        // No-op guard (storm breaker): a fresh AVAudioEngine's own start() emits a
+        // configuration-change, so rebuilding on every notification is
+        // self-sustaining — on a Bluetooth mic it reconfigured every ~2-4s for a
+        // whole call, starving the mic leg. If the engine is already running on the
+        // SAME default-input device at the SAME sample rate we last built for, this
+        // change is spurious: skip the rebuild (which would just provoke the next
+        // one). A genuine change — device switch, or an A2DP↔HFP flip that moves the
+        // sample rate — differs from lastBuiltInputSignature, so we fall through and
+        // rebuild. Only applied on the first attempt; recovery retries always run.
+        let nowSig = Self.currentInputSignature()
+        if attempt == 0, engine.isRunning,
+           let last = lastBuiltInputSignature,
+           let now = nowSig,
+           now.deviceID == last.deviceID, now.sampleRate == last.sampleRate {
+            Log.info("MicCapture config-change ignored (input unchanged: device=\(now.deviceID) sr=\(now.sampleRate))")
+            return
+        }
+
         do {
             try buildAndStart(label: "reconfigured")
         } catch {

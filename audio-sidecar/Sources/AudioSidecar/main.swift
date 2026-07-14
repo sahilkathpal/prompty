@@ -158,13 +158,20 @@ func shutdown() {
     exit(0)
 }
 
+// Held for the process lifetime: a DispatchSource that is deallocated stops
+// delivering events. The previous code associated each source with a freshly
+// created (and immediately deallocated) NSObject, which released the source right
+// away — so SIGTERM/SIGINT/SIGHUP were silently ignored (they're also SIG_IGN'd)
+// and the parent's clean-shutdown SIGTERM escalated to SIGKILL on every call end,
+// leaking the CoreAudio aggregate device + process tap into coreaudiod. Keeping a
+// strong reference in a global array is what actually arms the handlers.
+var signalSources: [DispatchSourceSignal] = []
 for sig in [SIGTERM, SIGINT, SIGHUP] {
     signal(sig, SIG_IGN)
     let src = DispatchSource.makeSignalSource(signal: sig, queue: signalQueue)
     src.setEventHandler { shutdown() }
     src.resume()
-    // Keep `src` alive for process lifetime.
-    objc_setAssociatedObject(NSObject(), Unmanaged.passUnretained(src as AnyObject).toOpaque(), src, .OBJC_ASSOCIATION_RETAIN)
+    signalSources.append(src)
 }
 
 // Also bail out if stdin closes (parent died).
