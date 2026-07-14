@@ -52,6 +52,9 @@ export function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
       ? ([
           {
             label: "Restart to update",
+            // Disabled during a call so an explicit click can't restart out from
+            // under a live call; it re-enables the moment the call ends.
+            enabled: !sessionActive,
             click: () => installUpdateNow(),
           },
           { type: "separator" },
@@ -91,6 +94,15 @@ export function buildTrayMenuTemplate(): MenuItemConstructorOptions[] {
 export function rebuildMenu(): void {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate(buildTrayMenuTemplate()));
+  // Menu-bar badge: a small dot beside the icon so a staged update is visible
+  // WITHOUT opening the menu (the old "Restart to update" item was invisible
+  // until you looked). Cleared once applied. Kept in sync here since rebuildMenu
+  // already runs on download (onUpdateDownloaded) and every call transition.
+  let updateReady = false;
+  try {
+    updateReady = isUpdateDownloaded();
+  } catch {}
+  tray.setTitle(updateReady ? " ●" : "");
 }
 
 // Test seam: the tray menu is native (not DOM) and the running module instance

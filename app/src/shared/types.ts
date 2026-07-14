@@ -147,6 +147,12 @@ export interface AppSettings {
   // first use). Neither ever holds call content — see electron/analytics.ts.
   analyticsOptOut: boolean;
   analyticsAnonId: string;
+  // Opt-in fully-silent auto-apply for updates. Off by default: a staged update
+  // surfaces a tray badge + an "update ready" prompt, and applies on the next
+  // quit — but never restarts the app on its own unless the user turns this on.
+  // When true, a downloaded update installs silently once the user is idle and
+  // NOT on a call (see updater.ts shouldAutoApply). Never interrupts a call.
+  autoInstallUpdates: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -167,6 +173,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   signedInEmail: null,
   analyticsOptOut: false,
   analyticsAnonId: "",
+  autoInstallUpdates: false,
 };
 
 /** Display metadata for a pickable skill — name (folder) + frontmatter title/description. */

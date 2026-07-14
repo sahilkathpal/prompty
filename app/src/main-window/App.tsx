@@ -2314,10 +2314,15 @@ function SettingsScreen(props: {
 
   // Analytics opt-out (capture is on by default). Read once; persist on toggle.
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
+  const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
   useEffect(() => {
     let active = true;
     window.prompty.invoke("settings:get", undefined as never)
-      .then((s) => { if (active) setAnalyticsOptOut((s as { analyticsOptOut?: boolean }).analyticsOptOut === true); })
+      .then((s) => {
+        if (!active) return;
+        setAnalyticsOptOut((s as { analyticsOptOut?: boolean }).analyticsOptOut === true);
+        setAutoInstallUpdates((s as { autoInstallUpdates?: boolean }).autoInstallUpdates === true);
+      })
       .catch(() => {});
     return () => { active = false; };
   }, []);
@@ -2325,6 +2330,11 @@ function SettingsScreen(props: {
     const next = !analyticsOptOut;
     setAnalyticsOptOut(next);
     void window.prompty.invoke("settings:set", { analyticsOptOut: next });
+  };
+  const toggleAutoInstall = () => {
+    const next = !autoInstallUpdates;
+    setAutoInstallUpdates(next);
+    void window.prompty.invoke("settings:set", { autoInstallUpdates: next });
   };
 
   return (
@@ -2418,6 +2428,20 @@ function SettingsScreen(props: {
           >
             <button className="set-btn" data-testid="set-analytics-toggle" onClick={toggleAnalytics}>
               {analyticsOptOut ? "Turn on" : "Turn off"}
+            </button>
+          </SettingRow>
+        </div>
+
+        <div className="set-group-label">Updates</div>
+        <div className="set-group">
+          <SettingRow
+            label="Install updates automatically"
+            value={autoInstallUpdates ? "On" : "Off"}
+            tone="muted"
+            hint="When on, a downloaded update installs on its own once you're away from your keyboard — never during a call. When off, updates wait for you to restart from the menu bar, or apply the next time you quit Ruby."
+          >
+            <button className="set-btn" data-testid="set-auto-update-toggle" onClick={toggleAutoInstall}>
+              {autoInstallUpdates ? "Turn off" : "Turn on"}
             </button>
           </SettingRow>
         </div>

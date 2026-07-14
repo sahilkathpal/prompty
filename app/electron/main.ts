@@ -9,7 +9,7 @@ import { configureMainWindow, openMainWindow } from "./main-window";
 import { capture as analyticsCapture, identifyUser, captureException, shutdownAnalytics } from "./analytics";
 import { configureOnboardingWindow, openOnboardingWindow } from "./onboarding-window";
 import { createTray, rebuildMenu } from "./tray";
-import { initUpdater, stopUpdater } from "./updater";
+import { initUpdater, stopUpdater, installUpdateNow } from "./updater";
 import {
   getActiveSession,
   fireOnboardingNudge,
@@ -335,8 +335,24 @@ app.on("ready", () => {
 
   // Over-the-air auto-update. A hard no-op unless this is a packaged build and
   // not E2E (see updater.ts), so dev/tests never reach the feed. When a download
-  // completes, rebuild the tray so the "Restart to update" item appears.
-  initUpdater({ onUpdateDownloaded: () => rebuildMenu() });
+  // completes, rebuild the tray (badge + "Restart to update" item), surface a
+  // discoverable "update ready" notification, and — only if the user opted in —
+  // silently apply once idle and off any call. Silent apply is hard-gated on
+  // isCallActive so it can never interrupt a live call.
+  initUpdater({
+    onUpdateDownloaded: () => rebuildMenu(),
+    isCallActive: () => !!getActiveSession(),
+    autoApplyEnabled: () => getSettings().autoInstallUpdates,
+    notifyUpdateReady: () => {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({
+        title: "Ruby update ready",
+        body: "Click to restart and update — or it'll apply next time you quit Ruby.",
+      });
+      n.on("click", () => installUpdateNow("manual"));
+      n.show();
+    },
+  });
 
   if (E2E_MODE) {
     // Predictable starting state for E2E: skip onboarding, just bring up tray + overlay (hidden).
@@ -361,6 +377,12 @@ app.on("ready", () => {
           (global as unknown as { __prompty_notifications?: unknown[] })
             .__prompty_notifications ?? []
         );
+      },
+      // Drive the update-downloaded path (tray badge + "update ready" prompt +
+      // auto-apply poll) without a packaged build or a real feed.
+      simulateUpdateDownloaded: (version?: string) => {
+        const { __simulateUpdateDownloadedForTests } = require("./updater");
+        return __simulateUpdateDownloadedForTests(version);
       },
       startSession: async () => {
         const { e2eStartSession } = require("./ipc-handlers");

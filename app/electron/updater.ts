@@ -20,9 +20,12 @@
 // Analytics is captured from the MAIN process (mirrors analytics.ts), so no
 // renderer allowlist change is needed.
 
-import { app } from "electron";
+import { app, powerMonitor } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { capture } from "./analytics";
+import { shouldAutoApply, IDLE_THRESHOLD_SECONDS } from "./updater-policy";
+
+export { shouldAutoApply, type AutoApplyState } from "./updater-policy";
 
 const E2E = process.env.PROMPTY_E2E === "1";
 // Kill switch (audit finding #4). Lets a bad release be halted without shipping
@@ -36,9 +39,26 @@ const DISABLED = process.env.PROMPTY_DISABLE_UPDATER === "1";
 const FIRST_CHECK_DELAY_MS = 8_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+// Opt-in silent auto-apply: once an update is staged, re-evaluate the gate on
+// this cadence and apply the moment the user is idle and off any call. Only
+// active when the user has turned autoInstallUpdates on. The idle threshold and
+// the decision itself live in updater-policy.ts (pure, unit-tested).
+const AUTO_APPLY_POLL_MS = 60_000;
+
 let updater: AppUpdater | null = null;
 let updateDownloaded = false;
 let intervalTimer: NodeJS.Timeout | null = null;
+let autoApplyTimer: NodeJS.Timeout | null = null;
+
+// Injected at initUpdater() so this module never imports ipc-handlers/settings
+// (avoids a cycle). isCallActive → a call is live; autoApplyEnabled → the user
+// opted into silent auto-apply. onDownloadedCb refreshes the tray; notifyReadyCb
+// surfaces the default "update ready" prompt. Stored regardless of environment so
+// the E2E simulate seam can drive the same download-handling path.
+let isCallActive: () => boolean = () => false;
+let autoApplyEnabled: () => boolean = () => false;
+let onDownloadedCb: () => void = () => {};
+let notifyReadyCb: (version?: string) => void = () => {};
 
 /** True once an update has finished downloading and is staged for install.
  *  The tray reads this to decide whether to show "Restart to update". */
@@ -46,13 +66,31 @@ export function isUpdateDownloaded(): boolean {
   return updateDownloaded;
 }
 
+
 /**
  * Wire up the auto-updater. No-op unless this is a packaged build and not E2E.
  * `onUpdateDownloaded` is invoked once a download completes so the caller can
  * refresh UI (the tray menu) to surface the "Restart to update" affordance.
  * Idempotent — calling twice does nothing the second time.
  */
-export function initUpdater(opts: { onUpdateDownloaded?: () => void } = {}): void {
+export function initUpdater(
+  opts: {
+    onUpdateDownloaded?: () => void;
+    /** Whether a call is currently live — a hard gate on silent auto-apply. */
+    isCallActive?: () => boolean;
+    /** Whether the user opted into fully-silent auto-apply (a settings read). */
+    autoApplyEnabled?: () => boolean;
+    /** Surface the default "update ready" prompt (a notification) once staged. */
+    notifyUpdateReady?: (version?: string) => void;
+  } = {},
+): void {
+  // Store injected deps first — even in dev/E2E/kill-switch — so the E2E simulate
+  // seam (and the tray) see the real predicates without wiring the network path.
+  if (opts.isCallActive) isCallActive = opts.isCallActive;
+  if (opts.autoApplyEnabled) autoApplyEnabled = opts.autoApplyEnabled;
+  if (opts.onUpdateDownloaded) onDownloadedCb = opts.onUpdateDownloaded;
+  if (opts.notifyUpdateReady) notifyReadyCb = opts.notifyUpdateReady;
+
   if (DISABLED) console.warn("[updater] disabled via PROMPTY_DISABLE_UPDATER");
   if (!app.isPackaged || E2E || DISABLED) return; // inert in dev, tests, kill-switch
   if (updater) return; // already initialized
@@ -92,16 +130,7 @@ export function initUpdater(opts: { onUpdateDownloaded?: () => void } = {}): voi
     // Logged, not captured — per-chunk events would be far too noisy.
     console.log(`[updater] downloading ${Math.round(p?.percent ?? 0)}%`);
   });
-  autoUpdater.on("update-downloaded", (info) => {
-    console.log("[updater] update downloaded:", info?.version);
-    updateDownloaded = true;
-    capture("update_downloaded", { version: info?.version });
-    try {
-      opts.onUpdateDownloaded?.();
-    } catch (e) {
-      console.error("[updater] onUpdateDownloaded callback failed:", (e as Error).message);
-    }
-  });
+  autoUpdater.on("update-downloaded", (info) => handleUpdateDownloaded(info?.version));
   autoUpdater.on("error", (err) => {
     // Expected before a real signed feed exists — log + capture, never crash.
     console.error("[updater] error:", err?.message ?? err);
@@ -111,6 +140,45 @@ export function initUpdater(opts: { onUpdateDownloaded?: () => void } = {}): voi
   // First check shortly after launch, then on a steady interval.
   setTimeout(() => void checkForUpdates(), FIRST_CHECK_DELAY_MS);
   intervalTimer = setInterval(() => void checkForUpdates(), CHECK_INTERVAL_MS);
+}
+
+/**
+ * Handle a freshly-staged update: mark it downloaded, refresh the tray (badge +
+ * "Restart to update"), surface the default "update ready" prompt (unless a call
+ * is live), and begin the opt-in silent auto-apply poll. Shared by the real
+ * electron-updater event and the E2E simulate seam.
+ */
+function handleUpdateDownloaded(version?: string): void {
+  console.log("[updater] update downloaded:", version);
+  updateDownloaded = true;
+  capture("update_downloaded", { version });
+  try {
+    onDownloadedCb(); // refresh the tray (badge + "Restart to update")
+  } catch (e) {
+    console.error("[updater] onUpdateDownloaded callback failed:", (e as Error).message);
+  }
+  // Default (always-on) surface: a discoverable "update ready" prompt, so the
+  // staged update isn't hidden behind the tray menu. Skipped mid-call — it'd be
+  // noise, and the tray badge already carries the signal until the call ends.
+  if (!isCallActive()) {
+    try {
+      notifyReadyCb(version);
+    } catch (e) {
+      console.error("[updater] notifyUpdateReady callback failed:", (e as Error).message);
+    }
+  }
+  // Opt-in silent auto-apply: start re-evaluating the idle/no-call gate.
+  startAutoApplyPolling();
+}
+
+/**
+ * E2E-only seam: drive the download-handling path (tray badge, "update ready"
+ * prompt, auto-apply poll) without a packaged build or a real feed. Inert unless
+ * PROMPTY_E2E is set, so it can never fire in a shipped app.
+ */
+export function __simulateUpdateDownloadedForTests(version?: string): void {
+  if (!E2E) return;
+  handleUpdateDownloaded(version);
 }
 
 async function checkForUpdates(): Promise<void> {
@@ -126,19 +194,73 @@ async function checkForUpdates(): Promise<void> {
 
 /**
  * Apply a downloaded update now: quit and relaunch into the new version. Wired
- * to the tray "Restart to update" item. No-op if nothing is staged.
+ * to the tray "Restart to update" item. No-op if nothing is staged. `trigger`
+ * distinguishes a user click ("manual") from the silent idle path ("auto").
  */
-export function installUpdateNow(): void {
+export function installUpdateNow(trigger: "manual" | "auto" = "manual"): void {
   if (!updater || !updateDownloaded) return;
-  capture("update_installed");
+  // Never restart out from under a live call — even on an explicit click (a
+  // notification made before a call can be clicked during one). The tray item is
+  // already disabled mid-call; this is the belt-and-suspenders backstop for every
+  // caller. It re-applies on the next click/quit once the call ends.
+  if (isCallActive()) {
+    console.log("[updater] install deferred — a call is active");
+    return;
+  }
+  capture("update_installed", { trigger });
   // isSilent:false, isForceRunAfter:true → show progress, relaunch when done.
   updater.quitAndInstall(false, true);
 }
 
-/** Stop the periodic check. Called on quit. */
+/**
+ * Begin polling the silent auto-apply gate once an update is staged. Each tick
+ * re-checks the pure shouldAutoApply() decision; when it passes we apply and stop.
+ * Only meaningful for opted-in users — for everyone else every tick is a no-op
+ * (enabled=false) and the update just waits for the manual restart or next quit.
+ */
+function startAutoApplyPolling(): void {
+  if (autoApplyTimer) return; // already polling
+  const tick = () => {
+    if (!updateDownloaded) return;
+    const idleSeconds = safeIdleSeconds();
+    if (
+      shouldAutoApply({
+        downloaded: updateDownloaded,
+        enabled: autoApplyEnabled(),
+        callActive: isCallActive(),
+        idleSeconds,
+        idleThresholdSeconds: IDLE_THRESHOLD_SECONDS,
+      })
+    ) {
+      console.log("[updater] auto-applying staged update (idle, no call)");
+      if (autoApplyTimer) {
+        clearInterval(autoApplyTimer);
+        autoApplyTimer = null;
+      }
+      installUpdateNow("auto");
+    }
+  };
+  autoApplyTimer = setInterval(tick, AUTO_APPLY_POLL_MS);
+}
+
+/** powerMonitor is unavailable before app-ready and can throw; fail closed (0 =
+ *  "just active", so no auto-apply) rather than crash the poll. */
+function safeIdleSeconds(): number {
+  try {
+    return powerMonitor.getSystemIdleTime();
+  } catch {
+    return 0;
+  }
+}
+
+/** Stop the periodic check + auto-apply poll. Called on quit. */
 export function stopUpdater(): void {
   if (intervalTimer) {
     clearInterval(intervalTimer);
     intervalTimer = null;
+  }
+  if (autoApplyTimer) {
+    clearInterval(autoApplyTimer);
+    autoApplyTimer = null;
   }
 }
