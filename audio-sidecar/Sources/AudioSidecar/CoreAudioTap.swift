@@ -53,6 +53,10 @@ final class CoreAudioTap {
     // full-graph rebuild. `rebuilding` guards re-entrancy; `pendingRebuild`
     // coalesces the burst of notifications a single transition emits.
     private var outputDeviceID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
+    // The output device's nominal sample rate at build time. The rate listener
+    // compares against it to ignore spurious rate-change echoes — our own aggregate
+    // creation coerces the device rate, re-firing the listener with no real change.
+    private var builtOutputSampleRate: Double = 0
     private var deviceRateListener: AudioObjectPropertyListenerBlock?
     private var defaultDeviceListener: AudioObjectPropertyListenerBlock?
     private var pendingRebuild: DispatchWorkItem?
@@ -73,26 +77,30 @@ final class CoreAudioTap {
     private var listenerSuppressedUntil = DispatchTime.now()
     private let rebuildSettleWindow: TimeInterval = 2.0
 
-    // Frame-flow watchdog. A live aggregate is clocked, so its IOProc fires
-    // continuously and delivers buffers — zeros while the far end is silent —
-    // meaning `frameCount` advances forever on a healthy tap. A tap built around
-    // a *stale* device delivers NOTHING: its IOProc never fires. The classic case
-    // is the Bluetooth startup race — the aggregate gets clocked on the headset's
-    // A2DP profile in the instant before the mic opening flips it to HFP, and the
-    // build-time device listeners miss the flip because they are attached only at
-    // the END of buildGraph(), after the stale aggregate is already running. The
-    // rate/default-device/format listeners therefore never fire, so nothing
-    // rebuilds and "them" is silent for the whole call. The watchdog samples
-    // `frameCount` on a timer and, when it stops advancing, forces a full
-    // `rebuildGraph()` around the now-settled device. Bounded retries per silence
-    // episode so a genuinely dead output can't spin forever.
-    private var frameCount: UInt64 = 0
+    // Content-based silent-tap probe. The structural device-change listeners
+    // (rate/default-device/format) handle the common failure — the tap going stale
+    // when the output device or route changes — and never fire on mere silence, so
+    // a far party going quiet or a pre-call gap never triggers a rebuild. This probe
+    // is the backstop for the one case they miss: a tap that keeps its device but
+    // delivers only silence (a stale graph, or the "clocked-but-all-zero" state).
+    //
+    // It is mute-safe by construction. We key on BIT-EXACT-ZERO content, not low
+    // energy: a working tap on a quiet source always carries a noise floor (non-zero),
+    // while a broken tap emits literal zeros. `lastNonZeroAt` is stamped whenever a
+    // chunk carries any non-zero sample. If nothing non-zero arrives for
+    // `silenceProbeWindow` — far longer than any conversational pause — we do ONE
+    // rebuild "probe": if content returns, the tap was broken and is fixed; if it
+    // stays silent, the source was genuinely quiet, so we back off (`probedThisEpisode`)
+    // until non-zero content resets us. A wrong probe is harmless: a brief rebuild
+    // during silence loses no audio and (measured) doesn't disturb playback.
     private var watchdog: DispatchSourceTimer?
-    private var lastWatchdogFrames: UInt64 = 0
-    private var watchdogRebuilds = 0
-    private var watchdogGaveUp = false
+    private var lastNonZeroAt: DispatchTime = .now()
+    private var probedThisEpisode = false
     private let watchdogInterval: TimeInterval = 1.0
-    private let maxWatchdogRebuilds = 4
+    // 45s: longer than any normal conversational mute/hold (so a live call's quiet
+    // stretches don't probe), short enough to recover a genuinely dead tap within a
+    // minute. A probe on a still-longer silence is harmless (see above).
+    private let silenceProbeWindow: TimeInterval = 45.0
 
     // The output device the aggregate is currently clocked by (its name), logged
     // at build time so field diagnostics show which device the tap latched onto.
@@ -119,8 +127,8 @@ final class CoreAudioTap {
         // kept for the object's lifetime; the per-device listeners are (re)added
         // inside buildGraph().
         addDefaultDeviceListener()
-        // Recovery of last resort: if the graph we just built produces no frames
-        // (the Bluetooth startup race the listeners can't see), rebuild it.
+        // Backstop for the failure the structural listeners can't see: a tap that
+        // keeps its device but delivers only silence. Mute-safe (see watchdogTick).
         startWatchdog()
     }
 
@@ -159,23 +167,22 @@ final class CoreAudioTap {
         // 3. Aggregate device that contains the tap, clocked by the default
         //    output device. Private + auto-start so it lives only for our use and
         //    begins pulling tap audio immediately.
-        // Clock the aggregate by the BUILT-IN output device, NOT the current
-        // default. A global process tap captures the system-wide mix regardless of
-        // which device that audio is finally routed to — but building the aggregate
-        // AROUND the live output device (as a sub-device) means we take that device
-        // over: on a Bluetooth call that both (a) cuts the user's own playback and
-        // (b) leaves the tap capturing an empty stream. The built-in output is
-        // always present, never flips A2DP↔HFP, and isn't the device the user is
-        // listening on, so clocking to it leaves their Bluetooth route untouched
-        // while the tap still captures the global mix. Fall back to the default
-        // output only on a Mac with no built-in output (headless).
-        guard let output = builtInOutputDevice() ?? defaultOutputDevice() else {
+        // Clock the aggregate on the ACTUAL default output device (the Bluetooth
+        // device during a BT call), falling back to built-in only on a headless Mac.
+        // This is what makes Bluetooth "them" capture work: the far-party audio lives
+        // on whatever device it's rendered to, so the aggregate must be clocked on
+        // THAT device to see it. Clocking on the built-in output (the prior behavior)
+        // left the tap blind to Bluetooth-routed audio — the empty-"them" bug.
+        // Confirmed 2026-07-15: a real WhatsApp BT call captured the far party with
+        // this clock, and the user's playback was NOT disrupted.
+        guard let output = defaultOutputDevice() ?? builtInOutputDevice() else {
             cleanupTap()
             throw NSError(domain: "CoreAudioTap", code: -2,
                           userInfo: [NSLocalizedDescriptionKey: "No output device for aggregate clock"])
         }
         outputDeviceID = output.id
         outputDeviceName = deviceName(output.id)
+        builtOutputSampleRate = currentOutputSampleRate() ?? 0
         let outputUID = output.uid
 
         let aggregateUID = UUID().uuidString
@@ -246,7 +253,18 @@ final class CoreAudioTap {
             mElement: kAudioObjectPropertyElementMain
         )
         let rateBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.scheduleRebuild(reason: "output device sample rate changed")
+            guard let self = self else { return }
+            // Value-based guard: creating our aggregate coerces the output device's
+            // nominal rate, which re-fires this listener even though the rate is
+            // unchanged. If it still matches what we built for, the change is spurious
+            // — skip the rebuild (rebuilding re-coerces the device and, on Bluetooth,
+            // feeds a tap<->mic storm). Only a REAL move (A2DP↔HFP) differs. More
+            // robust than the time-based suppression window, which leaked rebuilds.
+            if let now = self.currentOutputSampleRate(), now == self.builtOutputSampleRate {
+                Log.info("CoreAudio tap ignoring rate-change (output rate unchanged: \(now))")
+                return
+            }
+            self.scheduleRebuild(reason: "output device sample rate changed")
         }
         deviceRateListener = rateBlock
         AudioObjectAddPropertyListenerBlock(outputDeviceID, &rateAddress, ioQueue, rateBlock)
@@ -320,10 +338,11 @@ final class CoreAudioTap {
 
     // MARK: - Frame-flow watchdog
 
-    /// Start the lifetime timer that samples `frameCount` for tap liveness. Like
-    /// the default-device listener, it is created once and survives rebuilds.
+    /// Start the lifetime timer that drives the silent-tap probe (content liveness).
+    /// Like the default-device listener, it is created once and survives rebuilds.
     @available(macOS 14.4, *)
     private func startWatchdog() {
+        lastNonZeroAt = .now()
         let timer = DispatchSource.makeTimerSource(queue: ioQueue)
         timer.schedule(deadline: .now() + watchdogInterval, repeating: watchdogInterval)
         timer.setEventHandler { [weak self] in self?.watchdogTick() }
@@ -331,37 +350,21 @@ final class CoreAudioTap {
         timer.resume()
     }
 
-    /// Runs on `ioQueue`, serialized with `process` and `rebuildGraph`. If the
-    /// tap delivered no new frames across the last interval it is dead/stale;
-    /// rebuild the graph around the current device, bounded per silence episode.
+    /// Runs on `ioQueue`, serialized with `process` and `rebuildGraph`. Mute-safe
+    /// silent-tap probe: if no non-zero audio has arrived for `silenceProbeWindow`
+    /// (far longer than any conversational pause, and keyed on bit-exact-zero so a
+    /// quiet-but-working tap doesn't count), do ONE rebuild probe. If content
+    /// returns, `process` clears `probedThisEpisode` and reports recovery; if it
+    /// stays silent, we hold off until non-zero content resets us.
     @available(macOS 14.4, *)
     private func watchdogTick() {
-        guard !stopped, !rebuilding else { return }
-        let current = frameCount
-        if current != lastWatchdogFrames {
-            // Frames are flowing — healthy. Clear any prior silence episode.
-            lastWatchdogFrames = current
-            if watchdogRebuilds > 0 {
-                Log.info("CoreAudio tap frames recovered after \(watchdogRebuilds) rebuild(s)")
-                FrameWriter.writeControl(["type": "tap_recovered", "rebuilds": watchdogRebuilds])
-            }
-            watchdogRebuilds = 0
-            watchdogGaveUp = false
-            return
-        }
-        // No new frames across a full interval → the "them" leg is silent.
-        guard watchdogRebuilds < maxWatchdogRebuilds else {
-            if !watchdogGaveUp {
-                watchdogGaveUp = true
-                Log.error("CoreAudio tap still silent after \(maxWatchdogRebuilds) rebuilds; giving up")
-                FrameWriter.writeControl(["type": "tap_silent", "action": "gave_up", "attempt": watchdogRebuilds])
-            }
-            return
-        }
-        watchdogRebuilds += 1
-        Log.info("CoreAudio tap silent (no frames in \(watchdogInterval)s); rebuilding (attempt \(watchdogRebuilds))")
-        FrameWriter.writeControl(["type": "tap_silent", "action": "rebuild", "attempt": watchdogRebuilds])
-        rebuildGraph(reason: "watchdog: no tap frames (attempt \(watchdogRebuilds))")
+        guard !stopped, !rebuilding, !probedThisEpisode else { return }
+        let silentNs = DispatchTime.now().uptimeNanoseconds &- lastNonZeroAt.uptimeNanoseconds
+        guard silentNs > UInt64(silenceProbeWindow * 1_000_000_000) else { return }
+        probedThisEpisode = true
+        Log.info("CoreAudio tap silent \(Int(silenceProbeWindow))s (no non-zero content); rebuild probe")
+        FrameWriter.writeControl(["type": "tap_silent", "action": "probe"])
+        rebuildGraph(reason: "silent-tap probe (no content in \(Int(silenceProbeWindow))s)")
     }
 
     /// Tear down the tap/aggregate/IOProc and their per-graph listeners, leaving
@@ -415,6 +418,20 @@ final class CoreAudioTap {
         deviceRateListener = nil
     }
 
+    /// The current nominal sample rate of the output device the aggregate is clocked
+    /// by. Used to tell a real rate move (A2DP↔HFP) from our own coercion echo.
+    private func currentOutputSampleRate() -> Double? {
+        guard outputDeviceID != AudioObjectID(kAudioObjectUnknown) else { return nil }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var sr: Double = 0
+        var sz = UInt32(MemoryLayout<Double>.size)
+        guard AudioObjectGetPropertyData(outputDeviceID, &addr, 0, nil, &sz, &sr) == noErr, sr > 0 else { return nil }
+        return sr
+    }
+
     func stop() {
         if stopped { return }
         stopped = true
@@ -448,10 +465,6 @@ final class CoreAudioTap {
 
         let inFrames = inBuffer.frameLength
         if inFrames == 0 { return }
-        // Liveness signal for the watchdog: a clocked aggregate delivers buffers
-        // continuously (zeros during far-end silence), so this advances forever
-        // on a healthy tap and freezes the instant the graph goes stale.
-        frameCount &+= 1
 
         let ratio = targetFormat.sampleRate / inputFormat.sampleRate
         let outCapacity = AVAudioFrameCount(Double(inFrames) * ratio + 1024)
@@ -479,6 +492,22 @@ final class CoreAudioTap {
         guard let int16 = outBuffer.int16ChannelData else { return }
         let outFrames = Int(outBuffer.frameLength)
         if outFrames == 0 { return }
+
+        // Content liveness for the silent-tap probe: a working tap on a quiet source
+        // still carries a noise floor, so any non-zero sample means the tap is really
+        // capturing. Bit-exact-zero over a long window is what the probe acts on.
+        let samples = int16[0]
+        var anyNonZero = false
+        for i in 0..<outFrames where samples[i] != 0 { anyNonZero = true; break }
+        if anyNonZero {
+            if probedThisEpisode {
+                Log.info("CoreAudio tap content resumed after silent-probe rebuild")
+                FrameWriter.writeControl(["type": "tap_recovered"])
+            }
+            lastNonZeroAt = .now()
+            probedThisEpisode = false
+        }
+
         let byteCount = outFrames * MemoryLayout<Int16>.size
         let data = Data(bytes: int16[0], count: byteCount)
         FrameWriter.write(tag: .tapPCM, payload: data)

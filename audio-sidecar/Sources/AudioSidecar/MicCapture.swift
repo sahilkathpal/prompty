@@ -205,12 +205,30 @@ final class MicCapture {
         // sample rate — differs from lastBuiltInputSignature, so we fall through and
         // rebuild. Only applied on the first attempt; recovery retries always run.
         let nowSig = Self.currentInputSignature()
-        if attempt == 0, engine.isRunning,
+        if attempt == 0,
            let last = lastBuiltInputSignature,
            let now = nowSig,
            now.deviceID == last.deviceID, now.sampleRate == last.sampleRate {
-            Log.info("MicCapture config-change ignored (input unchanged: device=\(now.deviceID) sr=\(now.sampleRate))")
-            return
+            // Spurious change: the default-input device + rate is exactly what we
+            // built for, so the inputNode is NOT stale and a full rebuild is pointless
+            // — worse, recreating the engine re-touches the shared audio device and
+            // feeds a tap<->mic storm on Bluetooth (the tap's aggregate coerces the
+            // device rate → config-change here → rebuild → coercion → ...). If the
+            // engine is still running, no-op. If the config-change merely STOPPED it
+            // (the reason the old `engine.isRunning` guard never fired — the change
+            // arrives with the engine already stopped), just restart it in place. Only
+            // a real device/rate change (different signature) falls through to rebuild.
+            if engine.isRunning {
+                Log.info("MicCapture config-change ignored (input unchanged: device=\(now.deviceID) sr=\(now.sampleRate))")
+                return
+            }
+            do {
+                try runCatchingObjCException { try self.engine.start() }
+                Log.info("MicCapture config-change: engine restarted in place (input unchanged: device=\(now.deviceID) sr=\(now.sampleRate))")
+                return
+            } catch {
+                Log.error("MicCapture in-place restart failed: \(error.localizedDescription) — falling through to rebuild")
+            }
         }
 
         do {
