@@ -1,8 +1,19 @@
 #!/usr/bin/env node
-// Block G2: build the Swift audio sidecar in release mode, codesign it with
-// the Developer ID Application identity if available, then stage the binary at
-// app/resources/audio-sidecar so electron-builder's `extraResources` can pick
-// it up.
+// Block G2: build the Swift audio sidecar in release mode as a UNIVERSAL
+// (arm64 + x86_64) binary, codesign it with the Developer ID Application
+// identity if available, then stage the binary at app/resources/audio-sidecar
+// so electron-builder's `extraResources` can pick it up.
+//
+// Why universal: electron-builder copies this one binary into BOTH the arm64
+// and x64 app bundles. A host-arch-only sidecar means an Intel user's x64 build
+// ships an arm64 sidecar it can't exec (there is no reverse-Rosetta) → the
+// sidecar dies with "Bad CPU type" and audio capture is silently dead. Building
+// a fat binary makes the same sidecar run on either arch.
+//
+// Why two builds + lipo (not `swift build --arch arm64 --arch x86_64`): the
+// single-invocation multi-arch path routes through xcbuild, which isn't present
+// in a Command-Line-Tools-only toolchain (it errors out). Two single-arch builds
+// + `lipo -create` works everywhere.
 //
 // Graceful no-op for local dev: if `swift` is missing we warn and exit 0; if
 // APPLE_DEVELOPER_ID is unset we skip codesigning. `npm run build` must always
@@ -17,7 +28,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(__dirname, "..");
 const repoRoot = resolve(appDir, "..");
 const sidecarDir = resolve(repoRoot, "audio-sidecar");
-const releaseBinary = resolve(sidecarDir, ".build/release/AudioSidecar");
+// Per-arch build outputs (SwiftPM uses an arch-triple subdir when `--arch` is
+// given, not the plain `.build/release` symlink) and our lipo'd universal result.
+const archTargets = ["arm64", "x86_64"];
+const archBinaries = {
+  arm64: resolve(sidecarDir, ".build/arm64-apple-macosx/release/AudioSidecar"),
+  x86_64: resolve(sidecarDir, ".build/x86_64-apple-macosx/release/AudioSidecar"),
+};
+const releaseBinary = resolve(sidecarDir, ".build/universal/AudioSidecar");
 const destPath = resolve(appDir, "resources/audio-sidecar");
 
 function log(msg) {
@@ -41,17 +59,33 @@ function buildSidecar() {
     warn("`swift` not found on PATH — skipping sidecar build (dev machines without Xcode are OK)");
     return false;
   }
-  log(`swift build -c release  (cwd=${sidecarDir})`);
-  const r = spawnSync("swift", ["build", "-c", "release"], {
-    cwd: sidecarDir,
+  // Build each arch slice separately (see header for why not a single
+  // multi-arch invocation).
+  for (const arch of archTargets) {
+    log(`swift build -c release --arch ${arch}  (cwd=${sidecarDir})`);
+    const r = spawnSync("swift", ["build", "-c", "release", "--arch", arch], {
+      cwd: sidecarDir,
+      stdio: "inherit",
+    });
+    if (r.status !== 0) {
+      warn(`swift build (${arch}) failed with exit code ${r.status} — sidecar will not be embedded`);
+      return false;
+    }
+    if (!existsSync(archBinaries[arch])) {
+      warn(`expected ${arch} binary missing at ${archBinaries[arch]}`);
+      return false;
+    }
+  }
+
+  // Fuse the slices into one universal binary at releaseBinary.
+  mkdirSync(dirname(releaseBinary), { recursive: true });
+  const inputs = archTargets.map((a) => archBinaries[a]);
+  log(`lipo -create ${archTargets.join("+")} → ${releaseBinary}`);
+  const l = spawnSync("lipo", ["-create", ...inputs, "-output", releaseBinary], {
     stdio: "inherit",
   });
-  if (r.status !== 0) {
-    warn(`swift build failed with exit code ${r.status} — sidecar will not be embedded`);
-    return false;
-  }
-  if (!existsSync(releaseBinary)) {
-    warn(`expected binary missing at ${releaseBinary}`);
+  if (l.status !== 0) {
+    warn(`lipo failed with exit code ${l.status} — sidecar will not be embedded`);
     return false;
   }
   return true;
