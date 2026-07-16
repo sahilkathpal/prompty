@@ -81,5 +81,5 @@
   /* Content measure — the shared max reading width for single-column screens
    * (home, post-call, note, settings). The prep screen is intentionally exempt:
    * it's a two-pane working view with its own per-pane widths. */
-  --content-max: 640px;
+  --content-max: 440px;
 }

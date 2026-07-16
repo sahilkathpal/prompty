@@ -66,9 +66,9 @@ await waitOn({
 });
 
 console.log("[dev] launching electron…");
-const electron = run(electronBin, ["."], {
-  env: { ...process.env, VITE_DEV_SERVER_URL: VITE_URL },
-});
+const electronEnv = { ...process.env, VITE_DEV_SERVER_URL: VITE_URL };
+delete electronEnv.ELECTRON_RUN_AS_NODE;
+const electron = run(electronBin, ["."], { env: electronEnv });
 
 const shutdown = () => {
   try { vite.kill(); } catch {}
