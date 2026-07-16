@@ -955,8 +955,8 @@ function HomeScreen(props: {
 
         <div className="home-chat-bg">
         <div className="home-chat-container">
-          <div className="home-logo"><RubyLogo size={52} /></div>
-          <h2 className="home-section-heading">Hi — what call are you prepping for?</h2>
+          <div className="home-logo"><RubyLogo size={57} /></div>
+          <h2 className="home-section-heading">Let me help with<br /><em className="home-heading-em">your next call</em></h2>
 
           {/* Chat input bar */}
           <div className={`home-bar${focused ? " focused" : ""}`}>
@@ -967,7 +967,7 @@ function HomeScreen(props: {
               data-testid="home-direction"
               value={direction}
               rows={2}
-              placeholder="Tell me about your next call — who it's with, what you're trying to get out of it, any context that matters."
+              placeholder="Tell me about your next call and I'll help you prep."
               onChange={(e) => {
                 setDirection(e.target.value);
                 const el = e.target;

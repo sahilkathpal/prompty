@@ -174,15 +174,15 @@ html, body, #root {
 .home-chat-container {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 100px 4px 100px;
+  padding: 60px 0px 60px;
 }
 
 /* ── Logo ────────────────────────────────────────────────────────────────────── */
 
 .home-logo, .home-logo svg {
   display: block;
-  width: 52px;
-  height: 52px;
+  width: 57px;
+  height: 57px;
   margin: 0 auto 16px;
 }
 
@@ -190,31 +190,44 @@ html, body, #root {
 
 .home-section-heading {
   font-family: 'New York', 'Georgia', serif;
-  font-size: 32px;
+  font-size: 44px;
   font-weight: 400;
   color: #1a1814;
-  margin: 0 0 14px;
+  margin: 0 0 28px;
   letter-spacing: -0.01em;
+  line-height: 1.1;
   text-align: center;
+}
+
+.home-heading-em {
+  font-style: italic;
+  color: var(--ruby);
+  font-size: 48px;
+  letter-spacing: 0;
 }
 
 /* ── Chat input bar ──────────────────────────────────────────────────────────── */
 
 .home-bar {
   background: #ffffff;
-  border: 1px solid #e2ddd5;
-  border-radius: 14px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(214, 31, 71, 0.28);
+  border-radius: 20px;
+  box-shadow:
+    0 0 0 1px rgba(214, 31, 71, 0.10),
+    0 0 16px 4px rgba(214, 31, 71, 0.08),
+    0 0 40px 10px rgba(214, 31, 71, 0.05),
+    0 0 80px 20px rgba(214, 31, 71, 0.025);
   padding: 18px 16px 18px 20px;
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  margin-bottom: 28px;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  margin-bottom: 16px;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
 }
+
 .home-bar.focused {
-  border-color: #ED0C48;
-  box-shadow: 0 0 0 3px rgba(237, 12, 72, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: #e2ddd5;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .home-bar {
@@ -238,7 +251,7 @@ html, body, #root {
   line-height: 1.5;
   color: #1a1814;
   padding: 0;
-  min-height: 48px;
+  min-height: 100px;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -246,21 +259,22 @@ html, body, #root {
 .home-bar-send {
   position: relative;
   flex-shrink: 0;
-  width: 30px; height: 30px;
+  width: 34px; height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(237, 12, 72, 0.1);
-  color: #ED0C48;
-  border: 1.5px solid #ED0C48;
-  border-radius: 8px;
+  background: linear-gradient(135deg, #ff2d55 0%, #d61f47 60%, #b01238 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
   cursor: pointer;
-  transition: background 120ms ease, opacity 120ms ease;
+  box-shadow: 0 2px 8px rgba(214, 31, 71, 0.35);
+  transition: box-shadow 150ms ease, opacity 150ms ease, transform 150ms ease;
 }
 .home-bar-send::after { content: ""; position: absolute; inset: -5px; }
-.home-bar-send:focus-visible { outline: 2px solid #ED0C48; outline-offset: 2px; }
-.home-bar-send:hover:not(:disabled) { background: rgba(237, 12, 72, 0.18); }
-.home-bar-send:disabled { opacity: 0.35; cursor: default; }
+.home-bar-send:focus-visible { outline: 2px solid #ED0C48; outline-offset: 3px; }
+.home-bar-send:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(214, 31, 71, 0.45); transform: translateY(-1px); }
+.home-bar-send:disabled { opacity: 0.3; cursor: default; box-shadow: none; }
 
 /* H3: a soft inset banner — cream bg, ruby left-border, alert glyph, retry +
    dismiss — instead of a lone floating red sentence. */
